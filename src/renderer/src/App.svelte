@@ -1,8 +1,11 @@
 <script lang="ts">
+  import logo from './assets/logo.png'
+
   const version = '0.0.1'
 </script>
 
 <main>
+  <img class="mark" src={logo} alt="eCoda" />
   <div class="logo">eCoda</div>
   <p class="tagline">Десктопный клиент YouTube Music — владей своей музыкой</p>
   <div class="badge">Фаза 0 · каркас · v{version}</div>
@@ -15,30 +18,35 @@
     align-items: center;
     justify-content: center;
     height: 100vh;
-    gap: 1rem;
+    gap: 0.85rem;
     padding: 2rem;
     text-align: center;
   }
 
+  .mark {
+    width: 200px;
+    height: 200px;
+    filter: drop-shadow(0 0 36px rgba(180, 60, 240, 0.4));
+  }
+
   .logo {
-    font-size: 4rem;
+    font-size: 2.6rem;
     font-weight: 800;
     letter-spacing: -0.04em;
-    background: linear-gradient(135deg, #a855f7, #e879f9);
+    background: linear-gradient(135deg, #a22ff0, #e24dff);
     -webkit-background-clip: text;
     background-clip: text;
     color: transparent;
-    filter: drop-shadow(0 0 28px rgba(168, 85, 247, 0.45));
   }
 
   .tagline {
     margin: 0;
     color: #b9acd6;
-    font-size: 1.05rem;
+    font-size: 1rem;
   }
 
   .badge {
-    margin-top: 0.5rem;
+    margin-top: 0.25rem;
     padding: 0.35rem 0.9rem;
     border: 1px solid #3a2d52;
     border-radius: 999px;
