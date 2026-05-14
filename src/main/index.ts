@@ -1,6 +1,7 @@
-import { app, shell, BrowserWindow } from 'electron'
+import { app, shell, BrowserWindow, ipcMain } from 'electron'
 import { join } from 'path'
 import icon from '../../resources/icon.png?asset'
+import { resolveAudio } from './ytdlp'
 
 function createWindow(): void {
   const mainWindow = new BrowserWindow({
@@ -37,6 +38,8 @@ function createWindow(): void {
 }
 
 app.whenReady().then(() => {
+  ipcMain.handle('audio:resolve', (_event, input: string) => resolveAudio(input))
+
   createWindow()
 
   app.on('activate', () => {

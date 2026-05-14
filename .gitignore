@@ -7,3 +7,7 @@ npm-debug.log*
 .DS_Store
 .vite/
 *.local
+
+# yt-dlp binary is fetched by scripts/fetch-ytdlp.mjs (postinstall)
+resources/yt-dlp.exe
+resources/yt-dlp

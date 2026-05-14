@@ -1,8 +1,8 @@
-import { contextBridge } from 'electron'
+import { contextBridge, ipcRenderer } from 'electron'
 
-// Renderer-facing API surface. Empty in Phase 0 — IPC bridges for stream
-// extraction, downloads and the library get added here as we build them.
-const api = {}
+const api = {
+  resolveAudio: (input: string) => ipcRenderer.invoke('audio:resolve', input)
+}
 
 if (process.contextIsolated) {
   try {
