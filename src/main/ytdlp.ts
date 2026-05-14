@@ -3,7 +3,6 @@ import { promisify } from 'node:util'
 import { dirname, delimiter } from 'node:path'
 import ytdlpPath from '../../resources/yt-dlp.exe?asset'
 import denoPath from '../../resources/deno.exe?asset'
-import { isLoggedIn, writeCookiesFile } from './auth'
 
 const run = promisify(execFile)
 
@@ -30,13 +29,10 @@ function toWatchUrl(input: string): string {
   return trimmed
 }
 
-export async function resolveAudio(input: string): Promise<ResolvedAudio> {
-  if (!(await isLoggedIn())) {
-    throw new Error('Not signed in — please sign in to YouTube Music first.')
-  }
-  // Cookies come from the in-app login session: an authenticated session
-  // unlocks Premium-quality streams and gets past YouTube's bot check.
-  const cookiesPath = await writeCookiesFile()
+// Resolves a track's title and audio stream URL. `browser` is the browser
+// yt-dlp reads the YouTube login cookies from — that authenticated session
+// unlocks Premium quality and gets past YouTube's bot check.
+export async function resolveAudio(input: string, browser: string): Promise<ResolvedAudio> {
   const { stdout } = await run(
     ytdlpPath,
     [
@@ -44,8 +40,8 @@ export async function resolveAudio(input: string): Promise<ResolvedAudio> {
       'bestaudio',
       '--no-playlist',
       '--no-warnings',
-      '--cookies',
-      cookiesPath,
+      '--cookies-from-browser',
+      browser,
       '--print',
       '%(title)s',
       '--print',
@@ -61,4 +57,28 @@ export async function resolveAudio(input: string): Promise<ResolvedAudio> {
     throw new Error('yt-dlp did not return a stream URL')
   }
   return { title, format, streamUrl }
+}
+
+// Checks whether a browser has a usable YouTube login by trying to reach the
+// user's private "Liked videos" playlist (LL), which requires authentication.
+export async function verifyBrowserLogin(browser: string): Promise<boolean> {
+  try {
+    await run(
+      ytdlpPath,
+      [
+        '--cookies-from-browser',
+        browser,
+        '--flat-playlist',
+        '--playlist-items',
+        '1',
+        '--simulate',
+        '--no-warnings',
+        'https://www.youtube.com/playlist?list=LL'
+      ],
+      { maxBuffer: 10 * 1024 * 1024, env: ytdlpEnv }
+    )
+    return true
+  } catch {
+    return false
+  }
 }

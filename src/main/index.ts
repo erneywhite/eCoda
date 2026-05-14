@@ -1,8 +1,8 @@
 import { app, shell, BrowserWindow, ipcMain } from 'electron'
 import { join } from 'path'
 import icon from '../../resources/icon.png?asset'
-import { resolveAudio } from './ytdlp'
-import { isLoggedIn, openLoginWindow, logout } from './auth'
+import { resolveAudio, verifyBrowserLogin } from './ytdlp'
+import { detectBrowsers, getBrowser, setBrowser, disconnect } from './auth'
 
 let mainWindow: BrowserWindow | null = null
 
@@ -45,12 +45,27 @@ function createWindow(): void {
 }
 
 app.whenReady().then(() => {
-  ipcMain.handle('audio:resolve', (_event, input: string) => resolveAudio(input))
-  ipcMain.handle('auth:status', () => isLoggedIn())
-  ipcMain.handle('auth:login', () => (mainWindow ? openLoginWindow(mainWindow) : false))
-  ipcMain.handle('auth:logout', async () => {
-    await logout()
+  ipcMain.handle('auth:browsers', () => detectBrowsers())
+  ipcMain.handle('auth:status', () => getBrowser())
+  ipcMain.handle('auth:connect', async (_event, browser: string) => {
+    const ok = await verifyBrowserLogin(browser)
+    if (ok) await setBrowser(browser)
+    return ok
+  })
+  ipcMain.handle('auth:disconnect', async () => {
+    await disconnect()
     return true
+  })
+  ipcMain.handle('auth:open-youtube', () => {
+    shell.openExternal('https://www.youtube.com/')
+    return true
+  })
+  ipcMain.handle('audio:resolve', async (_event, input: string) => {
+    const browser = await getBrowser()
+    if (!browser) {
+      throw new Error('No browser connected — connect a browser first.')
+    }
+    return resolveAudio(input, browser)
   })
 
   createWindow()

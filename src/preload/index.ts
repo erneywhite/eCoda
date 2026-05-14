@@ -3,9 +3,11 @@ import { contextBridge, ipcRenderer } from 'electron'
 const api = {
   resolveAudio: (input: string) => ipcRenderer.invoke('audio:resolve', input),
   auth: {
+    browsers: () => ipcRenderer.invoke('auth:browsers'),
     status: () => ipcRenderer.invoke('auth:status'),
-    login: () => ipcRenderer.invoke('auth:login'),
-    logout: () => ipcRenderer.invoke('auth:logout')
+    connect: (browser: string) => ipcRenderer.invoke('auth:connect', browser),
+    disconnect: () => ipcRenderer.invoke('auth:disconnect'),
+    openYouTube: () => ipcRenderer.invoke('auth:open-youtube')
   }
 }
 

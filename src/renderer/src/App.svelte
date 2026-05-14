@@ -4,8 +4,10 @@
 
   type Status = 'idle' | 'resolving' | 'ready' | 'error'
 
-  let loggedIn = $state(false)
-  let authBusy = $state(false)
+  let connectedBrowser = $state<string | null>(null)
+  let browsers = $state<{ id: string; name: string }[]>([])
+  let connecting = $state<string | null>(null)
+  let connectError = $state('')
 
   let input = $state('https://www.youtube.com/watch?v=dQw4w9WgXcQ')
   let status = $state<Status>('idle')
@@ -15,28 +17,34 @@
   let streamUrl = $state('')
   let audioEl = $state<HTMLAudioElement>()
 
-  onMount(() => {
-    window.api.auth.status().then((v) => (loggedIn = v))
+  onMount(async () => {
+    browsers = await window.api.auth.browsers()
+    connectedBrowser = await window.api.auth.status()
   })
 
-  async function signIn(): Promise<void> {
-    authBusy = true
+  async function connect(browser: { id: string; name: string }): Promise<void> {
+    connecting = browser.id
+    connectError = ''
     try {
-      loggedIn = await window.api.auth.login()
+      const ok = await window.api.auth.connect(browser.id)
+      if (ok) {
+        connectedBrowser = browser.id
+      } else {
+        connectError = `В ${browser.name} не найден вход в YouTube. Войди в YouTube в этом браузере и попробуй снова.`
+      }
     } finally {
-      authBusy = false
+      connecting = null
     }
   }
 
-  async function signOut(): Promise<void> {
-    authBusy = true
-    try {
-      await window.api.auth.logout()
-      loggedIn = false
-      status = 'idle'
-    } finally {
-      authBusy = false
-    }
+  async function disconnect(): Promise<void> {
+    await window.api.auth.disconnect()
+    connectedBrowser = null
+    status = 'idle'
+  }
+
+  function browserName(id: string | null): string {
+    return browsers.find((b) => b.id === id)?.name ?? id ?? ''
   }
 
   async function resolveAndPlay(): Promise<void> {
@@ -67,21 +75,38 @@
       <div class="logo">eCoda</div>
       <div class="badge">Фаза 1 · вход + извлечение</div>
     </div>
-    {#if loggedIn}
-      <button class="ghost" onclick={signOut} disabled={authBusy}>Выйти</button>
+    {#if connectedBrowser}
+      <button class="ghost" onclick={disconnect}>
+        Отключить · {browserName(connectedBrowser)}
+      </button>
     {/if}
   </header>
 
-  {#if !loggedIn}
+  {#if !connectedBrowser}
     <section class="card">
-      <h2>Вход в YouTube Music</h2>
+      <h2>Подключить аккаунт YouTube</h2>
       <p class="hint">
-        Войди в свой аккаунт Google — откроется настоящее окно входа. eCoda не
-        видит твой пароль, только готовую сессию. Вход нужен один раз.
+        eCoda берёт твою сессию YouTube из браузера, где ты уже залогинен —
+        вводить ничего не нужно. Браузер можно держать закрытым, вкладка с
+        YouTube не нужна. Выбери браузер:
       </p>
-      <button onclick={signIn} disabled={authBusy}>
-        {authBusy ? 'Открываю окно входа…' : 'Войти'}
-      </button>
+      {#if browsers.length > 0}
+        <div class="browsers">
+          {#each browsers as b (b.id)}
+            <button onclick={() => connect(b)} disabled={connecting !== null}>
+              {connecting === b.id ? `Проверяю ${b.name}…` : b.name}
+            </button>
+          {/each}
+        </div>
+      {:else}
+        <p class="status">Поддерживаемые браузеры на этом компьютере не найдены.</p>
+      {/if}
+      {#if connectError}
+        <p class="status error">{connectError}</p>
+        <button class="ghost" onclick={() => window.api.auth.openYouTube()}>
+          Войти в YouTube в браузере
+        </button>
+      {/if}
     </section>
   {:else}
     <section class="card">
@@ -204,6 +229,12 @@
     color: #b9acd6;
     font-size: 0.92rem;
     line-height: 1.5;
+  }
+
+  .browsers {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.6rem;
   }
 
   .row {

@@ -1,96 +1,76 @@
-import { BrowserWindow, session, app } from 'electron'
-import { writeFile } from 'node:fs/promises'
+import { app } from 'electron'
+import { existsSync } from 'node:fs'
+import { readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
-const PARTITION = 'persist:youtube'
-const LOGIN_URL = 'https://music.youtube.com/'
-
-// A normal Chrome user-agent so Google doesn't flag the window as an
-// "insecure browser" and refuse the login.
-const CHROME_UA =
-  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36'
-
-// Presence of any of these cookies means the session is signed in.
-const AUTH_COOKIE_NAMES = ['SAPISID', '__Secure-3PAPISID', 'LOGIN_INFO']
-
-function ytSession() {
-  return session.fromPartition(PARTITION)
+// Browsers yt-dlp can read cookies from. `probe` is a path that exists only
+// once the browser is installed and has created a profile.
+interface BrowserDef {
+  id: string
+  name: string
+  probe: string
 }
 
-function cookiesFilePath(): string {
-  return join(app.getPath('userData'), 'youtube-cookies.txt')
+const LOCALAPPDATA = process.env.LOCALAPPDATA ?? ''
+const APPDATA = process.env.APPDATA ?? ''
+
+const BROWSERS: BrowserDef[] = [
+  { id: 'firefox', name: 'Firefox', probe: join(APPDATA, 'Mozilla', 'Firefox', 'Profiles') },
+  { id: 'chrome', name: 'Chrome', probe: join(LOCALAPPDATA, 'Google', 'Chrome', 'User Data') },
+  { id: 'edge', name: 'Edge', probe: join(LOCALAPPDATA, 'Microsoft', 'Edge', 'User Data') },
+  {
+    id: 'brave',
+    name: 'Brave',
+    probe: join(LOCALAPPDATA, 'BraveSoftware', 'Brave-Browser', 'User Data')
+  },
+  { id: 'opera', name: 'Opera', probe: join(APPDATA, 'Opera Software', 'Opera Stable') },
+  { id: 'vivaldi', name: 'Vivaldi', probe: join(LOCALAPPDATA, 'Vivaldi', 'User Data') }
+]
+
+export interface DetectedBrowser {
+  id: string
+  name: string
 }
 
-export async function isLoggedIn(): Promise<boolean> {
-  const cookies = await ytSession().cookies.get({})
-  return cookies.some((c) => AUTH_COOKIE_NAMES.includes(c.name))
+// The supported browsers actually installed on this machine.
+export function detectBrowsers(): DetectedBrowser[] {
+  return BROWSERS.filter((b) => b.probe && existsSync(b.probe)).map(({ id, name }) => ({
+    id,
+    name
+  }))
 }
 
-// Writes the persisted session's cookies in the Netscape format yt-dlp
-// expects, and returns the file path.
-export async function writeCookiesFile(): Promise<string> {
-  const cookies = await ytSession().cookies.get({})
-  const lines = ['# Netscape HTTP Cookie File']
-  for (const c of cookies) {
-    const domain = c.domain ?? ''
-    const includeSub = domain.startsWith('.') ? 'TRUE' : 'FALSE'
-    const secure = c.secure ? 'TRUE' : 'FALSE'
-    const expiry = c.expirationDate ? Math.floor(c.expirationDate) : 0
-    lines.push([domain, includeSub, c.path, secure, expiry, c.name, c.value].join('\t'))
+interface Config {
+  browser?: string
+}
+
+function configPath(): string {
+  return join(app.getPath('userData'), 'config.json')
+}
+
+async function readConfig(): Promise<Config> {
+  try {
+    return JSON.parse(await readFile(configPath(), 'utf8')) as Config
+  } catch {
+    return {}
   }
-  const path = cookiesFilePath()
-  await writeFile(path, lines.join('\n') + '\n', 'utf8')
-  return path
 }
 
-// Opens a real Chromium window on YouTube Music for the user to sign in.
-// Resolves true once the session is authenticated, false if cancelled.
-export function openLoginWindow(parent: BrowserWindow): Promise<boolean> {
-  return new Promise((resolve) => {
-    const ses = ytSession()
-    ses.setUserAgent(CHROME_UA)
-
-    const win = new BrowserWindow({
-      parent,
-      width: 520,
-      height: 720,
-      title: 'Вход в YouTube Music',
-      autoHideMenuBar: true,
-      backgroundColor: '#0e0a16',
-      webPreferences: { partition: PARTITION }
-    })
-
-    let settled = false
-    let poll: ReturnType<typeof setInterval>
-
-    const finish = async (success: boolean): Promise<void> => {
-      if (settled) return
-      settled = true
-      clearInterval(poll)
-      if (success) await writeCookiesFile()
-      if (!win.isDestroyed()) win.close()
-      resolve(success)
-    }
-
-    poll = setInterval(() => {
-      isLoggedIn().then((yes) => {
-        if (yes) finish(true)
-      })
-    }, 1500)
-
-    win.on('closed', () => {
-      clearInterval(poll)
-      if (!settled) {
-        settled = true
-        resolve(false)
-      }
-    })
-
-    win.loadURL(LOGIN_URL)
-  })
+async function writeConfig(config: Config): Promise<void> {
+  await writeFile(configPath(), JSON.stringify(config, null, 2), 'utf8')
 }
 
-export async function logout(): Promise<void> {
-  await ytSession().clearStorageData()
-  await writeFile(cookiesFilePath(), '# Netscape HTTP Cookie File\n', 'utf8')
+// The browser eCoda reads cookies from, or null if none is configured yet.
+export async function getBrowser(): Promise<string | null> {
+  return (await readConfig()).browser ?? null
+}
+
+export async function setBrowser(id: string): Promise<void> {
+  await writeConfig({ ...(await readConfig()), browser: id })
+}
+
+export async function disconnect(): Promise<void> {
+  const config = await readConfig()
+  delete config.browser
+  await writeConfig(config)
 }

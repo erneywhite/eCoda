@@ -4,12 +4,19 @@ export interface ResolvedAudio {
   streamUrl: string
 }
 
+export interface DetectedBrowser {
+  id: string
+  name: string
+}
+
 export interface EcodaApi {
   resolveAudio: (input: string) => Promise<ResolvedAudio>
   auth: {
-    status: () => Promise<boolean>
-    login: () => Promise<boolean>
-    logout: () => Promise<boolean>
+    browsers: () => Promise<DetectedBrowser[]>
+    status: () => Promise<string | null>
+    connect: (browser: string) => Promise<boolean>
+    disconnect: () => Promise<boolean>
+    openYouTube: () => Promise<boolean>
   }
 }
 
