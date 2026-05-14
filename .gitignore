@@ -1,0 +1,9 @@
+node_modules/
+out/
+dist/
+dist-electron/
+*.log
+npm-debug.log*
+.DS_Store
+.vite/
+*.local
