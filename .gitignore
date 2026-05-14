@@ -8,6 +8,8 @@ npm-debug.log*
 .vite/
 *.local
 
-# yt-dlp binary is fetched by scripts/fetch-ytdlp.mjs (postinstall)
+# Extraction binaries are fetched on postinstall (scripts/fetch-*.mjs)
 resources/yt-dlp.exe
 resources/yt-dlp
+resources/deno.exe
+resources/deno
