@@ -1,7 +1,12 @@
 import { contextBridge, ipcRenderer } from 'electron'
 
 const api = {
-  resolveAudio: (input: string) => ipcRenderer.invoke('audio:resolve', input)
+  resolveAudio: (input: string) => ipcRenderer.invoke('audio:resolve', input),
+  auth: {
+    status: () => ipcRenderer.invoke('auth:status'),
+    login: () => ipcRenderer.invoke('auth:login'),
+    logout: () => ipcRenderer.invoke('auth:logout')
+  }
 }
 
 if (process.contextIsolated) {

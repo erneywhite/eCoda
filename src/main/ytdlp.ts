@@ -3,13 +3,9 @@ import { promisify } from 'node:util'
 import { dirname, delimiter } from 'node:path'
 import ytdlpPath from '../../resources/yt-dlp.exe?asset'
 import denoPath from '../../resources/deno.exe?asset'
+import { isLoggedIn, writeCookiesFile } from './auth'
 
 const run = promisify(execFile)
-
-// Cookies are read from the user's logged-in browser. Required for two
-// reasons: an authenticated session unlocks Premium-quality streams, and
-// it gets past YouTube's "confirm you're not a bot" check.
-const COOKIES_BROWSER = 'firefox'
 
 // yt-dlp solves YouTube's signature/nsig JS challenges with a JS runtime it
 // finds on PATH. We ship our own Deno and put it on PATH for the child
@@ -35,6 +31,12 @@ function toWatchUrl(input: string): string {
 }
 
 export async function resolveAudio(input: string): Promise<ResolvedAudio> {
+  if (!(await isLoggedIn())) {
+    throw new Error('Not signed in — please sign in to YouTube Music first.')
+  }
+  // Cookies come from the in-app login session: an authenticated session
+  // unlocks Premium-quality streams and gets past YouTube's bot check.
+  const cookiesPath = await writeCookiesFile()
   const { stdout } = await run(
     ytdlpPath,
     [
@@ -42,8 +44,8 @@ export async function resolveAudio(input: string): Promise<ResolvedAudio> {
       'bestaudio',
       '--no-playlist',
       '--no-warnings',
-      '--cookies-from-browser',
-      COOKIES_BROWSER,
+      '--cookies',
+      cookiesPath,
       '--print',
       '%(title)s',
       '--print',

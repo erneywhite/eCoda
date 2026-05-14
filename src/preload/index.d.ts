@@ -6,6 +6,11 @@ export interface ResolvedAudio {
 
 export interface EcodaApi {
   resolveAudio: (input: string) => Promise<ResolvedAudio>
+  auth: {
+    status: () => Promise<boolean>
+    login: () => Promise<boolean>
+    logout: () => Promise<boolean>
+  }
 }
 
 declare global {
