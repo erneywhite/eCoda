@@ -2,7 +2,7 @@
 
 Desktop client for YouTube Music — built around **owning your music**: offline caching, playlist sync, and audio-quality control, in a fast, native-feeling app.
 
-> **Status:** very early (Phase 0 — project skeleton). Not usable yet.
+> **Status:** early development (Phase 1). The core already works — eCoda extracts and plays YouTube Music audio at Premium quality. The full app (search, library, real player UI, offline) is still being built.
 
 ## Why
 
@@ -13,14 +13,17 @@ Web-wrapper YouTube Music desktop apps can't do offline downloads or real qualit
 - Fast, lightweight native UI
 - Offline download & caching of tracks and playlists (Spotify-style)
 - Automatic playlist sync — new tracks get pulled down
-- Audio-quality selection (up to 256 kbps with a Premium account)
+- Audio-quality selection (up to ~256 kbps with a Premium account)
 - System integration: tray, global media keys, mini-player
 
-## Tech stack
+## How it works
 
-- Electron + Vite + TypeScript + Svelte
-- [yt-dlp](https://github.com/yt-dlp/yt-dlp) for stream extraction and downloads
-- InnerTube / ytmusicapi-style layer for metadata
+- **Electron + Vite + TypeScript + Svelte** — the app shell and UI.
+- **[yt-dlp](https://github.com/yt-dlp/yt-dlp)** — extracts audio stream URLs (and, later, handles downloads).
+- **Deno** — the JavaScript runtime yt-dlp uses to solve YouTube's signature challenges.
+- **Authentication** — eCoda reads your YouTube session cookies from a browser you're already signed in to (Firefox, Chrome, Edge, Brave, Opera, Vivaldi, Chromium, Whale, plus Firefox forks like Waterfox / LibreWolf / Floorp). No passwords, no separate login.
+
+`yt-dlp` and `Deno` are downloaded automatically on `npm install` — they aren't committed to the repo.
 
 ## Development
 
@@ -31,11 +34,15 @@ npm run dev
 
 ## Roadmap
 
-- **Phase 0** — project skeleton  ← *we are here*
-- **Phase 1** — streaming MVP (search, playlists, playback, quality selection)
-- **Phase 2** — offline (local cache, download manager, playlist sync)
-- **Phase 3** — daily-use polish (mini-player, tray, media keys, lyrics)
-- **Phase 4** — distribution (auto-update, installer)
+- **Phase 0 — project skeleton** — done
+- **Phase 1 — streaming MVP** — *in progress*
+  - done: audio extraction + playback at Premium quality
+  - done: browser-cookie authentication
+  - next: InnerTube metadata layer (search, playlists, library)
+  - next: real player UI (now-playing, queue, controls)
+- **Phase 2 — offline** — local cache, download manager, playlist sync
+- **Phase 3 — daily-use polish** — mini-player, tray, media keys, lyrics
+- **Phase 4 — distribution** — auto-update, Windows installer (macOS later)
 
 ## Disclaimer
 
