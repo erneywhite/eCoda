@@ -2,7 +2,7 @@ import { app, shell, BrowserWindow, ipcMain } from 'electron'
 import { join } from 'path'
 import icon from '../../resources/icon.png?asset'
 import { resolveAudio, verifyBrowserLogin } from './ytdlp'
-import { detectBrowsers, getBrowser, setBrowser, disconnect } from './auth'
+import { detectBrowsers, getBrowser, setBrowser, disconnect, ytdlpBrowserArg } from './auth'
 
 let mainWindow: BrowserWindow | null = null
 
@@ -48,7 +48,9 @@ app.whenReady().then(() => {
   ipcMain.handle('auth:browsers', () => detectBrowsers())
   ipcMain.handle('auth:status', () => getBrowser())
   ipcMain.handle('auth:connect', async (_event, browser: string) => {
-    const ok = await verifyBrowserLogin(browser)
+    const arg = ytdlpBrowserArg(browser)
+    if (!arg) return false
+    const ok = await verifyBrowserLogin(arg)
     if (ok) await setBrowser(browser)
     return ok
   })
@@ -65,7 +67,11 @@ app.whenReady().then(() => {
     if (!browser) {
       throw new Error('No browser connected — connect a browser first.')
     }
-    return resolveAudio(input, browser)
+    const arg = ytdlpBrowserArg(browser)
+    if (!arg) {
+      throw new Error('The connected browser is no longer available.')
+    }
+    return resolveAudio(input, arg)
   })
 
   createWindow()
