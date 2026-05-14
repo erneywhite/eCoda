@@ -9,7 +9,7 @@ function createWindow(): void {
     minHeight: 560,
     show: false,
     autoHideMenuBar: true,
-    backgroundColor: '#0f0f0f',
+    backgroundColor: '#0e0a16',
     title: 'eCoda',
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
