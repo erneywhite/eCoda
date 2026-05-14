@@ -4,6 +4,11 @@ import ytdlpPath from '../../resources/yt-dlp.exe?asset'
 
 const run = promisify(execFile)
 
+// Cookies are read from the user's logged-in browser. Required for two
+// reasons: an authenticated session unlocks Premium-quality streams, and
+// it gets past YouTube's "confirm you're not a bot" check.
+const COOKIES_BROWSER = 'firefox'
+
 export interface ResolvedAudio {
   title: string
   format: string
@@ -28,6 +33,8 @@ export async function resolveAudio(input: string): Promise<ResolvedAudio> {
       'bestaudio',
       '--no-playlist',
       '--no-warnings',
+      '--cookies-from-browser',
+      COOKIES_BROWSER,
       '--print',
       '%(title)s',
       '--print',
