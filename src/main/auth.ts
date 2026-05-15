@@ -241,6 +241,29 @@ export async function getPinnedPlaylists(): Promise<PinnedPlaylist[]> {
   return [LIKED_MUSIC_PIN, ...list]
 }
 
+// Refreshes the title + thumbnail snapshot of an already-pinned playlist
+// (or persists Liked Music for the first time with real metadata). Used
+// when the renderer learns about a better cover than what's stored —
+// notably the first time the user opens Liked Music from any path.
+export async function updatePinSnapshot(item: PinnedPlaylist): Promise<void> {
+  const cfg = await readConfig()
+  const list = cfg.pinnedPlaylists ?? []
+  const idx = list.findIndex((p) => p.id === item.id)
+  if (idx >= 0) {
+    list[idx] = item
+    cfg.pinnedPlaylists = list
+    await writeConfig(cfg)
+    return
+  }
+  // Liked Music auto-pin: not yet in the persisted list but always shown
+  // in the UI. Persist now so the cover survives a restart.
+  if (item.id === 'LM' || item.id === 'VLLM') {
+    list.unshift(item)
+    cfg.pinnedPlaylists = list
+    await writeConfig(cfg)
+  }
+}
+
 // Toggles a playlist's pinned state. Returns true if it's pinned now,
 // false if it was just unpinned. Liked Music can't be un-pinned (special).
 export async function togglePinnedPlaylist(item: PinnedPlaylist): Promise<boolean> {

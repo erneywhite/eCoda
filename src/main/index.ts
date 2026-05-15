@@ -13,6 +13,7 @@ import {
   setDefaultTab,
   getPinnedPlaylists,
   togglePinnedPlaylist,
+  updatePinSnapshot,
   type DefaultTab,
   type PinnedPlaylist
 } from './auth'
@@ -304,6 +305,9 @@ app.whenReady().then(() => {
   ipcMain.handle('settings:getPinned', () => getPinnedPlaylists())
   ipcMain.handle('settings:togglePin', (_event, item: PinnedPlaylist) =>
     togglePinnedPlaylist(item)
+  )
+  ipcMain.handle('settings:updatePinSnapshot', (_event, item: PinnedPlaylist) =>
+    updatePinSnapshot(item)
   )
 
   createWindow()

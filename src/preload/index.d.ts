@@ -107,6 +107,7 @@ export interface EcodaApi {
     setDefaultTab: (tab: 'home' | 'search' | 'library') => Promise<void>
     getPinned: () => Promise<PinnedPlaylist[]>
     togglePin: (item: PinnedPlaylist) => Promise<boolean>
+    updatePinSnapshot: (item: PinnedPlaylist) => Promise<void>
   }
   debug: {
     harvestTokens: () => Promise<unknown>

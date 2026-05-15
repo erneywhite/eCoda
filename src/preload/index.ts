@@ -49,7 +49,9 @@ const api = {
       ipcRenderer.invoke('settings:setDefaultTab', tab),
     getPinned: () => ipcRenderer.invoke('settings:getPinned'),
     togglePin: (item: { id: string; title: string; thumbnail: string }) =>
-      ipcRenderer.invoke('settings:togglePin', item)
+      ipcRenderer.invoke('settings:togglePin', item),
+    updatePinSnapshot: (item: { id: string; title: string; thumbnail: string }) =>
+      ipcRenderer.invoke('settings:updatePinSnapshot', item)
   },
   debug: {
     harvestTokens: () => ipcRenderer.invoke('debug:harvest-tokens'),

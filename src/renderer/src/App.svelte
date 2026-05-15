@@ -130,6 +130,19 @@
     await loadPinned()
   }
 
+  // Toggle a playlist's pin straight from a Library card-tile, without
+  // opening the playlist. Liked Music is no-op (always pinned).
+  async function togglePinFromItem(item: HomeItem): Promise<void> {
+    if (item.type !== 'playlist' && item.type !== 'album') return
+    if (isLikedMusicId(item.id)) return
+    await window.api.settings.togglePin({
+      id: item.id,
+      title: item.title,
+      thumbnail: item.thumbnail
+    })
+    await loadPinned()
+  }
+
   // ---- settings -----------------------------------------------------------
   let appInfo = $state<{ name: string; version: string; userData: string; repoUrl: string } | null>(
     null
@@ -416,6 +429,20 @@
     libraryLoading = true
     try {
       libraryPlaylists = await window.api.metadata.libraryPlaylists()
+      // Library landing returns Liked Music as a tile. If we found it,
+      // refresh the pinned snapshot so the sidebar shortcut has a real
+      // cover even before the user opens the playlist.
+      const lm = libraryPlaylists.items.find(
+        (it) => it.id === 'LM' || it.id === 'VLLM' || it.title === 'Liked Music'
+      )
+      if (lm && lm.thumbnail) {
+        await window.api.settings.updatePinSnapshot({
+          id: lm.id,
+          title: lm.title,
+          thumbnail: lm.thumbnail
+        })
+        await loadPinned()
+      }
     } catch (e) {
       libraryError = e instanceof Error ? e.message : String(e)
     } finally {
@@ -521,6 +548,21 @@
       // Once we have the track list, check which of them are already on
       // disk so the download badges render in the correct state.
       void refreshDownloadStatus(playlistView.tracks)
+      // If this playlist is pinned (or it's Liked Music auto-pin),
+      // refresh the persisted snapshot — first open of LM finally gets
+      // a real cover into the sidebar shortcut.
+      if (isPinned(id) || isLikedMusicId(id)) {
+        const finalTitle = playlistView.title || 'Liked Music'
+        const finalThumb = playlistView.thumbnail || ''
+        if (finalTitle || finalThumb) {
+          await window.api.settings.updatePinSnapshot({
+            id,
+            title: finalTitle,
+            thumbnail: finalThumb
+          })
+          await loadPinned()
+        }
+      }
     } catch (e) {
       playlistError = e instanceof Error ? e.message : String(e)
     } finally {
@@ -1050,6 +1092,37 @@
                         ? `url("${item.thumbnail}")`
                         : 'none'}
                     ></div>
+                    {#if !isLikedMusicId(item.id)}
+                      <span
+                        class="card-pin"
+                        class:pinned={isPinned(item.id)}
+                        role="button"
+                        tabindex="0"
+                        aria-label={isPinned(item.id) ? 'Открепить' : 'Закрепить'}
+                        title={isPinned(item.id) ? 'Открепить из сайдбара' : 'Закрепить в сайдбаре'}
+                        onclick={(e) => {
+                          e.stopPropagation()
+                          void togglePinFromItem(item)
+                        }}
+                        onkeydown={(e) => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault()
+                            e.stopPropagation()
+                            void togglePinFromItem(item)
+                          }
+                        }}
+                      >
+                        {#if isPinned(item.id)}
+                          <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
+                            <path d="M16 9V4l1-1V1H7v2l1 1v5l-2 2v2h5v7l1 1 1-1v-7h5v-2l-2-2z" />
+                          </svg>
+                        {:else}
+                          <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
+                            <path d="M14 4v5l2 2v2h-5v7l-1 1-1-1v-7H4v-2l2-2V4H4V2h14v2h-2zm-2 0H8v5l-2 2h10l-2-2V4z"/>
+                          </svg>
+                        {/if}
+                      </span>
+                    {/if}
                     <div class="tile-title">{item.title}</div>
                     <div class="tile-subtitle">{item.subtitle}</div>
                   </button>
@@ -1739,6 +1812,7 @@
   }
 
   .card-tile {
+    position: relative;
     display: flex;
     flex-direction: column;
     gap: 0.4rem;
@@ -1758,6 +1832,47 @@
     cursor: pointer;
     transition: background 0.18s ease, border-color 0.18s ease,
       transform 0.18s ease, box-shadow 0.18s ease;
+  }
+
+  /* Pin/unpin overlay shown in the top-right of a Library card. Hidden
+     until hover (or while pinned so the user can tell at a glance which
+     tiles are in their sidebar already). stopPropagation on the click
+     keeps the outer card-tile from also opening the playlist. */
+  .card-pin {
+    position: absolute;
+    top: 0.9rem;
+    right: 0.9rem;
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    background: rgba(14, 10, 22, 0.75);
+    color: #ffffff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    transform: translateY(-4px);
+    transition: opacity 0.15s ease, transform 0.15s ease, background 0.15s ease,
+      color 0.15s ease;
+    cursor: pointer;
+    z-index: 2;
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+  }
+
+  .card-tile:hover .card-pin,
+  .card-pin.pinned {
+    opacity: 1;
+    transform: translateY(0);
+  }
+
+  .card-pin:hover {
+    background: rgba(201, 125, 246, 0.55);
+  }
+
+  .card-pin.pinned {
+    background: rgba(201, 125, 246, 0.45);
+    color: #ffffff;
   }
 
   .card-tile:hover {
