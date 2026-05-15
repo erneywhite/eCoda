@@ -45,6 +45,14 @@ export interface PinnedPlaylist {
   thumbnail: string
 }
 
+export type UpdaterEvent =
+  | { kind: 'checking' }
+  | { kind: 'available'; version: string; releaseNotes?: string | null }
+  | { kind: 'not-available'; currentVersion: string }
+  | { kind: 'progress'; percent: number; transferred: number; total: number }
+  | { kind: 'downloaded'; version: string }
+  | { kind: 'error'; message: string }
+
 export type Theme =
   | 'purple'
   | 'cyan'
@@ -111,6 +119,12 @@ export interface EcodaApi {
   }
   app: {
     info: () => Promise<{ name: string; version: string; userData: string; repoUrl: string }>
+  }
+  updater: {
+    check: () => Promise<boolean>
+    download: () => Promise<void>
+    install: () => Promise<boolean>
+    onEvent: (cb: (e: UpdaterEvent) => void) => () => void
   }
   settings: {
     getDefaultTab: () => Promise<'home' | 'search' | 'library'>

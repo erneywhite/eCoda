@@ -43,6 +43,16 @@ const api = {
   app: {
     info: () => ipcRenderer.invoke('app:info')
   },
+  updater: {
+    check: () => ipcRenderer.invoke('update:check'),
+    download: () => ipcRenderer.invoke('update:download'),
+    install: () => ipcRenderer.invoke('update:install'),
+    onEvent: (cb: (e: unknown) => void) => {
+      const wrapped = (_e: unknown, payload: unknown) => cb(payload)
+      ipcRenderer.on('update:event', wrapped)
+      return () => ipcRenderer.removeListener('update:event', wrapped)
+    }
+  },
   settings: {
     getDefaultTab: () => ipcRenderer.invoke('settings:getDefaultTab'),
     setDefaultTab: (tab: 'home' | 'search' | 'library') =>

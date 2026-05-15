@@ -43,6 +43,25 @@ npm run dev
 
 In dev DevTools auto-open in a detached window. Press `Ctrl+R` in the eCoda window to reload the renderer.
 
+## Building a Windows installer
+
+Local build (no publish):
+
+```sh
+npm run build:win
+```
+
+Produces `dist/eCoda-Setup-<version>.exe` (NSIS, x64, per-user install, desktop + start menu shortcuts).
+
+Cut a release that auto-updaters can see:
+
+1. Bump `package.json` `"version"` (or `npm version patch`).
+2. `git tag v<version> && git push --tags`.
+3. `set GH_TOKEN=ghp_...` (a personal access token with `public_repo` scope).
+4. `npm run release` — builds, publishes to GitHub Releases and uploads `latest.yml` + the installer.
+
+Installed copies will see the new release via the in-app "Проверить обновления" button (Settings → Обновления) and via a silent check 3 seconds after every launch.
+
 ## Roadmap
 
 - **Phase 0 — project skeleton** — done

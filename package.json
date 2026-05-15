@@ -2,17 +2,19 @@
   "name": "ecoda",
   "version": "0.0.1",
   "description": "Desktop YouTube Music client with offline caching — own your music",
-  "author": "erney",
+  "author": "Erney White",
   "license": "MIT",
   "main": "./out/main/index.js",
   "scripts": {
     "dev": "electron-vite dev",
     "build": "electron-vite build",
     "preview": "electron-vite preview",
-    "postinstall": "node scripts/fetch-ytdlp.mjs && node scripts/fetch-deno.mjs",
+    "postinstall": "node scripts/fetch-ytdlp.mjs && node scripts/fetch-deno.mjs && electron-builder install-app-deps",
     "typecheck:node": "tsc --noEmit -p tsconfig.node.json --composite false",
     "typecheck:web": "svelte-check --tsconfig ./tsconfig.web.json",
-    "typecheck": "npm run typecheck:node && npm run typecheck:web"
+    "typecheck": "npm run typecheck:node && npm run typecheck:web",
+    "build:win": "npm run build && electron-builder --win",
+    "release": "npm run build && electron-builder --win --publish always"
   },
   "engines": {
     "node": ">=20"
@@ -21,6 +23,7 @@
     "@sveltejs/vite-plugin-svelte": "^5.0.0",
     "@types/node": "^22.0.0",
     "electron": "^33.0.0",
+    "electron-builder": "^25.1.8",
     "electron-vite": "^3.0.0",
     "svelte": "^5.0.0",
     "svelte-check": "^4.0.0",
@@ -28,6 +31,51 @@
     "vite": "^6.0.0"
   },
   "dependencies": {
+    "electron-updater": "^6.3.9",
     "youtubei.js": "^17.0.1"
+  },
+  "build": {
+    "appId": "com.erneywhite.ecoda",
+    "productName": "eCoda",
+    "copyright": "Copyright © 2026 Erney White",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "out/**/*",
+      "resources/**/*"
+    ],
+    "asarUnpack": [
+      "resources/yt-dlp.exe",
+      "resources/deno.exe"
+    ],
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "erneywhite",
+        "repo": "eCoda",
+        "releaseType": "release"
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        }
+      ],
+      "icon": "build/icon.png",
+      "artifactName": "eCoda-Setup-${version}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "eCoda",
+      "deleteAppDataOnUninstall": false
+    }
   }
 }

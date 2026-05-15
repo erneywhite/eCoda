@@ -8,7 +8,8 @@
     PinnedPlaylist,
     PlaylistView,
     SearchResult,
-    Theme
+    Theme,
+    UpdaterEvent
   } from '../../preload/index.d'
 
   type View = 'home' | 'search' | 'playlist' | 'library' | 'settings'
@@ -217,6 +218,40 @@
     theme = name
     applyTheme(name)
     await window.api.settings.setTheme(name)
+  }
+
+  // ---- updater state -------------------------------------------------------
+  // updaterStatus drives the "Обновления" Settings card. Stays at 'idle'
+  // until either silentCheckOnStartup or a user click pushes an event.
+  type UpdaterStatus =
+    | { kind: 'idle' }
+    | { kind: 'checking' }
+    | { kind: 'available'; version: string }
+    | { kind: 'not-available' }
+    | { kind: 'downloading'; percent: number }
+    | { kind: 'downloaded'; version: string }
+    | { kind: 'error'; message: string }
+
+  let updaterStatus = $state<UpdaterStatus>({ kind: 'idle' })
+
+  function handleUpdaterEvent(e: UpdaterEvent): void {
+    if (e.kind === 'checking') updaterStatus = { kind: 'checking' }
+    else if (e.kind === 'available') updaterStatus = { kind: 'available', version: e.version }
+    else if (e.kind === 'not-available') updaterStatus = { kind: 'not-available' }
+    else if (e.kind === 'progress')
+      updaterStatus = { kind: 'downloading', percent: Math.round(e.percent) }
+    else if (e.kind === 'downloaded') updaterStatus = { kind: 'downloaded', version: e.version }
+    else if (e.kind === 'error') updaterStatus = { kind: 'error', message: e.message }
+  }
+
+  async function checkForUpdate(): Promise<void> {
+    await window.api.updater.check()
+  }
+  async function downloadUpdate(): Promise<void> {
+    await window.api.updater.download()
+  }
+  async function installUpdate(): Promise<void> {
+    await window.api.updater.install()
   }
 
   // ---- pinned playlists (sidebar shortcuts under Library) ------------------
@@ -486,6 +521,8 @@
     // Subscribe to per-track download progress; live updates for the bulk
     // progress UI + flipping each row's badge as it completes.
     const unsub = window.api.downloads.onProgress(handleDownloadProgress)
+    // Auto-updater event stream — drives the "Обновления" Settings card.
+    const unsubUpd = window.api.updater.onEvent(handleUpdaterEvent)
     // Mouse side-buttons: XButton1 (back) = event.button 3, XButton2
     // (forward) = event.button 4. Matches browsers and File Explorer on
     // Windows. preventDefault stops the default "navigate back" behaviour
@@ -503,6 +540,7 @@
     window.addEventListener('mouseup', onMouse)
     return () => {
       unsub()
+      unsubUpd()
       window.removeEventListener('mouseup', onMouse)
     }
   })
@@ -1176,13 +1214,54 @@
             <section class="settings-card">
               <h4>Обновления</h4>
               <p class="settings-line">Текущая версия: <strong>{appInfo?.version ?? '…'}</strong></p>
-              <p class="settings-hint">
-                Автообновление пока не подключено. Скоро: проверка новых релизов
-                на GitHub и установка в один клик.
-              </p>
-              <button class="settings-btn" disabled title="Скоро">
-                Проверить обновления
-              </button>
+              {#if updaterStatus.kind === 'checking'}
+                <p class="settings-hint">Проверяю наличие обновлений…</p>
+              {:else if updaterStatus.kind === 'available'}
+                <p class="settings-hint">
+                  Доступна новая версия <strong>{updaterStatus.version}</strong>.
+                </p>
+              {:else if updaterStatus.kind === 'downloading'}
+                <p class="settings-hint">Скачиваю обновление: {updaterStatus.percent}%</p>
+                <div class="upd-progress">
+                  <div class="upd-progress-fill" style:width="{updaterStatus.percent}%"></div>
+                </div>
+              {:else if updaterStatus.kind === 'downloaded'}
+                <p class="settings-hint">
+                  Версия <strong>{updaterStatus.version}</strong> скачана.
+                  Перезапусти eCoda, чтобы установить.
+                </p>
+              {:else if updaterStatus.kind === 'not-available'}
+                <p class="settings-hint">Установлена последняя версия.</p>
+              {:else if updaterStatus.kind === 'error'}
+                <p class="settings-hint" style:color="#ff8db5">{updaterStatus.message}</p>
+              {:else}
+                <p class="settings-hint">
+                  Нажми «Проверить обновления», чтобы узнать, не появилась ли
+                  новая версия в GitHub Releases.
+                </p>
+              {/if}
+              <div class="upd-actions">
+                {#if updaterStatus.kind === 'available'}
+                  <button class="settings-btn donate" onclick={downloadUpdate}>
+                    Скачать обновление
+                  </button>
+                {:else if updaterStatus.kind === 'downloaded'}
+                  <button class="settings-btn donate" onclick={installUpdate}>
+                    Перезапустить и установить
+                  </button>
+                {:else}
+                  <button
+                    class="settings-btn"
+                    onclick={checkForUpdate}
+                    disabled={updaterStatus.kind === 'checking' ||
+                      updaterStatus.kind === 'downloading'}
+                  >
+                    {updaterStatus.kind === 'checking'
+                      ? 'Проверяю…'
+                      : 'Проверить обновления'}
+                  </button>
+                {/if}
+              </div>
             </section>
 
             <section class="settings-card">
@@ -1887,6 +1966,26 @@
 
   /* "Buy me a coffee" — warm-yellow gradient so it stands out as a
      thank-you button rather than a normal action. */
+  /* Updater progress bar — sits inside the "Обновления" settings card
+     while electron-updater is pulling the new release. */
+  .upd-progress {
+    height: 6px;
+    background: rgba(255, 255, 255, 0.08);
+    border-radius: 999px;
+    overflow: hidden;
+    margin-top: 0.3rem;
+  }
+  .upd-progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--accent), var(--accent-2));
+    transition: width 0.2s ease;
+  }
+  .upd-actions {
+    display: flex;
+    gap: 0.5rem;
+    margin-top: 0.5rem;
+  }
+
   /* Theme picker — one row per palette: a coloured dot + the label,
      active palette gets a tinted background + bold ring. Each swatch's
      --swatch CSS var carries its own gradient so the dot picks the

@@ -42,6 +42,13 @@ import {
 } from './downloads'
 import { importCookiesToMusicSession, clearMusicSessionCookies } from './library-session'
 import { harvestTokens, resetHarvest, browseViaPage, innertubeFetch } from './token-harvest'
+import {
+  checkForUpdates,
+  downloadUpdate,
+  installUpdate,
+  registerMainWindow,
+  silentCheckOnStartup
+} from './updater'
 
 let mainWindow: BrowserWindow | null = null
 
@@ -90,6 +97,12 @@ function createWindow(): void {
     // logs and network without poking Ctrl+Shift+I every launch.
     if (!app.isPackaged) {
       mainWindow?.webContents.openDevTools({ mode: 'detach' })
+    }
+    // Hand the window over to the updater module so it can stream
+    // lifecycle events to the renderer, then fire a silent check.
+    if (mainWindow) {
+      registerMainWindow(mainWindow)
+      silentCheckOnStartup()
     }
   })
 
@@ -314,6 +327,16 @@ app.whenReady().then(() => {
   )
   ipcMain.handle('settings:getTheme', () => getTheme())
   ipcMain.handle('settings:setTheme', (_event, theme: Theme) => setTheme(theme))
+
+  // Auto-update IPC. `update:event` flows back via webContents.send from
+  // the updater module — renderer subscribes once and reacts to each
+  // lifecycle state.
+  ipcMain.handle('update:check', () => checkForUpdates())
+  ipcMain.handle('update:download', () => downloadUpdate())
+  ipcMain.handle('update:install', () => {
+    installUpdate()
+    return true
+  })
 
   createWindow()
 
