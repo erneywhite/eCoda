@@ -36,11 +36,13 @@
   // ---- library view (webview-based for now) --------------------------------
   // We mount the <webview> only after cookies have been imported into the
   // persist:music partition — otherwise the embedded music.youtube.com would
-  // briefly show the anonymous "Sign in" UI before reloading. `libraryUrl`
-  // controls visibility *and* the address; flipping it triggers a navigation.
+  // briefly show the anonymous "Sign in" UI before reloading. The reload
+  // key forces Svelte to re-mount the webview after every fresh cookie
+  // import so any cached "logged out" navigation is thrown away.
   let libraryReady = $state(false)
   let libraryError = $state('')
   let libraryUrl = $state('https://music.youtube.com/library')
+  let libraryReloadKey = $state(0)
 
   // ---- player ---------------------------------------------------------------
   let playing = $state<{
@@ -143,10 +145,12 @@
 
   async function openLibrary(): Promise<void> {
     view = 'library'
-    if (libraryReady) return
     libraryError = ''
+    // Always re-import cookies on open — cheap, and it guarantees we don't
+    // serve a stale "anonymous" cached navigation from the last visit.
     const r = await window.api.library.prepare()
     if (r.ok) {
+      libraryReloadKey++
       libraryReady = true
     } else {
       libraryError = r.error
@@ -501,12 +505,14 @@
           {#if libraryError}
             <p class="status error">Не получилось подготовить библиотеку: {libraryError}</p>
           {:else if libraryReady}
-            <webview
-              class="library-frame"
-              src={libraryUrl}
-              partition="persist:music"
-              allowpopups="true"
-            ></webview>
+            {#key libraryReloadKey}
+              <webview
+                class="library-frame"
+                src={libraryUrl}
+                partition="persist:music"
+                allowpopups="true"
+              ></webview>
+            {/key}
           {:else}
             <p class="status">Подключаюсь к твоей библиотеке…</p>
           {/if}

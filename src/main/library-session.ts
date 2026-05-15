@@ -21,14 +21,19 @@ const CHROME_UA =
 // auth:connect into the persist:music session, so the webview-embedded
 // music.youtube.com sees us as logged in.
 //
-// Idempotent: running it again just refreshes cookies (Electron .set
-// overwrites by name+domain+path).
+// Always wipes the partition first. Without that, leftover cookies from a
+// previous (broken) import would block this one — Chrome refuses to let
+// programmatic .set overwrite a cookie that's marked HttpOnly, and the
+// LSID / GAPS family won't take a domain attribute, so a partial earlier
+// state would survive between imports.
 export async function importCookiesToMusicSession(): Promise<number> {
   const path = getCookiesFilePath()
   if (!existsSync(path)) return 0
 
   const ses = session.fromPartition(MUSIC_PARTITION)
   ses.setUserAgent(CHROME_UA)
+
+  await clearMusicSessionCookies()
 
   let imported = 0
   for (const rawLine of readFileSync(path, 'utf-8').split(/\r?\n/)) {
@@ -59,26 +64,31 @@ export async function importCookiesToMusicSession(): Promise<number> {
     const expirationDate = Number(expirationStr)
     const secure = secureFlag === 'TRUE'
 
+    // __Host- prefixed cookies are host-only by spec — they MUST NOT carry
+    // a Domain attribute, MUST be Secure, and MUST have Path=/. yt-dlp's
+    // Netscape dump still lists them with a domain field, which Chrome
+    // then rejects as "invalid __Host- prefix". Drop the domain so
+    // Electron writes them as host-only cookies the way they should be.
+    const isHostPrefixed = name.startsWith('__Host-')
+
     try {
       await ses.cookies.set({
         url,
         name,
         value,
-        domain,
-        path: cookiePath || '/',
-        secure,
+        ...(isHostPrefixed ? {} : { domain }),
+        path: isHostPrefixed ? '/' : cookiePath || '/',
+        secure: isHostPrefixed ? true : secure,
         httpOnly,
         expirationDate:
           Number.isFinite(expirationDate) && expirationDate > 0 ? expirationDate : undefined,
         // SameSite=None requires Secure per modern Chrome rules. For cookies
         // that aren't secure we leave SameSite at the default (unspecified)
         // so Chrome doesn't reject them outright.
-        ...(secure ? { sameSite: 'no_restriction' as const } : {})
+        ...(secure || isHostPrefixed ? { sameSite: 'no_restriction' as const } : {})
       })
       imported++
     } catch (err) {
-      // A single bad cookie (rare — usually invalid sameSite/secure combo)
-      // shouldn't kill the import. Just skip and keep going.
       console.warn(`[library-session] failed to import cookie ${name}:`, err)
     }
   }
