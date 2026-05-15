@@ -92,8 +92,51 @@ export async function importCookiesToMusicSession(): Promise<number> {
       console.warn(`[library-session] failed to import cookie ${name}:`, err)
     }
   }
+  // Synthetic SOCS/CONSENT cookies so YouTube doesn't redirect us to the
+  // GDPR / cookie banner on every visit. The user's Firefox dump can lack
+  // these (they're only set after explicitly clicking "Accept all" in the
+  // EU consent UI; if the user never clicked it in Firefox they're absent).
+  // The values below are the standard "consent accepted" payload widely
+  // used by yt-dlp / youtubei.js community.
+  await ensureConsentCookies(ses)
+
   console.log(`[library-session] imported ${imported} cookies into ${MUSIC_PARTITION}`)
   return imported
+}
+
+// Adds SOCS + CONSENT cookies on .youtube.com and .google.com to short-circuit
+// the cookie-consent banner that otherwise blocks every navigation.
+async function ensureConsentCookies(ses: Electron.Session): Promise<void> {
+  // SOCS payload that says "accepted, English, recent" — works regardless
+  // of detected region. CONSENT payload says "yes, callback Brian".
+  const SOCS_VALUE = 'CAESEwgDEgk0ODE3Nzk3MjQaAmVuIAEaBgiA_LyaBg'
+  const CONSENT_VALUE = 'YES+cb.20210328-17-p0.en+FX+667'
+  // 13 months from now — Chrome caps cookie max-age at 400 days, but
+  // YouTube's own SOCS lives roughly this long.
+  const exp = Math.floor(Date.now() / 1000) + 60 * 60 * 24 * 390
+
+  for (const host of ['youtube.com', 'google.com']) {
+    for (const [name, value] of [
+      ['SOCS', SOCS_VALUE],
+      ['CONSENT', CONSENT_VALUE]
+    ] as const) {
+      try {
+        await ses.cookies.set({
+          url: `https://${host}/`,
+          name,
+          value,
+          domain: `.${host}`,
+          path: '/',
+          secure: true,
+          httpOnly: false,
+          sameSite: 'no_restriction',
+          expirationDate: exp
+        })
+      } catch (err) {
+        console.warn(`[library-session] failed to set synthetic ${name} on .${host}:`, err)
+      }
+    }
+  }
 }
 
 // Clears every cookie from persist:music — fires on auth:disconnect so a
