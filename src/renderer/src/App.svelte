@@ -692,6 +692,51 @@
     return `${m}:${sec.toString().padStart(2, '0')}`
   }
 
+  // "5:30" → 330; "1:23:45" → 5025; bogus input → 0.
+  function parseDuration(s: string): number {
+    if (!s) return 0
+    const parts = s.split(':').map((p) => Number(p))
+    if (parts.some((n) => Number.isNaN(n))) return 0
+    if (parts.length === 2) return parts[0] * 60 + parts[1]
+    if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2]
+    return 0
+  }
+
+  // Russian plural picker — chooses one of three word forms based on the
+  // count's last digit / last two digits. Standard "1 час / 2 часа / 5
+  // часов" rules.
+  function pluralRu(n: number, forms: [string, string, string]): string {
+    const mod10 = n % 10
+    const mod100 = n % 100
+    if (mod10 === 1 && mod100 !== 11) return forms[0]
+    if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return forms[1]
+    return forms[2]
+  }
+
+  // Renders a total duration as "4 часа 26 минут" / "4 hours 26 minutes".
+  // Below an hour we drop the "hours" segment entirely. Returns '' for 0
+  // so the caller can hide the chip when the playlist has no durations
+  // (e.g. the Downloaded virtual playlist, where the manifest doesn't
+  // carry track durations).
+  function formatTotalDuration(seconds: number, lng: Lang): string {
+    if (seconds <= 0) return ''
+    const totalMinutes = Math.max(1, Math.round(seconds / 60))
+    const hours = Math.floor(totalMinutes / 60)
+    const minutes = totalMinutes % 60
+    if (lng === 'ru') {
+      const hourWord = pluralRu(hours, ['час', 'часа', 'часов'])
+      const minWord = pluralRu(minutes, ['минута', 'минуты', 'минут'])
+      if (hours > 0 && minutes > 0) return `${hours} ${hourWord} ${minutes} ${minWord}`
+      if (hours > 0) return `${hours} ${hourWord}`
+      return `${minutes} ${minWord}`
+    }
+    const hourWord = hours === 1 ? 'hour' : 'hours'
+    const minWord = minutes === 1 ? 'minute' : 'minutes'
+    if (hours > 0 && minutes > 0) return `${hours} ${hourWord} ${minutes} ${minWord}`
+    if (hours > 0) return `${hours} ${hourWord}`
+    return `${minutes} ${minWord}`
+  }
+
   function togglePlay(): void {
     // Deferred-resume state: playing is hydrated but streamUrl is empty
     // (session restored on launch). First Play click kicks off the actual
@@ -1156,6 +1201,66 @@
       title: playing.sourceListTitle
     })
   }
+
+  // Is a track from the currently-open playlist what's playing? Drives
+  // the play-button icon in the playlist header (play vs pause).
+  const isPlayingFromOpenPlaylist = $derived(
+    playing != null && openPlaylistId != null && playing.sourceListId === openPlaylistId
+  )
+
+  // Total duration of the currently-open playlist's tracks. Returned in
+  // seconds; the renderer composes a localised string via
+  // formatTotalDuration() before display. Zero when the playlist has no
+  // duration info (e.g. the Downloaded virtual playlist whose manifest
+  // doesn't store track durations).
+  const playlistTotalSeconds = $derived(
+    playlistView == null
+      ? 0
+      : playlistView.tracks.reduce((sum, t) => sum + parseDuration(t.duration), 0)
+  )
+
+  // Big Play button in the playlist header. If a track from THIS playlist
+  // is currently playing → toggle pause/play (so the same button does
+  // pause). Otherwise start from track 0 with the playlist as the source
+  // list (sticky prev/next will follow it).
+  function togglePlaylistPlay(): void {
+    if (isPlayingFromOpenPlaylist && audioEl) {
+      if (audioEl.paused) audioEl.play().catch(() => {})
+      else audioEl.pause()
+      return
+    }
+    void playPlaylistFromStart()
+  }
+
+  async function playPlaylistFromStart(): Promise<void> {
+    if (!playlistView || playlistView.tracks.length === 0) return
+    await playTrack(playlistView.tracks[0], playlistView.tracks, {
+      id: openPlaylistId ?? undefined,
+      title: playlistView.title
+    })
+  }
+
+  // Hover-play on a sidebar pinned playlist: same effect as clicking the
+  // pin to navigate AND immediately hitting Play at the top of the
+  // resulting view. We materialise the navigation inline (rather than
+  // calling navigate() + waiting for applyEntry) so we can await the
+  // data load and then chain the play in a single async flow.
+  async function playPinnedPlaylist(p: PinnedPlaylist): Promise<void> {
+    playlistFallback = { title: p.title, thumbnail: p.thumbnail }
+    const current = historyStack[historyIndex]
+    if (!current || current.kind !== 'playlist' || current.id !== p.id) {
+      historyStack = [...historyStack.slice(0, historyIndex + 1), { kind: 'playlist', id: p.id }]
+      historyIndex = historyStack.length - 1
+    }
+    view = 'playlist'
+    await loadPlaylistData(p.id)
+    if (playlistView && playlistView.tracks.length > 0) {
+      await playTrack(playlistView.tracks[0], playlistView.tracks, {
+        id: p.id,
+        title: p.title
+      })
+    }
+  }
 </script>
 
 <main>
@@ -1279,6 +1384,28 @@
                 <span class="pin-title">
                   {isLikedMusicId(p.id) ? t('liked.music') : p.title}
                 </span>
+                <span
+                  class="pin-play"
+                  role="button"
+                  tabindex="0"
+                  aria-label={t('player.play')}
+                  title={t('player.play')}
+                  onclick={(e) => {
+                    e.stopPropagation()
+                    void playPinnedPlaylist(p)
+                  }}
+                  onkeydown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault()
+                      e.stopPropagation()
+                      void playPinnedPlaylist(p)
+                    }
+                  }}
+                >
+                  <svg viewBox="0 0 24 24" width="12" height="12" fill="currentColor">
+                    <path d="M8 5v14l11-7z" />
+                  </svg>
+                </span>
               </button>
             {/each}
           </div>
@@ -1400,73 +1527,133 @@
                 {#if !playlistLoading}
                   <div class="playlist-count">
                     {t('playlist.count', { n: playlistView.tracks.length })}
+                    {#if playlistTotalSeconds > 0}
+                      · {formatTotalDuration(playlistTotalSeconds, lang)}
+                    {/if}
                   </div>
-                  {#if !isLikedMusicId(openPlaylistId) && !isDownloadedId(openPlaylistId)}
-                    <button
-                      class="pin-toggle"
-                      class:pinned={isPinned(openPlaylistId)}
-                      onclick={togglePinCurrent}
-                      title={isPinned(openPlaylistId)
-                        ? t('playlist.pinTitle.remove')
-                        : t('playlist.pinTitle.add')}
-                    >
-                      {#if isPinned(openPlaylistId)}
-                        <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
-                          <path d="M16 9V4l1-1V1H7v2l1 1v5l-2 2v2h5v7l1 1 1-1v-7h5v-2l-2-2z" />
-                        </svg>
-                        {t('playlist.pinned')}
-                      {:else}
-                        <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
-                          <path d="M14 4v5l2 2v2h-5v7l-1 1-1-1v-7H4v-2l2-2V4H4V2h14v2h-2zm-2 0H8v5l-2 2h10l-2-2V4z"/>
-                        </svg>
-                        {t('playlist.pin')}
-                      {/if}
-                    </button>
-                  {/if}
-                  {#if isDownloadedId(openPlaylistId)}
-                    <!-- "Downloaded" virtual playlist: no bulk-download
-                         affordance (everything here is already on disk),
-                         no Retry-failed banner. -->
-                  {:else if bulkProgress}
-                    <div class="bulk-progress">
-                      {t('playlist.download.progress', {
-                        done: bulkProgress.done,
-                        total: bulkProgress.total
-                      })}
-                      {#if bulkProgress.currentTitle}
-                        · {bulkProgress.currentTitle}
-                      {/if}
-                    </div>
-                  {:else if bulkResult}
-                    <div class="bulk-result" class:has-fail={bulkResult.failed.length > 0}>
-                      <div class="bulk-result-line">
-                        {t('downloads.summary.ok', {
-                          ok: bulkResult.ok,
-                          total: bulkResult.total
-                        })}
-                        {#if bulkResult.failed.length > 0}
-                          · {t('downloads.summary.failed', { n: bulkResult.failed.length })}
+                  {#if playlistView.tracks.length > 0}
+                    <div class="playlist-actions">
+                      <!-- Big Play button: plays the playlist from track 0
+                           when nothing from it is currently active, or
+                           toggles pause/play when we're listening to it. -->
+                      <button
+                        class="play-big"
+                        onclick={togglePlaylistPlay}
+                        aria-label={isPlayingFromOpenPlaylist && isPlaying
+                          ? t('player.pause')
+                          : t('player.play')}
+                        title={isPlayingFromOpenPlaylist && isPlaying
+                          ? t('player.pause')
+                          : t('player.play')}
+                      >
+                        {#if isPlayingFromOpenPlaylist && isPlaying}
+                          <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor">
+                            <path d="M6 5h4v14H6z" />
+                            <path d="M14 5h4v14h-4z" />
+                          </svg>
+                        {:else}
+                          <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor">
+                            <path d="M8 5v14l11-7z" />
+                          </svg>
                         {/if}
-                      </div>
-                      <div class="bulk-result-actions">
-                        {#if bulkResult.failed.length > 0}
-                          <button class="dl-bulk retry" onclick={retryFailedDownloads}>
-                            {t('downloads.summary.retry')}
+                      </button>
+
+                      <!-- Compact download chip: arrow + small N badge when
+                           there are tracks left to fetch, ✓ when everything
+                           is on disk. Hidden on Downloaded view because by
+                           definition everything is already cached there. -->
+                      {#if !isDownloadedId(openPlaylistId)}
+                        {#if bulkProgress}
+                          <div
+                            class="dl-icon-btn busy"
+                            aria-label={t('playlist.download.progress', {
+                              done: bulkProgress.done,
+                              total: bulkProgress.total
+                            })}
+                            title={t('playlist.download.progress', {
+                              done: bulkProgress.done,
+                              total: bulkProgress.total
+                            })}
+                          >
+                            <span class="spinner spinner-inline"></span>
+                            <span class="dl-count">{bulkProgress.done}/{bulkProgress.total}</span>
+                          </div>
+                        {:else if playlistView.tracks.some((t) => !downloadedIds.has(t.id))}
+                          {@const pending = playlistView.tracks.filter(
+                            (t) => !downloadedIds.has(t.id)
+                          ).length}
+                          <button
+                            class="dl-icon-btn"
+                            onclick={downloadCurrentPlaylist}
+                            aria-label={t('playlist.download.bulk', { n: pending })}
+                            title={t('playlist.download.bulk', { n: pending })}
+                          >
+                            <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+                              <path d="M5 20h14v-2H5v2zM19 9h-4V3H9v6H5l7 7 7-7z" />
+                            </svg>
+                            <span class="dl-count">{pending}</span>
+                          </button>
+                        {:else}
+                          <button
+                            class="dl-icon-btn done"
+                            aria-label={t('playlist.download.allSaved')}
+                            title={t('playlist.download.allSaved')}
+                            disabled
+                          >
+                            <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+                              <path d="M9 16.17 4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z" />
+                            </svg>
                           </button>
                         {/if}
-                        <button class="dl-bulk dismiss" onclick={() => (bulkResult = null)}>
-                          {t('downloads.summary.dismiss')}
+                      {/if}
+
+                      {#if !isLikedMusicId(openPlaylistId) && !isDownloadedId(openPlaylistId)}
+                        <button
+                          class="pin-toggle"
+                          class:pinned={isPinned(openPlaylistId)}
+                          onclick={togglePinCurrent}
+                          title={isPinned(openPlaylistId)
+                            ? t('playlist.pinTitle.remove')
+                            : t('playlist.pinTitle.add')}
+                        >
+                          {#if isPinned(openPlaylistId)}
+                            <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
+                              <path d="M16 9V4l1-1V1H7v2l1 1v5l-2 2v2h5v7l1 1 1-1v-7h5v-2l-2-2z" />
+                            </svg>
+                            {t('playlist.pinned')}
+                          {:else}
+                            <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
+                              <path d="M14 4v5l2 2v2h-5v7l-1 1-1-1v-7H4v-2l2-2V4H4V2h14v2h-2zm-2 0H8v5l-2 2h10l-2-2V4z"/>
+                            </svg>
+                            {t('playlist.pin')}
+                          {/if}
                         </button>
-                      </div>
+                      {/if}
                     </div>
-                  {:else if playlistView.tracks.some((t) => !downloadedIds.has(t.id))}
-                    <button class="dl-bulk" onclick={downloadCurrentPlaylist}>
-                      {t('playlist.download.bulk', {
-                        n: playlistView.tracks.filter((t) => !downloadedIds.has(t.id)).length
-                      })}
-                    </button>
-                  {:else}
-                    <div class="all-saved">{t('playlist.download.allSaved')}</div>
+
+                    {#if bulkResult}
+                      <div class="bulk-result" class:has-fail={bulkResult.failed.length > 0}>
+                        <div class="bulk-result-line">
+                          {t('downloads.summary.ok', {
+                            ok: bulkResult.ok,
+                            total: bulkResult.total
+                          })}
+                          {#if bulkResult.failed.length > 0}
+                            · {t('downloads.summary.failed', { n: bulkResult.failed.length })}
+                          {/if}
+                        </div>
+                        <div class="bulk-result-actions">
+                          {#if bulkResult.failed.length > 0}
+                            <button class="dl-bulk retry" onclick={retryFailedDownloads}>
+                              {t('downloads.summary.retry')}
+                            </button>
+                          {/if}
+                          <button class="dl-bulk dismiss" onclick={() => (bulkResult = null)}>
+                            {t('downloads.summary.dismiss')}
+                          </button>
+                        </div>
+                      </div>
+                    {/if}
                   {/if}
                 {/if}
               </div>
@@ -2277,6 +2464,7 @@
   }
 
   .pin-row {
+    position: relative;
     display: flex;
     align-items: center;
     gap: 0.5rem;
@@ -2325,18 +2513,124 @@
     white-space: nowrap;
   }
 
-  /* Pin/unpin toggle button in the playlist header — sits next to the
-     bulk download CTA. Reads softer than the gradient download button,
-     turns purple-tinted when active (pinned). */
+  /* Hover-Play chip at the right edge of a pinned playlist row. Stays
+     hidden until the user hovers the row, then fades in. Clicking it
+     navigates to the playlist AND starts playing it from track 0
+     without an extra step (matches YT Music's sidebar UX). */
+  .pin-play {
+    flex: 0 0 auto;
+    width: 22px;
+    height: 22px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    background: linear-gradient(135deg, var(--accent), var(--accent-2));
+    color: #ffffff;
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 0.12s ease, transform 0.12s ease, filter 0.12s ease;
+    padding: 0;
+    border: none;
+    box-shadow: 0 4px 12px rgba(var(--accent-rgb), 0.4);
+  }
+  .pin-row:hover .pin-play,
+  .pin-play:focus-visible {
+    opacity: 1;
+  }
+  .pin-play:hover {
+    filter: brightness(1.1);
+    transform: scale(1.08);
+  }
+
+  /* Playlist header action row — big Play, compact download chip,
+     pin/unpin. Sits below the count + duration line, left-aligned,
+     wraps on narrow viewports. */
+  .playlist-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    margin-top: 0.6rem;
+    flex-wrap: wrap;
+  }
+
+  /* Big circular Play CTA — same gradient as the player bar's play
+     button so the visual language is consistent. */
+  .play-big {
+    width: 52px;
+    height: 52px;
+    border-radius: 50%;
+    border: none;
+    background: linear-gradient(135deg, var(--accent), var(--accent-2));
+    color: #ffffff;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 8px 22px rgba(var(--accent-rgb), 0.35);
+    transition: transform 0.12s ease, filter 0.12s ease, box-shadow 0.12s ease;
+  }
+  .play-big:hover {
+    filter: brightness(1.08);
+    transform: scale(1.04);
+    box-shadow: 0 10px 26px rgba(var(--accent-rgb), 0.45);
+  }
+  .play-big:active {
+    transform: scale(0.97);
+  }
+
+  /* Compact icon button: download arrow + small count badge, OR a check
+     mark when all tracks are saved (disabled). */
+  .dl-icon-btn {
+    position: relative;
+    height: 40px;
+    min-width: 40px;
+    padding: 0 0.55rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.25rem;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.04);
+    color: #d4c9e8;
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s, color 0.15s;
+  }
+  .dl-icon-btn:hover:not(:disabled):not(.busy) {
+    background: rgba(var(--accent-rgb), 0.18);
+    border-color: rgba(var(--accent-rgb), 0.55);
+    color: #ffffff;
+  }
+  .dl-icon-btn.done {
+    color: #9eef9e;
+    border-color: rgba(158, 239, 158, 0.35);
+  }
+  .dl-icon-btn:disabled {
+    cursor: default;
+    opacity: 0.85;
+  }
+  .dl-icon-btn.busy {
+    cursor: default;
+    color: #c9b8e6;
+  }
+  .dl-count {
+    font-size: 0.78rem;
+    font-weight: 600;
+    min-width: 1.2em;
+    text-align: center;
+  }
+
+  /* Pin/unpin toggle button in the playlist header — sits alongside the
+     other action buttons. Reads softer than the gradient play button. */
   .pin-toggle {
-    align-self: flex-start;
-    margin-top: 0.4rem;
     display: inline-flex;
     align-items: center;
     gap: 0.4rem;
-    padding: 0.45rem 0.9rem;
+    height: 40px;
+    padding: 0 0.85rem;
     border: 1px solid rgba(255, 255, 255, 0.12);
-    border-radius: 9px;
+    border-radius: 999px;
     background: transparent;
     color: #d4c9e8;
     font-size: 0.82rem;
@@ -2981,13 +3275,6 @@
     cursor: pointer;
   }
 
-  .bulk-progress {
-    margin-top: 0.4rem;
-    color: #c9b8e6;
-    font-size: 0.82rem;
-    font-style: italic;
-  }
-
   /* Post-bulk summary panel: "Downloaded X of Y · N failed" + Retry/OK. */
   .bulk-result {
     margin-top: 0.5rem;
@@ -3023,12 +3310,6 @@
   .dl-bulk.dismiss {
     background: transparent;
     color: #a4a0b8;
-  }
-
-  .all-saved {
-    margin-top: 0.4rem;
-    color: #9eef9e;
-    font-size: 0.82rem;
   }
 
   /* ---- track list (shared between search + playlist) ---------------------- */
