@@ -1138,12 +1138,29 @@
     return list.slice(idx + 1, idx + 1 + PREFETCH_AHEAD).map((r) => r.id)
   }
 
+  // Walk a playlist looking for a playable track in the requested
+  // direction (1 = forward, -1 = backward). Returns the index of the
+  // first non-unavailable track from `start` (inclusive), or -1 when
+  // every remaining row is unplayable. Drives prev/next "skip the
+  // deleted track" behaviour.
+  function findPlayableIndex(list: SearchResult[], start: number, step: 1 | -1): number {
+    for (let i = start; i >= 0 && i < list.length; i += step) {
+      if (!list[i].unavailable) return i
+    }
+    return -1
+  }
+
   async function playTrack(
     track: SearchResult,
     sourceList: SearchResult[],
     sourceContext?: { id?: string; title?: string }
   ): Promise<void> {
     if (playStatus === 'resolving') return
+    // Refuse to start an unavailable row — the stream resolve would
+    // fail with a hard 404 anyway and leave the player in an error
+    // state. UI also disables the click handler on these rows, so this
+    // is belt-and-suspenders.
+    if (track.unavailable) return
     playStatus = 'resolving'
     playError = ''
     try {
@@ -1204,8 +1221,12 @@
     if (!playing) return
     const list = playing.sourceList
     const idx = list.findIndex((r) => r.id === playing!.id)
-    if (idx < 0 || idx + 1 >= list.length) return
-    await playTrack(list[idx + 1], list, {
+    if (idx < 0) return
+    // Skip unavailable rows so the user doesn't hit a no-op when YT
+    // left a deleted track in the middle of the playlist.
+    const nextIdx = findPlayableIndex(list, idx + 1, 1)
+    if (nextIdx < 0) return
+    await playTrack(list[nextIdx], list, {
       id: playing.sourceListId,
       title: playing.sourceListTitle
     })
@@ -1216,7 +1237,9 @@
     const list = playing.sourceList
     const idx = list.findIndex((r) => r.id === playing!.id)
     if (idx <= 0) return
-    await playTrack(list[idx - 1], list, {
+    const prevIdx = findPlayableIndex(list, idx - 1, -1)
+    if (prevIdx < 0) return
+    await playTrack(list[prevIdx], list, {
       id: playing.sourceListId,
       title: playing.sourceListTitle
     })
@@ -1254,7 +1277,11 @@
 
   async function playPlaylistFromStart(): Promise<void> {
     if (!playlistView || playlistView.tracks.length === 0) return
-    await playTrack(playlistView.tracks[0], playlistView.tracks, {
+    // First *playable* track — a playlist whose first row is unavailable
+    // would otherwise just bounce back to idle.
+    const idx = findPlayableIndex(playlistView.tracks, 0, 1)
+    if (idx < 0) return
+    await playTrack(playlistView.tracks[idx], playlistView.tracks, {
       id: openPlaylistId ?? undefined,
       title: playlistView.title
     })
@@ -1275,10 +1302,13 @@
     view = 'playlist'
     await loadPlaylistData(p.id)
     if (playlistView && playlistView.tracks.length > 0) {
-      await playTrack(playlistView.tracks[0], playlistView.tracks, {
-        id: p.id,
-        title: p.title
-      })
+      const idx = findPlayableIndex(playlistView.tracks, 0, 1)
+      if (idx >= 0) {
+        await playTrack(playlistView.tracks[idx], playlistView.tracks, {
+          id: p.id,
+          title: p.title
+        })
+      }
     }
   }
 </script>
@@ -1699,7 +1729,7 @@
                    added a track to the playlist twice), and Svelte 5
                    throws on duplicate keys. -->
               {#each playlistView.tracks as r, idx (`${idx}-${r.id}`)}
-                <li class="track-li">
+                <li class="track-li" class:unavailable={r.unavailable}>
                   <button
                     class="track-row"
                     class:current={playing?.id === r.id}
@@ -1708,7 +1738,8 @@
                         id: openPlaylistId ?? undefined,
                         title: playlistView!.title
                       })}
-                    disabled={playStatus === 'resolving'}
+                    disabled={playStatus === 'resolving' || r.unavailable}
+                    title={r.unavailable ? t('track.unavailable') : undefined}
                   >
                     <div
                       class="thumb"
@@ -1716,7 +1747,13 @@
                     ></div>
                     <div class="meta">
                       <div class="title">{r.title}</div>
-                      <div class="artist">{r.artist}</div>
+                      <div class="artist">
+                        {#if r.unavailable}
+                          {t('track.unavailable')}
+                        {:else}
+                          {r.artist}
+                        {/if}
+                      </div>
                     </div>
                     <div class="duration">{r.duration}</div>
                   </button>
@@ -1724,13 +1761,15 @@
                     class="dl-btn"
                     class:done={downloadedIds.has(r.id)}
                     class:busy={downloadingIds.has(r.id)}
-                    title={downloadedIds.has(r.id)
-                      ? t('track.dl.done')
-                      : downloadingIds.has(r.id)
-                        ? t('track.dl.busy')
-                        : t('track.dl.idle')}
+                    title={r.unavailable
+                      ? t('track.unavailable')
+                      : downloadedIds.has(r.id)
+                        ? t('track.dl.done')
+                        : downloadingIds.has(r.id)
+                          ? t('track.dl.busy')
+                          : t('track.dl.idle')}
                     onclick={() => toggleTrackDownload(r)}
-                    disabled={downloadingIds.has(r.id)}
+                    disabled={downloadingIds.has(r.id) || r.unavailable}
                   >
                     {#if downloadedIds.has(r.id)}
                       ✓
@@ -3506,6 +3545,24 @@
   .track-row:disabled {
     opacity: 0.55;
     cursor: default;
+  }
+
+  /* Playlist row that YT returned without a playable videoId — track is
+     deleted / region-blocked / Premium-only after the user added it.
+     We keep the row visible so the count matches the library card AND
+     the user can see what's "missing" and clean it up in YT proper, but
+     we dim it and italicise the metadata so it's obviously inert. */
+  .track-li.unavailable .track-row,
+  .track-li.unavailable .dl-btn {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+  .track-li.unavailable .title,
+  .track-li.unavailable .artist {
+    font-style: italic;
+  }
+  .track-li.unavailable .thumb {
+    filter: grayscale(1);
   }
 
   .thumb {

@@ -15,6 +15,10 @@ export interface SearchResult {
   artist: string
   duration: string
   thumbnail: string
+  // True when this is a playlist row YT returned without a playable
+  // videoId (deleted / region-blocked / Premium-only after the user
+  // added it). UI renders it dimmed + non-clickable; player skips it.
+  unavailable?: boolean
 }
 
 export type HomeItemType = 'playlist' | 'album' | 'song' | 'video' | 'artist'

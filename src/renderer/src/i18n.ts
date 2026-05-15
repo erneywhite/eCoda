@@ -81,6 +81,7 @@ const RU: Strings = {
   'track.dl.idle': 'Скачать',
   'track.dl.busy': 'Скачиваю…',
   'track.dl.done': 'Удалить с устройства',
+  'track.unavailable': 'Трек недоступен',
 
   // Settings page
   'settings.title': 'Настройки',
@@ -226,6 +227,7 @@ const EN: Strings = {
   'track.dl.idle': 'Download',
   'track.dl.busy': 'Downloading…',
   'track.dl.done': 'Remove from device',
+  'track.unavailable': 'Track unavailable',
 
   'settings.title': 'Settings',
   'settings.account.title': 'Account',

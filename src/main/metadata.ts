@@ -2,31 +2,9 @@
 // kept as type-only (erased at compile time), and the module is loaded via
 // dynamic import() at runtime — Node handles the ESM/CJS boundary cleanly.
 import type { Innertube } from 'youtubei.js'
-import { app } from 'electron'
-import { existsSync, readFileSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { existsSync, readFileSync } from 'node:fs'
 import { getCookiesFilePath, getLocale } from './auth'
 import { harvestTokens, innertubeFetch } from './token-harvest'
-
-// One-shot diagnostic: dump up to 4 raw /browse pages per playlist to
-// disk so we can analyse mysterious count discrepancies. Files written
-// to <userData>/debug-playlist-<id>-pN.json, skipped on subsequent
-// opens. Removed once the bug is understood.
-function debugDumpPlaylistPage(playlistId: string, page: number, data: unknown): void {
-  try {
-    if (page > 4) return
-    const safeId = playlistId.replace(/[^\w-]/g, '_')
-    const path = join(
-      app.getPath('userData'),
-      `debug-playlist-${safeId}-p${page}.json`
-    )
-    if (existsSync(path)) return
-    writeFileSync(path, JSON.stringify(data, null, 2), 'utf8')
-    console.log(`[debug] dumped playlist response to ${path}`)
-  } catch (err) {
-    console.warn('[debug] dump failed:', err)
-  }
-}
 
 let innertube: Innertube | null = null
 
@@ -102,6 +80,11 @@ export interface SearchResult {
   artist: string
   duration: string
   thumbnail: string
+  // True when YT returned this row without a playable videoId — usually
+  // a deleted / region-blocked / Premium-only track that the playlist
+  // owner once added. We keep the row in the list (matches YT's UI and
+  // the library-card count) but the player + next/prev skip over it.
+  unavailable?: boolean
 }
 
 function fmtDuration(seconds: unknown): string {
@@ -527,7 +510,7 @@ function parseTrackRowsInto(
       ?.navigationEndpoint as Record<string, unknown> | undefined
     const watch = navEndpoint?.watchEndpoint as Record<string, unknown> | undefined
     const videoId = typeof watch?.videoId === 'string' ? watch.videoId : ''
-    if (!videoId || !/^[\w-]{11}$/.test(videoId)) continue
+    const hasPlayableId = videoId && /^[\w-]{11}$/.test(videoId)
 
     // playlistSetVideoId is YT's unique row-id within a playlist (a hex
     // string like "31A22D0994588080"). Using it for dedup lets a user
@@ -538,19 +521,41 @@ function parseTrackRowsInto(
     const setVideoId = typeof itemData?.playlistSetVideoId === 'string'
       ? itemData.playlistSetVideoId
       : ''
+
+    const trackTitle = flexColText(item, 0)
+    // A row with no playable videoId AND no setVideoId is genuine
+    // garbage (header/footer/decorative) — skip it. A row with no
+    // playable videoId but a setVideoId is an unavailable track that
+    // YT still keeps in the playlist for ownership/order purposes.
+    // Keep those with an `unavailable: true` marker so the count
+    // matches the card and the user can see / remove them.
+    if (!hasPlayableId && !setVideoId) continue
+    if (!trackTitle) continue
+
     const dedupKey = setVideoId || `${videoId}@${index}`
     index++
     if (seen.has(dedupKey)) continue
     seen.add(dedupKey)
 
-    const trackTitle = flexColText(item, 0)
-    if (!trackTitle) continue
     const col1 = flexColText(item, 1)
     const artist = col1.split(/\s*[•·]\s*/)[0]
     const duration = fixedColText(item, 0) || flexColText(item, 2)
     const thumb = findFirstThumbnail(item)
 
-    out.push({ id: videoId, title: trackTitle, artist, duration, thumbnail: thumb })
+    if (hasPlayableId) {
+      out.push({ id: videoId, title: trackTitle, artist, duration, thumbnail: thumb })
+    } else {
+      // Synthetic id so Svelte's keyed iteration stays unique and the
+      // player can hard-detect "this isn't playable" by the prefix.
+      out.push({
+        id: `__unavail__${setVideoId}`,
+        title: trackTitle,
+        artist,
+        duration,
+        thumbnail: thumb,
+        unavailable: true
+      })
+    }
   }
 }
 
@@ -566,7 +571,6 @@ export async function getPlaylistTracks(id: string): Promise<{
   // which works as-is.
   const browseId = id.startsWith('VL') || id.startsWith('MPRE') ? id : `VL${id}`
   const data = await innertubeFetch('/browse', { browseId })
-  debugDumpPlaylistPage(id, 1, data)
 
   // Header may live as musicDetailHeaderRenderer (old) or
   // musicResponsiveHeaderRenderer (newer). Find whichever shows up.
@@ -619,7 +623,6 @@ export async function getPlaylistTracks(id: string): Promise<{
     const before = tracks.length
     try {
       const next = await innertubeFetch('/browse', { continuation: nextToken })
-      debugDumpPlaylistPage(id, page + 1, next)
       parseTrackRowsInto(next, seenTrackIds, tracks)
       const added = tracks.length - before
       const newToken = findPlaylistContinuationToken(next)
