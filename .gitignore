@@ -13,3 +13,4 @@ resources/yt-dlp.exe
 resources/yt-dlp
 resources/deno.exe
 resources/deno
+.claude/
