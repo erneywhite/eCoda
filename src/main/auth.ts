@@ -167,6 +167,12 @@ function configPath(): string {
   return join(app.getPath('userData'), 'config.json')
 }
 
+// Path to the Netscape cookies file yt-dlp writes at connect time and
+// youtubei.js reads from for authenticated extraction.
+export function getCookiesFilePath(): string {
+  return join(app.getPath('userData'), 'youtube-cookies.txt')
+}
+
 async function readConfig(): Promise<Config> {
   try {
     return JSON.parse(await readFile(configPath(), 'utf8')) as Config

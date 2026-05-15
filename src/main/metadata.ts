@@ -2,15 +2,52 @@
 // kept as type-only (erased at compile time), and the module is loaded via
 // dynamic import() at runtime — Node handles the ESM/CJS boundary cleanly.
 import type { Innertube } from 'youtubei.js'
+import { existsSync, readFileSync } from 'node:fs'
+import { getCookiesFilePath } from './auth'
 
 let innertube: Innertube | null = null
 
+// Parses the Netscape cookies file yt-dlp writes at connect time and returns
+// a Cookie header string with only YouTube/Google cookies. Empty string if
+// the file doesn't exist or has nothing usable.
+function readCookieHeader(): string {
+  const path = getCookiesFilePath()
+  if (!existsSync(path)) return ''
+  try {
+    const cookies: string[] = []
+    // Split on both \r\n and \n so a trailing \r from Windows line endings
+    // doesn't end up inside cookie values and break HTTP header validation.
+    for (const line of readFileSync(path, 'utf-8').split(/\r?\n/)) {
+      const trimmed = line.trim()
+      if (!trimmed || trimmed.startsWith('#')) continue
+      const parts = line.split('\t')
+      if (parts.length < 7) continue
+      const [domain, , , , , name, value] = parts
+      if (!domain.includes('youtube.com') && !domain.includes('google.com')) continue
+      // Defensive: skip any cookie whose name or value carries a control
+      // character — those are rejected by HTTP header validation.
+      if (/[\r\n\0]/.test(name) || /[\r\n\0]/.test(value)) continue
+      cookies.push(`${name}=${value}`)
+    }
+    return cookies.join('; ')
+  } catch {
+    return ''
+  }
+}
+
 async function getInnertube(): Promise<Innertube> {
   if (!innertube) {
+    const cookie = readCookieHeader()
     const mod = await import('youtubei.js')
-    innertube = await mod.Innertube.create()
+    innertube = await mod.Innertube.create(cookie ? { cookie } : {})
   }
   return innertube
+}
+
+// Forces a fresh Innertube on the next request — call after the user
+// (dis)connects so cookies for the new session take effect.
+export function resetInnertube(): void {
+  innertube = null
 }
 
 export interface SearchResult {
@@ -19,6 +56,12 @@ export interface SearchResult {
   artist: string
   duration: string
   thumbnail: string
+}
+
+export interface ResolvedAudio {
+  title: string
+  format: string
+  streamUrl: string
 }
 
 function fmtDuration(seconds: unknown): string {
@@ -99,4 +142,43 @@ export async function searchSongs(query: string): Promise<SearchResult[]> {
     out.push({ id, title, artist, duration, thumbnail })
   }
   return out.slice(0, 30)
+}
+
+function toVideoId(input: string): string {
+  const trimmed = input.trim()
+  if (/^[\w-]{11}$/.test(trimmed)) return trimmed
+  try {
+    const u = new URL(trimmed)
+    const v = u.searchParams.get('v')
+    if (v && /^[\w-]{11}$/.test(v)) return v
+  } catch {
+    // not a URL
+  }
+  return trimmed
+}
+
+// Resolves a track's title and an audio stream URL via youtubei.js. Uses the
+// authenticated session built from the cookies yt-dlp dumped at connect time.
+// This is the fast path — no yt-dlp.exe / Deno subprocess. Falls back to
+// yt-dlp upstream (see index.ts) if this fails for any given video.
+export async function extractStreamUrl(input: string): Promise<ResolvedAudio> {
+  const yt = await getInnertube()
+  const videoId = toVideoId(input)
+  // getBasicInfo is lighter than getInfo (skips watch-next/comments/related)
+  // — same streaming_data + basic_info, less to parse over the wire.
+  const info = await yt.getBasicInfo(videoId)
+
+  const format = info.chooseFormat({ type: 'audio', quality: 'best' })
+  if (!format) throw new Error('No audio format available')
+
+  // `decipher` resolves the signed URL; it's async and may throw if the
+  // signature/player cipher can't be resolved (e.g. no session player yet).
+  const streamUrl = await format.decipher(yt.session.player)
+  if (!streamUrl) throw new Error('Failed to derive a playable URL')
+
+  const title = info.basic_info?.title ?? ''
+  const mime = format.mime_type ?? ''
+  const ext = mime.split(';')[0].split('/')[1] || 'audio'
+
+  return { title, format: ext, streamUrl }
 }

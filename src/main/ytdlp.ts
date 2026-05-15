@@ -1,8 +1,10 @@
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { dirname, delimiter } from 'node:path'
+import { existsSync, writeFileSync } from 'node:fs'
 import ytdlpPath from '../../resources/yt-dlp.exe?asset'
 import denoPath from '../../resources/deno.exe?asset'
+import { getCookiesFilePath } from './auth'
 
 const run = promisify(execFile)
 
@@ -61,13 +63,24 @@ export async function resolveAudio(input: string, browser: string): Promise<Reso
 
 // Checks whether a browser has a usable YouTube login by trying to reach the
 // user's private "Liked videos" playlist (LL), which requires authentication.
+// Side effect: also dumps the cookies to disk for youtubei.js to use later.
 export async function verifyBrowserLogin(browser: string): Promise<boolean> {
+  const cookieFile = getCookiesFilePath()
+  if (!existsSync(cookieFile)) {
+    try {
+      writeFileSync(cookieFile, '# Netscape HTTP Cookie File\n', 'utf-8')
+    } catch {
+      // yt-dlp will create it itself if needed
+    }
+  }
   try {
     await run(
       ytdlpPath,
       [
         '--cookies-from-browser',
         browser,
+        '--cookies',
+        cookieFile,
         '--flat-playlist',
         '--playlist-items',
         '1',

@@ -3,7 +3,7 @@ import { join } from 'path'
 import icon from '../../resources/icon.png?asset'
 import { resolveAudio, verifyBrowserLogin } from './ytdlp'
 import { detectBrowsers, getBrowser, setBrowser, disconnect, ytdlpBrowserArg } from './auth'
-import { searchSongs } from './metadata'
+import { searchSongs, extractStreamUrl, resetInnertube } from './metadata'
 
 let mainWindow: BrowserWindow | null = null
 
@@ -52,11 +52,17 @@ app.whenReady().then(() => {
     const arg = ytdlpBrowserArg(browser)
     if (!arg) return false
     const ok = await verifyBrowserLogin(arg)
-    if (ok) await setBrowser(browser)
+    if (ok) {
+      await setBrowser(browser)
+      // The cookies file was just refreshed by verifyBrowserLogin; force
+      // youtubei.js to pick them up on the next request.
+      resetInnertube()
+    }
     return ok
   })
   ipcMain.handle('auth:disconnect', async () => {
     await disconnect()
+    resetInnertube()
     return true
   })
   ipcMain.handle('auth:open-youtube', () => {
@@ -69,11 +75,17 @@ app.whenReady().then(() => {
     if (!browser) {
       throw new Error('No browser connected — connect a browser first.')
     }
-    const arg = ytdlpBrowserArg(browser)
-    if (!arg) {
-      throw new Error('The connected browser is no longer available.')
+    // Fast path: in-process extraction via youtubei.js (no subprocess).
+    try {
+      return await extractStreamUrl(input)
+    } catch (err) {
+      // Fall back to the proven yt-dlp path if youtubei.js can't get a URL
+      // for this particular video.
+      console.warn('[audio:resolve] youtubei.js failed, falling back to yt-dlp:', err)
+      const arg = ytdlpBrowserArg(browser)
+      if (!arg) throw err
+      return resolveAudio(input, arg)
     }
-    return resolveAudio(input, arg)
   })
 
   createWindow()
