@@ -2,9 +2,32 @@
 // kept as type-only (erased at compile time), and the module is loaded via
 // dynamic import() at runtime — Node handles the ESM/CJS boundary cleanly.
 import type { Innertube } from 'youtubei.js'
-import { existsSync, readFileSync } from 'node:fs'
+import { app } from 'electron'
+import { existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { getCookiesFilePath, getLocale } from './auth'
 import { harvestTokens, innertubeFetch } from './token-harvest'
+
+// Diagnostic: when we hit the unexplained "count differs from card"
+// bug for a specific playlist, dropping the raw /browse responses to
+// disk lets us inspect what YT actually returned. Saves up to four
+// pages per playlist (page1.json … page4.json) the FIRST time the
+// playlist is opened — subsequent opens skip the dump.
+function debugDumpPlaylistPage(playlistId: string, page: number, data: unknown): void {
+  try {
+    const safeId = playlistId.replace(/[^\w-]/g, '_')
+    const path = join(
+      app.getPath('userData'),
+      `debug-playlist-${safeId}-p${page}.json`
+    )
+    if (existsSync(path)) return
+    if (page > 4) return
+    writeFileSync(path, JSON.stringify(data, null, 2), 'utf8')
+    console.log(`[debug] dumped playlist response to ${path}`)
+  } catch (err) {
+    console.warn('[debug] dump failed:', err)
+  }
+}
 
 let innertube: Innertube | null = null
 
@@ -419,6 +442,28 @@ function findContinuationToken(data: unknown): string | null {
   return null
 }
 
+// Finds the continuation token specifically for the playlist shelf —
+// NOT for any other section (Suggested tracks / related / etc) that
+// might also paginate independently. If we use a global findContinuationToken
+// the response can return a Suggested-section token instead and our
+// pagination loop ends up walking the wrong chain, adding non-playlist
+// rows to the track list.
+function findPlaylistContinuationToken(data: unknown): string | null {
+  // Initial /browse VL<id> response — playlist's own continuation lives
+  // inside musicPlaylistShelfRenderer.
+  for (const shelf of findAll(data, 'musicPlaylistShelfRenderer')) {
+    const t = findContinuationToken(shelf)
+    if (t) return t
+  }
+  // Continuation pages wrap their continued contents in
+  // musicPlaylistShelfContinuation; the next token lives there too.
+  for (const cont of findAll(data, 'musicPlaylistShelfContinuation')) {
+    const t = findContinuationToken(cont)
+    if (t) return t
+  }
+  return null
+}
+
 // Walks a response subtree, pulls every track row out, and appends them
 // to `out` (deduped via the shared `seen` set). Used for both the initial
 // /browse VL<id> response AND every continuation page that follows.
@@ -437,14 +482,21 @@ function parseTrackRowsInto(
   // musicPlaylistShelfContinuation. Some responses use the older
   // musicShelfRenderer container instead. Collect whichever we find.
   const shelves: Record<string, unknown>[] = []
+  let pickedFrom = 'fallback-whole-tree'
   for (const c of findAll(data, 'musicPlaylistShelfRenderer')) shelves.push(c)
-  for (const c of findAll(data, 'musicPlaylistShelfContinuation')) shelves.push(c)
+  if (shelves.length > 0) pickedFrom = `musicPlaylistShelfRenderer×${shelves.length}`
+  if (shelves.length === 0) {
+    for (const c of findAll(data, 'musicPlaylistShelfContinuation')) shelves.push(c)
+    if (shelves.length > 0) pickedFrom = `musicPlaylistShelfContinuation×${shelves.length}`
+  }
   if (shelves.length === 0) {
     for (const c of findAll(data, 'musicShelfRenderer')) shelves.push(c)
+    if (shelves.length > 0) pickedFrom = `musicShelfRenderer×${shelves.length}`
   }
   // Fallback: if we couldn't identify a shelf, walk the whole subtree.
   // Lossy on count but better than missing the tracks entirely.
   const searchRoot: unknown = shelves.length > 0 ? shelves : data
+  console.log(`[parseTrackRowsInto] container=${pickedFrom}`)
 
   for (const item of findAll(searchRoot, 'musicResponsiveListItemRenderer')) {
     const flexCols = item.flexColumns as Array<Record<string, unknown>> | undefined
@@ -485,6 +537,7 @@ export async function getPlaylistTracks(id: string): Promise<{
   // which works as-is.
   const browseId = id.startsWith('VL') || id.startsWith('MPRE') ? id : `VL${id}`
   const data = await innertubeFetch('/browse', { browseId })
+  debugDumpPlaylistPage(id, 1, data)
 
   // Header may live as musicDetailHeaderRenderer (old) or
   // musicResponsiveHeaderRenderer (newer). Find whichever shows up.
@@ -515,25 +568,40 @@ export async function getPlaylistTracks(id: string): Promise<{
 
   const tracks: SearchResult[] = []
   const seenTrackIds = new Set<string>()
+  const firstPageBefore = tracks.length
   parseTrackRowsInto(data, seenTrackIds, tracks)
+  const firstPageAdded = tracks.length - firstPageBefore
+  console.log(
+    `[getPlaylistTracks] ${id} page 1: added ${firstPageAdded} (total ${tracks.length})`
+  )
 
   // YT's /browse returns at most ~100 tracks per page; the rest live behind
   // continuation tokens. Follow them until we get a page with no further
   // token. The MAX_PAGES cap is a safety net — most "long" playlists are
   // under 1000 tracks, and 50 pages × 100 = 5000 is a generous ceiling.
+  // The token lookup is scoped to the playlist shelf (not the global
+  // tree) so a Suggested-tracks pagination chain doesn't get followed
+  // instead of the real playlist chain.
   const MAX_PAGES = 50
-  let nextToken = findContinuationToken(data)
+  let nextToken = findPlaylistContinuationToken(data)
   let page = 0
   while (nextToken && page < MAX_PAGES) {
     page++
     const before = tracks.length
     try {
       const next = await innertubeFetch('/browse', { continuation: nextToken })
+      debugDumpPlaylistPage(id, page + 1, next)
       parseTrackRowsInto(next, seenTrackIds, tracks)
-      const newToken = findContinuationToken(next)
-      // Belt-and-suspenders: if a page brings nothing new AND the token is
-      // unchanged, bail out so we don't loop forever on a malformed response.
-      if (tracks.length === before && newToken === nextToken) break
+      const added = tracks.length - before
+      const newToken = findPlaylistContinuationToken(next)
+      console.log(
+        `[getPlaylistTracks] ${id} page ${page + 1}: added ${added} (total ${tracks.length}) nextToken=${newToken ? 'yes' : 'no'}`
+      )
+      // Belt-and-suspenders: if a page brings nothing new, bail out.
+      // YT shouldn't ever respond with an "empty playlist page that also
+      // has a token to a different chunk" — if it does, we'd loop adding
+      // zero useful rows forever.
+      if (added === 0) break
       nextToken = newToken
     } catch (err) {
       console.warn(`[getPlaylistTracks] continuation page ${page} failed:`, err)
