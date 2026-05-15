@@ -1,5 +1,6 @@
-import { app, shell, BrowserWindow, ipcMain } from 'electron'
+import { app, shell, BrowserWindow, ipcMain, protocol, net } from 'electron'
 import { join } from 'path'
+import { pathToFileURL } from 'node:url'
 import icon from '../../resources/icon.png?asset'
 import { verifyBrowserLogin } from './ytdlp'
 import { detectBrowsers, getBrowser, setBrowser, disconnect, ytdlpBrowserArg } from './auth'
@@ -15,6 +16,7 @@ import {
   downloadOne,
   downloadMany,
   deleteDownloadedTrack,
+  getCachedFilePath,
   getDownloadedStatus,
   listDownloadedTracks,
   type TrackInfo
@@ -23,6 +25,24 @@ import { importCookiesToMusicSession, clearMusicSessionCookies } from './library
 import { harvestTokens, resetHarvest, browseViaPage, innertubeFetch } from './token-harvest'
 
 let mainWindow: BrowserWindow | null = null
+
+// Privileged custom protocol so the renderer can play offline-cached audio
+// without bumping into webSecurity / CSP rules that block bare file://
+// URLs from a non-file:// page. Must be registered before app.ready —
+// once whenReady() fires we then `protocol.handle('media', ...)` to wire
+// up the actual file serving.
+protocol.registerSchemesAsPrivileged([
+  {
+    scheme: 'media',
+    privileges: {
+      standard: true,
+      secure: true,
+      supportFetchAPI: true,
+      bypassCSP: true,
+      stream: true
+    }
+  }
+])
 
 function createWindow(): void {
   mainWindow = new BrowserWindow({
@@ -72,6 +92,18 @@ function createWindow(): void {
 }
 
 app.whenReady().then(() => {
+  // Wire up media:// — translates media://<videoId> to the file on disk
+  // and lets Electron's net module stream it (Range requests, content-type
+  // sniffing, the lot). HTML5 <audio> works against this URL identically
+  // to a regular https stream.
+  protocol.handle('media', (request) => {
+    const u = new URL(request.url)
+    const videoId = (u.hostname || u.pathname.replace(/^\//, '')).trim()
+    const path = getCachedFilePath(videoId)
+    if (!path) return new Response('not found', { status: 404 })
+    return net.fetch(pathToFileURL(path).toString())
+  })
+
   ipcMain.handle('auth:browsers', () => detectBrowsers())
   ipcMain.handle('auth:status', () => getBrowser())
   ipcMain.handle('auth:connect', async (_event, browser: string) => {

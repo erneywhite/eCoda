@@ -1,7 +1,6 @@
 import { resolveAudio, type ResolvedAudio } from './ytdlp'
 import { extractStreamUrlViaPage } from './metadata'
 import { getCachedFilePath } from './downloads'
-import { pathToFileURL } from 'node:url'
 
 // Resolves audio stream URLs with a three-layer strategy:
 //   1. Per-track cache so a re-click is instant.
@@ -33,12 +32,17 @@ function fresh(entry: CacheEntry | undefined): boolean {
 // concurrent calls for the same id so a double-click doesn't fork yt-dlp.
 export async function resolveCached(videoId: string, browser: string): Promise<ResolvedAudio> {
   // Highest priority: a file on disk from the user's offline-download
-  // cache. Instant playback, works offline, no expiry.
+  // cache. Served via our media:// privileged scheme — bare file:// URLs
+  // would get blocked by the renderer's webSecurity for cross-origin
+  // loads. Instant playback, works offline, no expiry.
   const cachedPath = getCachedFilePath(videoId)
   if (cachedPath) {
-    const url = pathToFileURL(cachedPath).toString()
     console.log(`[resolver] OFFLINE ${videoId}`)
-    return { title: '', format: cachedPath.split('.').pop() ?? 'audio', streamUrl: url }
+    return {
+      title: '',
+      format: cachedPath.split('.').pop() ?? 'audio',
+      streamUrl: `media://${videoId}`
+    }
   }
   const hit = cache.get(videoId)
   if (fresh(hit)) {
