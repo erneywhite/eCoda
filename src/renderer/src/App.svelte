@@ -480,24 +480,23 @@
 
     {#if playing}
       <div class="player-bar">
-        <!-- YT Music-style: thin full-width progress strip on top, controls
-             row below it. Times sit on either end of the progress strip. -->
-        <div class="seek-row">
-          <span class="time">{fmtTime(currentTime)}</span>
-          <input
-            type="range"
-            class="seek"
-            min="0"
-            max={duration || 0}
-            step="0.5"
-            value={currentTime}
-            oninput={onSeekInput}
-            onchange={onSeekCommit}
-            disabled={!duration}
-            style:--p="{duration ? (currentTime / duration) * 100 : 0}%"
-          />
-          <span class="time">{fmtTime(duration)}</span>
-        </div>
+        <!-- Thin full-width progress strip flush to the top edge of the
+             player bar (visually replaces the top border). Times live
+             inline with the transport buttons below, the same way YT Music
+             arranges them. -->
+        <input
+          type="range"
+          class="seek"
+          min="0"
+          max={duration || 0}
+          step="0.5"
+          value={currentTime}
+          oninput={onSeekInput}
+          onchange={onSeekCommit}
+          disabled={!duration}
+          style:--p="{duration ? (currentTime / duration) * 100 : 0}%"
+          aria-label="Прогресс трека"
+        />
 
         <div class="bottom-row">
           <div class="now-playing">
@@ -544,6 +543,9 @@
                 <path d="M16 6h2v12h-2z" />
               </svg>
             </button>
+            <span class="time-inline">
+              {fmtTime(currentTime)} / {fmtTime(duration)}
+            </span>
           </div>
 
           <div class="volume">
@@ -1013,18 +1015,23 @@
   .player-bar {
     display: flex;
     flex-direction: column;
-    border-top: 1px solid #241a38;
     background: #0f0a18;
     flex-shrink: 0;
   }
 
-  /* Full-width progress strip just under the top border, with times on
-     either side — mirrors music.youtube.com's bottom bar. */
-  .seek-row {
-    display: flex;
-    align-items: center;
-    gap: 0.7rem;
-    padding: 0.4rem 1.5rem 0.2rem;
+  /* The seek bar sits flush against the top of the player bar and visually
+     replaces the top border. 12px tall input = generous click target, but
+     the actual coloured track inside is only 3px (5px on hover). */
+  .seek {
+    -webkit-appearance: none;
+    appearance: none;
+    display: block;
+    width: 100%;
+    height: 12px;
+    margin: 0;
+    padding: 0;
+    background: transparent;
+    cursor: pointer;
   }
 
   .bottom-row {
@@ -1127,47 +1134,82 @@
     transform: scale(1.06);
   }
 
-  .time {
+  /* Inline time readout next to the transport buttons, YT-Music style:
+     "0:50 / 2:44". One element, no fixed width, just sits right of next. */
+  .time-inline {
     color: #8c7da8;
-    font-size: 0.74rem;
+    font-size: 0.78rem;
     font-variant-numeric: tabular-nums;
-    width: 40px;
-    text-align: center;
-    flex-shrink: 0;
+    margin-left: 0.6rem;
+    white-space: nowrap;
   }
 
   /* ---- range sliders (seek + volume) ----
      YT-Music-style: very thin grey track that grows a filled purple bar
-     under the played portion. The thumb is hidden by default and only
-     appears on hover. Fill width is driven by an inline `--p` CSS var so
-     the rule stays declarative. */
-  .seek,
-  .vol {
-    -webkit-appearance: none;
-    appearance: none;
-    background: transparent;
-    margin: 0;
-    cursor: pointer;
-    padding: 0;
-  }
+     under the played portion. Fill width is driven by an inline `--p` CSS
+     var so the rule stays declarative.
 
-  .seek {
-    flex: 1;
-    height: 14px;
-  }
-
-  .vol {
-    width: 100%;
-    max-width: 110px;
-    height: 14px;
-  }
-
+     For the SEEK bar we anchor the track to the TOP of the input (not the
+     centre) — that's what makes the strip read as a top border instead of
+     a floating control. We do this by using a transparent top border on
+     the runnable-track plus a normal background for the visible track
+     below it. Hover thickens the visible track. */
   .seek:disabled {
     cursor: default;
     opacity: 0.5;
   }
 
-  .seek::-webkit-slider-runnable-track,
+  .seek::-webkit-slider-runnable-track {
+    height: 3px;
+    /* anchor visible track to the top edge of the 12px-tall input */
+    margin-top: 0;
+    border-radius: 0;
+    background: linear-gradient(
+      to right,
+      #c97df6 0%,
+      #c97df6 var(--p, 0%),
+      #2a2040 var(--p, 0%),
+      #2a2040 100%
+    );
+    transition: height 0.12s ease;
+  }
+
+  .seek:hover::-webkit-slider-runnable-track {
+    height: 5px;
+  }
+
+  .seek::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    margin-top: -4px;
+    width: 11px;
+    height: 11px;
+    border-radius: 50%;
+    background: #c97df6;
+    border: none;
+    opacity: 0;
+    transition: opacity 0.15s ease;
+  }
+
+  .seek:hover::-webkit-slider-thumb {
+    opacity: 1;
+    margin-top: -3px;
+  }
+
+  /* Volume — same look but anchored centred (it lives inline with controls,
+     not as a top edge). */
+  .vol {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 100%;
+    max-width: 110px;
+    height: 14px;
+    margin: 0;
+    padding: 0;
+    background: transparent;
+    cursor: pointer;
+  }
+
   .vol::-webkit-slider-runnable-track {
     height: 3px;
     border-radius: 999px;
@@ -1180,27 +1222,23 @@
     );
   }
 
-  .seek:hover::-webkit-slider-runnable-track,
   .vol:hover::-webkit-slider-runnable-track {
     height: 4px;
   }
 
-  .seek::-webkit-slider-thumb,
   .vol::-webkit-slider-thumb {
     -webkit-appearance: none;
     appearance: none;
     margin-top: -5px;
-    width: 13px;
-    height: 13px;
+    width: 11px;
+    height: 11px;
     border-radius: 50%;
     background: #ffffff;
     border: none;
     opacity: 0;
     transition: opacity 0.15s ease;
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.4);
   }
 
-  .seek:hover::-webkit-slider-thumb,
   .vol:hover::-webkit-slider-thumb {
     opacity: 1;
   }
