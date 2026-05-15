@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer } from 'electron'
 
 const api = {
   resolveAudio: (input: string) => ipcRenderer.invoke('audio:resolve', input),
+  prefetchAudio: (ids: string[]) => ipcRenderer.invoke('audio:prefetch', ids),
   auth: {
     browsers: () => ipcRenderer.invoke('auth:browsers'),
     status: () => ipcRenderer.invoke('auth:status'),

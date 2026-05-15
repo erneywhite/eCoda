@@ -1,9 +1,10 @@
 import { app, shell, BrowserWindow, ipcMain } from 'electron'
 import { join } from 'path'
 import icon from '../../resources/icon.png?asset'
-import { resolveAudio, verifyBrowserLogin } from './ytdlp'
+import { verifyBrowserLogin } from './ytdlp'
 import { detectBrowsers, getBrowser, setBrowser, disconnect, ytdlpBrowserArg } from './auth'
-import { searchSongs, extractStreamUrl, resetInnertube } from './metadata'
+import { searchSongs, resetInnertube } from './metadata'
+import { resolveCached, queuePrefetch, clearResolverCache } from './resolver'
 
 let mainWindow: BrowserWindow | null = null
 
@@ -26,6 +27,11 @@ function createWindow(): void {
 
   mainWindow.on('ready-to-show', () => {
     mainWindow?.show()
+    // DevTools open by default in dev only — easier to inspect renderer
+    // logs and network without poking Ctrl+Shift+I every launch.
+    if (!app.isPackaged) {
+      mainWindow?.webContents.openDevTools({ mode: 'detach' })
+    }
   })
 
   mainWindow.on('closed', () => {
@@ -63,6 +69,7 @@ app.whenReady().then(() => {
   ipcMain.handle('auth:disconnect', async () => {
     await disconnect()
     resetInnertube()
+    clearResolverCache()
     return true
   })
   ipcMain.handle('auth:open-youtube', () => {
@@ -70,22 +77,30 @@ app.whenReady().then(() => {
     return true
   })
   ipcMain.handle('metadata:search', (_event, query: string) => searchSongs(query))
+  // Resolves a single track's stream URL. yt-dlp is the only working path —
+  // youtubei.js can't get music streams without po_token (see metadata.ts).
+  // Resolves go through resolver.ts so re-clicks and prefetched tracks come
+  // back from the in-memory cache instantly.
   ipcMain.handle('audio:resolve', async (_event, input: string) => {
     const browser = await getBrowser()
     if (!browser) {
       throw new Error('No browser connected — connect a browser first.')
     }
-    // Fast path: in-process extraction via youtubei.js (no subprocess).
-    try {
-      return await extractStreamUrl(input)
-    } catch (err) {
-      // Fall back to the proven yt-dlp path if youtubei.js can't get a URL
-      // for this particular video.
-      console.warn('[audio:resolve] youtubei.js failed, falling back to yt-dlp:', err)
-      const arg = ytdlpBrowserArg(browser)
-      if (!arg) throw err
-      return resolveAudio(input, arg)
+    const arg = ytdlpBrowserArg(browser)
+    if (!arg) {
+      throw new Error('Could not resolve cookies for the connected browser.')
     }
+    return resolveCached(input, arg)
+  })
+  // Fire-and-forget — renderer hands off "next N tracks" once playback
+  // starts, so by the time the user clicks the next one its URL is ready.
+  ipcMain.handle('audio:prefetch', async (_event, ids: string[]) => {
+    const browser = await getBrowser()
+    if (!browser) return false
+    const arg = ytdlpBrowserArg(browser)
+    if (!arg) return false
+    queuePrefetch(Array.isArray(ids) ? ids : [], arg)
+    return true
   })
 
   createWindow()

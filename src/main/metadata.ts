@@ -58,12 +58,6 @@ export interface SearchResult {
   thumbnail: string
 }
 
-export interface ResolvedAudio {
-  title: string
-  format: string
-  streamUrl: string
-}
-
 function fmtDuration(seconds: unknown): string {
   if (typeof seconds !== 'number' || !Number.isFinite(seconds) || seconds <= 0) return ''
   const m = Math.floor(seconds / 60)
@@ -144,43 +138,16 @@ export async function searchSongs(query: string): Promise<SearchResult[]> {
   return out.slice(0, 30)
 }
 
-function toVideoId(input: string): string {
-  const trimmed = input.trim()
-  if (/^[\w-]{11}$/.test(trimmed)) return trimmed
-  try {
-    const u = new URL(trimmed)
-    const v = u.searchParams.get('v')
-    if (v && /^[\w-]{11}$/.test(v)) return v
-  } catch {
-    // not a URL
-  }
-  return trimmed
-}
-
-// Resolves a track's title and an audio stream URL via youtubei.js. Uses the
-// authenticated session built from the cookies yt-dlp dumped at connect time.
-// This is the fast path — no yt-dlp.exe / Deno subprocess. Falls back to
-// yt-dlp upstream (see index.ts) if this fails for any given video.
-export async function extractStreamUrl(input: string): Promise<ResolvedAudio> {
-  const yt = await getInnertube()
-  const videoId = toVideoId(input)
-  // NOTE: must be getInfo, not getBasicInfo. youtubei.js's getBasicInfo
-  // returns a response WITHOUT streaming_data, so chooseFormat throws
-  // "Streaming data not available" on every call and we fall back to
-  // yt-dlp — defeating the whole point of the fast path.
-  const info = await yt.getInfo(videoId)
-
-  const format = info.chooseFormat({ type: 'audio', quality: 'best' })
-  if (!format) throw new Error('No audio format available')
-
-  // `decipher` resolves the signed URL; it's async and may throw if the
-  // signature/player cipher can't be resolved (e.g. no session player yet).
-  const streamUrl = await format.decipher(yt.session.player)
-  if (!streamUrl) throw new Error('Failed to derive a playable URL')
-
-  const title = info.basic_info?.title ?? ''
-  const mime = format.mime_type ?? ''
-  const ext = mime.split(';')[0].split('/')[1] || 'audio'
-
-  return { title, format: ext, streamUrl }
-}
+// NOTE: extracting playable stream URLs via youtubei.js does NOT work for
+// YouTube Music tracks in the current YouTube backend. Music tracks return
+// `streaming_data` as empty (0 audio formats) without a valid po_token
+// (Proof-of-Origin Token). Switching the InnerTube client (IOS / ANDROID /
+// TV_EMBEDDED / YTMUSIC_ANDROID) does not help — the gate is po_token, not
+// the client. Stream extraction is handled by yt-dlp in `ytdlp.ts`.
+//
+// If we ever want to drop the yt-dlp dependency, the path is to integrate
+// `LuanRT/bgutils-js` to emulate BotGuard and synthesise a po_token, then
+// pass it to Innertube.create({ po_token, visitor_data, ... }). Until then,
+// yt-dlp handles this for us — it generates po_token via its own Deno-run
+// JS challenges. See probe-music.json + probe-format.json in repo root for
+// the empirical evidence that drove this decision.

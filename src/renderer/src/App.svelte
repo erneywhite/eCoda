@@ -82,6 +82,17 @@
     }
   }
 
+  // Prefetch a few tracks past the one we're about to play. When yt-dlp
+  // takes 4-5 seconds for a fresh resolve, doing it in the background
+  // while the user listens means the next click is instant from cache.
+  const PREFETCH_AHEAD = 2
+
+  function nextIds(currentId: string): string[] {
+    const idx = searchResults.findIndex((r) => r.id === currentId)
+    if (idx < 0) return []
+    return searchResults.slice(idx + 1, idx + 1 + PREFETCH_AHEAD).map((r) => r.id)
+  }
+
   async function play(result: SearchResultUI): Promise<void> {
     if (playStatus === 'resolving') return
     playStatus = 'resolving'
@@ -97,7 +108,18 @@
       }
       playStatus = 'playing'
       await tick()
-      audioEl?.play().catch(() => {})
+      const el = audioEl
+      if (el) {
+        const onCanPlay = (): void => {
+          el.removeEventListener('canplay', onCanPlay)
+          // Once playback actually begins, warm up the next tracks so the
+          // user's "next" click pulls from cache instead of yt-dlp.
+          const ids = nextIds(result.id)
+          if (ids.length > 0) void window.api.prefetchAudio(ids)
+        }
+        el.addEventListener('canplay', onCanPlay)
+        el.play().catch(() => {})
+      }
     } catch (e) {
       playStatus = 'error'
       playError = e instanceof Error ? e.message : String(e)

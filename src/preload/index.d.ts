@@ -19,6 +19,7 @@ export interface SearchResult {
 
 export interface EcodaApi {
   resolveAudio: (input: string) => Promise<ResolvedAudio>
+  prefetchAudio: (ids: string[]) => Promise<boolean>
   auth: {
     browsers: () => Promise<DetectedBrowser[]>
     status: () => Promise<string | null>
