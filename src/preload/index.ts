@@ -11,7 +11,9 @@ const api = {
     openYouTube: () => ipcRenderer.invoke('auth:open-youtube')
   },
   metadata: {
-    search: (query: string) => ipcRenderer.invoke('metadata:search', query)
+    search: (query: string) => ipcRenderer.invoke('metadata:search', query),
+    home: () => ipcRenderer.invoke('metadata:home'),
+    playlist: (id: string) => ipcRenderer.invoke('metadata:playlist', id)
   }
 }
 

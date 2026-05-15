@@ -17,6 +17,28 @@ export interface SearchResult {
   thumbnail: string
 }
 
+export type HomeItemType = 'playlist' | 'album' | 'song' | 'video' | 'artist'
+
+export interface HomeItem {
+  id: string
+  type: HomeItemType
+  title: string
+  subtitle: string
+  thumbnail: string
+}
+
+export interface HomeSection {
+  title: string
+  items: HomeItem[]
+}
+
+export interface PlaylistView {
+  title: string
+  subtitle: string
+  thumbnail: string
+  tracks: SearchResult[]
+}
+
 export interface EcodaApi {
   resolveAudio: (input: string) => Promise<ResolvedAudio>
   prefetchAudio: (ids: string[]) => Promise<boolean>
@@ -29,6 +51,8 @@ export interface EcodaApi {
   }
   metadata: {
     search: (query: string) => Promise<SearchResult[]>
+    home: () => Promise<HomeSection[]>
+    playlist: (id: string) => Promise<PlaylistView>
   }
 }
 

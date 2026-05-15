@@ -138,6 +138,133 @@ export async function searchSongs(query: string): Promise<SearchResult[]> {
   return out.slice(0, 30)
 }
 
+// ===========================================================================
+// HOME FEED — landing-page carousels (recommended playlists / albums / etc.)
+// ===========================================================================
+
+export type HomeItemType = 'playlist' | 'album' | 'song' | 'video' | 'artist'
+
+export interface HomeItem {
+  id: string
+  type: HomeItemType
+  title: string
+  subtitle: string
+  thumbnail: string
+}
+
+export interface HomeSection {
+  title: string
+  items: HomeItem[]
+}
+
+// Maps a youtubei.js home-feed item_type to our narrower union. Unknown
+// types are dropped (caller filters nulls).
+function normaliseType(t: unknown): HomeItemType | null {
+  if (t === 'playlist' || t === 'album' || t === 'song' || t === 'video' || t === 'artist') {
+    return t
+  }
+  return null
+}
+
+function pickItemTitle(item: Record<string, unknown>): string {
+  return asText(item.title) || asText(item.name) || ''
+}
+
+function pickItemSubtitle(item: Record<string, unknown>): string {
+  return asText(item.subtitle) || asText(item.description) || pickArtist(item)
+}
+
+// Returns the home-feed sections: title + a flat list of cards.  Cards can
+// be playlists, albums, songs, videos, or artists — we surface the type so
+// the UI knows whether to open another view or play directly.
+export async function getHomeSections(): Promise<HomeSection[]> {
+  const yt = await getInnertube()
+  const home = (await yt.music.getHomeFeed()) as unknown
+  const rawSections = (home as { sections?: unknown[] }).sections ?? []
+  const out: HomeSection[] = []
+  for (const s of rawSections) {
+    if (!s || typeof s !== 'object') continue
+    const section = s as Record<string, unknown>
+    const title =
+      asText((section.header as Record<string, unknown> | undefined)?.title) ||
+      asText(section.title) ||
+      ''
+    const rawItems = Array.isArray(section.contents) ? section.contents : []
+    const items: HomeItem[] = []
+    for (const it of rawItems) {
+      if (!it || typeof it !== 'object') continue
+      const item = it as Record<string, unknown>
+      const type = normaliseType(item.item_type)
+      const id = typeof item.id === 'string' ? item.id : ''
+      const cardTitle = pickItemTitle(item)
+      if (!type || !id || !cardTitle) continue
+      items.push({
+        id,
+        type,
+        title: cardTitle,
+        subtitle: pickItemSubtitle(item),
+        thumbnail: pickThumbnail(item)
+      })
+    }
+    if (items.length > 0) out.push({ title, items })
+  }
+  return out
+}
+
+// ===========================================================================
+// PLAYLIST — open a playlist (or album) and return its tracks as SearchResults
+// ===========================================================================
+
+export async function getPlaylistTracks(id: string): Promise<{
+  title: string
+  subtitle: string
+  thumbnail: string
+  tracks: SearchResult[]
+}> {
+  const yt = await getInnertube()
+  const pl = (await yt.music.getPlaylist(id)) as unknown
+  const obj = pl as Record<string, unknown>
+  const header = (obj.header ?? {}) as Record<string, unknown>
+  const rawItems = Array.isArray(obj.items)
+    ? obj.items
+    : Array.isArray(obj.contents)
+      ? obj.contents
+      : []
+
+  const tracks: SearchResult[] = []
+  for (const it of rawItems) {
+    if (!it || typeof it !== 'object') continue
+    const item = it as Record<string, unknown>
+    const videoId =
+      typeof item.id === 'string'
+        ? item.id
+        : typeof item.video_id === 'string'
+          ? item.video_id
+          : ''
+    if (!videoId || !/^[\w-]{11}$/.test(videoId)) continue
+    const trackTitle = asText(item.title) || asText(item.name)
+    if (!trackTitle) continue
+    const duration =
+      item.duration && typeof item.duration === 'object'
+        ? fmtDuration((item.duration as Record<string, unknown>).seconds)
+        : ''
+    tracks.push({
+      id: videoId,
+      title: trackTitle,
+      artist: pickArtist(item),
+      duration,
+      thumbnail: pickThumbnail(item)
+    })
+  }
+
+  return {
+    title: asText(header.title) || '',
+    subtitle: asText(header.subtitle) || asText(header.description) || '',
+    thumbnail: pickThumbnail(header),
+    tracks
+  }
+}
+
 // NOTE: extracting playable stream URLs via youtubei.js does NOT work for
 // YouTube Music tracks in the current YouTube backend. Music tracks return
 // `streaming_data` as empty (0 audio formats) without a valid po_token

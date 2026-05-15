@@ -3,7 +3,7 @@ import { join } from 'path'
 import icon from '../../resources/icon.png?asset'
 import { verifyBrowserLogin } from './ytdlp'
 import { detectBrowsers, getBrowser, setBrowser, disconnect, ytdlpBrowserArg } from './auth'
-import { searchSongs, resetInnertube } from './metadata'
+import { searchSongs, getHomeSections, getPlaylistTracks, resetInnertube } from './metadata'
 import { resolveCached, queuePrefetch, clearResolverCache } from './resolver'
 
 let mainWindow: BrowserWindow | null = null
@@ -77,6 +77,8 @@ app.whenReady().then(() => {
     return true
   })
   ipcMain.handle('metadata:search', (_event, query: string) => searchSongs(query))
+  ipcMain.handle('metadata:home', () => getHomeSections())
+  ipcMain.handle('metadata:playlist', (_event, id: string) => getPlaylistTracks(id))
   // Resolves a single track's stream URL. yt-dlp is the only working path —
   // youtubei.js can't get music streams without po_token (see metadata.ts).
   // Resolves go through resolver.ts so re-clicks and prefetched tracks come
