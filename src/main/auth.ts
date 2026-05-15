@@ -14,10 +14,15 @@ interface BrowserDef {
   // the directory its profiles live in)
   profileRoot: string
   kind: 'native' | 'firefox-fork'
+  // For forks: candidate executable locations. Required for detection — a
+  // stale Profiles directory from a past install must not count as installed.
+  exePaths?: string[]
 }
 
 const LOCALAPPDATA = process.env.LOCALAPPDATA ?? ''
 const APPDATA = process.env.APPDATA ?? ''
+const PROGRAMFILES = process.env['ProgramFiles'] ?? ''
+const PROGRAMFILES_X86 = process.env['ProgramFiles(x86)'] ?? ''
 
 const BROWSERS: BrowserDef[] = [
   // Browsers yt-dlp supports natively
@@ -69,29 +74,41 @@ const BROWSERS: BrowserDef[] = [
     profileRoot: join(LOCALAPPDATA, 'Naver', 'Naver Whale', 'User Data'),
     kind: 'native'
   },
-  // Firefox forks — same cookie format, read as firefox:<profile path>
+  // Firefox forks — same cookie format, read as firefox:<profile path>.
+  // Detection checks for the executable so a stale Profiles directory from
+  // a past install doesn't produce a phantom entry.
   {
     id: 'waterfox',
     name: 'Waterfox',
     profileRoot: join(APPDATA, 'Waterfox', 'Profiles'),
+    exePaths: [
+      join(PROGRAMFILES, 'Waterfox', 'waterfox.exe'),
+      join(PROGRAMFILES_X86, 'Waterfox', 'waterfox.exe')
+    ],
     kind: 'firefox-fork'
   },
   {
     id: 'librewolf',
     name: 'LibreWolf',
     profileRoot: join(APPDATA, 'librewolf', 'Profiles'),
+    exePaths: [join(PROGRAMFILES, 'LibreWolf', 'librewolf.exe')],
     kind: 'firefox-fork'
   },
   {
     id: 'floorp',
     name: 'Floorp',
     profileRoot: join(APPDATA, 'Floorp', 'Profiles'),
+    exePaths: [join(PROGRAMFILES, 'Floorp', 'floorp.exe')],
     kind: 'firefox-fork'
   },
   {
     id: 'zen',
     name: 'Zen Browser',
     profileRoot: join(APPDATA, 'zen', 'Profiles'),
+    exePaths: [
+      join(PROGRAMFILES, 'Zen Browser', 'zen.exe'),
+      join(LOCALAPPDATA, 'Programs', 'zen', 'zen.exe')
+    ],
     kind: 'firefox-fork'
   }
 ]
@@ -101,14 +118,15 @@ export interface DetectedBrowser {
   name: string
 }
 
-// The supported browsers actually installed on this machine. For Firefox
-// forks we additionally require a profile that has a cookies.sqlite — an
-// empty "Profiles" directory left over from a past install should not count.
+// The supported browsers actually installed on this machine. For forks we
+// require the executable to exist — a stale Profiles directory from a past
+// install is not enough.
 export function detectBrowsers(): DetectedBrowser[] {
   return BROWSERS.filter((b) => {
-    if (!b.profileRoot || !existsSync(b.profileRoot)) return false
-    if (b.kind === 'firefox-fork') return resolveFirefoxProfile(b.profileRoot) !== null
-    return true
+    if (b.kind === 'firefox-fork') {
+      return (b.exePaths ?? []).some((p) => existsSync(p))
+    }
+    return b.profileRoot !== '' && existsSync(b.profileRoot)
   }).map(({ id, name }) => ({ id, name }))
 }
 
