@@ -1305,8 +1305,10 @@
     border-radius: 16px;
     backdrop-filter: blur(24px);
     -webkit-backdrop-filter: blur(24px);
-    height: fit-content;
-    margin-top: 0.5rem;
+    /* Stretch the full layout height so .nav-spacer can push Settings
+       to the bottom of the card. */
+    margin: 0.5rem 0;
+    min-height: 0;
   }
 
   .nav {
