@@ -422,12 +422,31 @@ function findContinuationToken(data: unknown): string | null {
 // Walks a response subtree, pulls every track row out, and appends them
 // to `out` (deduped via the shared `seen` set). Used for both the initial
 // /browse VL<id> response AND every continuation page that follows.
+//
+// Scopes the search to the playlist shelf when possible — otherwise a
+// global `findAll('musicResponsiveListItemRenderer')` also picks up
+// "Suggested tracks" rows that YT bolts on after the real playlist
+// contents, inflating the count past what the library card reports.
 function parseTrackRowsInto(
   data: unknown,
   seen: Set<string>,
   out: SearchResult[]
 ): void {
-  for (const item of findAll(data, 'musicResponsiveListItemRenderer')) {
+  // Initial /browse VL<id> response: tracks live under
+  // musicPlaylistShelfRenderer. Continuation pages: under
+  // musicPlaylistShelfContinuation. Some responses use the older
+  // musicShelfRenderer container instead. Collect whichever we find.
+  const shelves: Record<string, unknown>[] = []
+  for (const c of findAll(data, 'musicPlaylistShelfRenderer')) shelves.push(c)
+  for (const c of findAll(data, 'musicPlaylistShelfContinuation')) shelves.push(c)
+  if (shelves.length === 0) {
+    for (const c of findAll(data, 'musicShelfRenderer')) shelves.push(c)
+  }
+  // Fallback: if we couldn't identify a shelf, walk the whole subtree.
+  // Lossy on count but better than missing the tracks entirely.
+  const searchRoot: unknown = shelves.length > 0 ? shelves : data
+
+  for (const item of findAll(searchRoot, 'musicResponsiveListItemRenderer')) {
     const flexCols = item.flexColumns as Array<Record<string, unknown>> | undefined
     const firstCol = flexCols?.[0]
     const firstColRenderer = (firstCol as Record<string, unknown>)

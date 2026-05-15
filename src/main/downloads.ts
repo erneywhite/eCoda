@@ -2,9 +2,23 @@ import { app } from 'electron'
 import { join, dirname, delimiter } from 'node:path'
 import { existsSync, mkdirSync, readFileSync, writeFileSync, unlinkSync, readdirSync } from 'node:fs'
 import { spawn } from 'node:child_process'
-import ytdlpPath from '../../resources/yt-dlp.exe?asset'
-import denoPath from '../../resources/deno.exe?asset'
+import ytdlpRawPath from '../../resources/yt-dlp.exe?asset'
+import denoRawPath from '../../resources/deno.exe?asset'
 import { getAudioQuality, type AudioQuality } from './auth'
+
+// `?asset` resolves to a path INSIDE app.asar in packaged builds. Files
+// listed under build.asarUnpack live at app.asar.unpacked instead, and
+// Electron's child_process patch transparently redirects execFile for
+// those — but NOT spawn. Spawn-with-asar-path fails ENOENT in packaged
+// builds, which broke 0.0.8 downloads completely. Rewriting `app.asar\`
+// → `app.asar.unpacked\` ourselves gives spawn a real on-disk path; in
+// dev there's no "app.asar" segment in the string so the replace is a
+// no-op.
+function asUnpackedPath(p: string): string {
+  return p.replace(/([\\/])app\.asar([\\/])/, '$1app.asar.unpacked$2')
+}
+const ytdlpPath = asUnpackedPath(ytdlpRawPath)
+const denoPath = asUnpackedPath(denoRawPath)
 
 // Wraps yt-dlp in a streaming spawn so the caller can react to live
 // progress lines. We add --newline so yt-dlp emits one progress update
