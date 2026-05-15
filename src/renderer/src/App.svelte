@@ -176,11 +176,10 @@
                 onclick={() => play(r)}
                 disabled={playStatus === 'resolving'}
               >
-                {#if r.thumbnail}
-                  <img class="thumb" src={r.thumbnail} alt="" />
-                {:else}
-                  <div class="thumb thumb-empty"></div>
-                {/if}
+                <div
+                  class="thumb"
+                  style:background-image={r.thumbnail ? `url("${r.thumbnail}")` : 'none'}
+                ></div>
                 <div class="meta">
                   <div class="title">{r.title}</div>
                   <div class="artist">{r.artist}</div>
@@ -392,12 +391,10 @@
     width: 56px;
     height: 56px;
     border-radius: 6px;
-    background: #0e0a16;
-    object-fit: cover;
-  }
-
-  .thumb-empty {
-    border: 1px solid #2a2040;
+    background-color: #0e0a16;
+    background-position: center;
+    background-size: cover;
+    background-repeat: no-repeat;
   }
 
   .meta {
