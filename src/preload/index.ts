@@ -46,7 +46,10 @@ const api = {
   settings: {
     getDefaultTab: () => ipcRenderer.invoke('settings:getDefaultTab'),
     setDefaultTab: (tab: 'home' | 'search' | 'library') =>
-      ipcRenderer.invoke('settings:setDefaultTab', tab)
+      ipcRenderer.invoke('settings:setDefaultTab', tab),
+    getPinned: () => ipcRenderer.invoke('settings:getPinned'),
+    togglePin: (item: { id: string; title: string; thumbnail: string }) =>
+      ipcRenderer.invoke('settings:togglePin', item)
   },
   debug: {
     harvestTokens: () => ipcRenderer.invoke('debug:harvest-tokens'),

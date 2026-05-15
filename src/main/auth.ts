@@ -161,9 +161,19 @@ export function ytdlpBrowserArg(id: string): string | null {
 
 export type DefaultTab = 'home' | 'search' | 'library'
 
+// One pinned playlist as it lives in the user's sidebar shortcut list.
+// We snapshot the title + thumbnail at pin time so the sidebar can render
+// without re-hitting the InnerTube API on every launch.
+export interface PinnedPlaylist {
+  id: string
+  title: string
+  thumbnail: string
+}
+
 interface Config {
   browser?: string
   defaultTab?: DefaultTab
+  pinnedPlaylists?: PinnedPlaylist[]
 }
 
 function configPath(): string {
@@ -211,4 +221,47 @@ export async function getDefaultTab(): Promise<DefaultTab> {
 
 export async function setDefaultTab(tab: DefaultTab): Promise<void> {
   await writeConfig({ ...(await readConfig()), defaultTab: tab })
+}
+
+// "Liked Music" — auto-pinned, always first. The pseudo-id "LM" is what
+// YT Music uses for the user's Likes auto-playlist; metadata layer
+// prepends "VL" before sending to /browse.
+const LIKED_MUSIC_PIN: PinnedPlaylist = {
+  id: 'LM',
+  title: 'Liked Music',
+  thumbnail: ''
+}
+
+export async function getPinnedPlaylists(): Promise<PinnedPlaylist[]> {
+  const list = (await readConfig()).pinnedPlaylists ?? []
+  // Make sure Liked Music is always present and at the top, even if the
+  // user has never opened it yet.
+  const hasLM = list.some((p) => p.id === 'LM' || p.id === 'VLLM')
+  if (hasLM) return list
+  return [LIKED_MUSIC_PIN, ...list]
+}
+
+// Toggles a playlist's pinned state. Returns true if it's pinned now,
+// false if it was just unpinned. Liked Music can't be un-pinned (special).
+export async function togglePinnedPlaylist(item: PinnedPlaylist): Promise<boolean> {
+  if (item.id === 'LM' || item.id === 'VLLM') {
+    // Pinning Liked Music is a no-op (it's always pinned), unpinning is
+    // disallowed.
+    return true
+  }
+  const cfg = await readConfig()
+  const list = cfg.pinnedPlaylists ?? []
+  const idx = list.findIndex((p) => p.id === item.id)
+  if (idx >= 0) {
+    list.splice(idx, 1)
+    cfg.pinnedPlaylists = list
+    await writeConfig(cfg)
+    return false
+  }
+  // Stash a snapshot of the user-visible label + cover so sidebar can
+  // render without phoning home.
+  list.push({ id: item.id, title: item.title, thumbnail: item.thumbnail })
+  cfg.pinnedPlaylists = list
+  await writeConfig(cfg)
+  return true
 }

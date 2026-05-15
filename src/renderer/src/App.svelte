@@ -5,6 +5,7 @@
     DownloadProgress,
     HomeItem,
     HomeSection,
+    PinnedPlaylist,
     PlaylistView,
     SearchResult
   } from '../../preload/index.d'
@@ -100,6 +101,34 @@
   let playlistView = $state<PlaylistView | null>(null)
   let playlistLoading = $state(false)
   let playlistError = $state('')
+
+  // ---- pinned playlists (sidebar shortcuts under Library) ------------------
+  let pinnedPlaylists = $state<PinnedPlaylist[]>([])
+
+  async function loadPinned(): Promise<void> {
+    pinnedPlaylists = await window.api.settings.getPinned()
+  }
+
+  function isPinned(id: string | null): boolean {
+    if (!id) return false
+    return pinnedPlaylists.some((p) => p.id === id)
+  }
+  function isLikedMusicId(id: string | null): boolean {
+    return id === 'LM' || id === 'VLLM'
+  }
+
+  // Pin or unpin the currently-open playlist. Liked Music is special — it's
+  // always pinned, so the button hides on that view.
+  async function togglePinCurrent(): Promise<void> {
+    if (!playlistView || !openPlaylistId) return
+    if (isLikedMusicId(openPlaylistId)) return
+    await window.api.settings.togglePin({
+      id: openPlaylistId,
+      title: playlistView.title || 'Без названия',
+      thumbnail: playlistView.thumbnail || ''
+    })
+    await loadPinned()
+  }
 
   // ---- settings -----------------------------------------------------------
   let appInfo = $state<{ name: string; version: string; userData: string; repoUrl: string } | null>(
@@ -309,6 +338,7 @@
     browsers = await window.api.auth.browsers()
     connectedBrowser = await window.api.auth.status()
     if (connectedBrowser) {
+      void loadPinned()
       // Honour the user's preferred startup tab.
       const initial = await window.api.settings.getDefaultTab()
       defaultTab = initial
@@ -350,6 +380,7 @@
       const ok = await window.api.auth.connect(browser.id)
       if (ok) {
         connectedBrowser = browser.id
+        void loadPinned()
         void loadHome()
       } else {
         connectError = `В ${browser.name} не найден вход в YouTube. Войди в YouTube в этом браузере и попробуй снова.`
@@ -371,6 +402,7 @@
     playStatus = 'idle'
     libraryPlaylists = null
     libraryError = ''
+    pinnedPlaylists = []
     historyStack = [{ kind: 'home' }]
     historyIndex = 0
     view = 'home'
@@ -665,6 +697,33 @@
           </svg>
           Библиотека
         </button>
+
+        {#if pinnedPlaylists.length > 0}
+          <div class="pin-list">
+            {#each pinnedPlaylists as p (p.id)}
+              <button
+                class="pin-row"
+                class:active={view === 'playlist' && openPlaylistId === p.id}
+                title={p.title}
+                onclick={() =>
+                  openPlaylist(p.id, { fallbackTitle: p.title, fallbackThumbnail: p.thumbnail })}
+              >
+                <div
+                  class="pin-thumb"
+                  style:background-image={p.thumbnail ? `url("${p.thumbnail}")` : 'none'}
+                >
+                  {#if !p.thumbnail && isLikedMusicId(p.id)}
+                    <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
+                      <path d="M9 21h10a2 2 0 0 0 2-2v-9a2 2 0 0 0-2-2h-6.31l.95-4.57.03-.32a1.5 1.5 0 0 0-.44-1.06L12.17 1 5.59 7.59A2 2 0 0 0 5 9v10a2 2 0 0 0 2 2h2zM1 9h4v12H1z"/>
+                    </svg>
+                  {/if}
+                </div>
+                <span class="pin-title">{p.title}</span>
+              </button>
+            {/each}
+          </div>
+        {/if}
+
         <div class="nav-spacer"></div>
         <button
           class="nav"
@@ -768,6 +827,28 @@
                   <div class="playlist-count">
                     {playlistView.tracks.length} треков
                   </div>
+                  {#if !isLikedMusicId(openPlaylistId)}
+                    <button
+                      class="pin-toggle"
+                      class:pinned={isPinned(openPlaylistId)}
+                      onclick={togglePinCurrent}
+                      title={isPinned(openPlaylistId)
+                        ? 'Открепить из сайдбара'
+                        : 'Закрепить в сайдбаре'}
+                    >
+                      {#if isPinned(openPlaylistId)}
+                        <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
+                          <path d="M16 9V4l1-1V1H7v2l1 1v5l-2 2v2h5v7l1 1 1-1v-7h5v-2l-2-2z" />
+                        </svg>
+                        Закреплено
+                      {:else}
+                        <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
+                          <path d="M14 4v5l2 2v2h-5v7l-1 1-1-1v-7H4v-2l2-2V4H4V2h14v2h-2zm-2 0H8v5l-2 2h10l-2-2V4z"/>
+                        </svg>
+                        Закрепить
+                      {/if}
+                    </button>
+                  {/if}
                   {#if bulkProgress}
                     <div class="bulk-progress">
                       Скачиваю {bulkProgress.done} / {bulkProgress.total}
@@ -1359,6 +1440,104 @@
   /* Pushes whatever follows it to the bottom of the sidebar (Settings). */
   .nav-spacer {
     flex: 1;
+    min-height: 0;
+  }
+
+  /* ---- Sidebar pinned playlists ----
+     Sit under "Библиотека" with a small indent so the visual hierarchy
+     reads as "sub-items of Library". Each row is a tiny cover (or a
+     heart for Liked Music) + truncated title. */
+  .pin-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    margin: 0.4rem 0 0.4rem 0.4rem;
+    padding-top: 0.4rem;
+    border-top: 1px solid rgba(255, 255, 255, 0.06);
+    overflow-y: auto;
+    min-height: 0;
+    flex-shrink: 1;
+  }
+
+  .pin-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.4rem 0.55rem;
+    border: none;
+    border-radius: 8px;
+    background: transparent;
+    color: #a99bc9;
+    font-size: 0.82rem;
+    font-weight: 500;
+    cursor: pointer;
+    text-align: left;
+    transition: background 0.15s ease, color 0.15s ease;
+  }
+
+  .pin-row:hover {
+    background: rgba(255, 255, 255, 0.04);
+    color: #ffffff;
+  }
+
+  .pin-row.active {
+    background: rgba(201, 125, 246, 0.18);
+    color: #ffffff;
+  }
+
+  .pin-thumb {
+    flex: 0 0 auto;
+    width: 24px;
+    height: 24px;
+    border-radius: 5px;
+    background-color: rgba(255, 255, 255, 0.06);
+    background-position: center;
+    background-size: cover;
+    background-repeat: no-repeat;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: rgba(255, 255, 255, 0.7);
+  }
+
+  .pin-title {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* Pin/unpin toggle button in the playlist header — sits next to the
+     bulk download CTA. Reads softer than the gradient download button,
+     turns purple-tinted when active (pinned). */
+  .pin-toggle {
+    align-self: flex-start;
+    margin-top: 0.4rem;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.45rem 0.9rem;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 9px;
+    background: transparent;
+    color: #d4c9e8;
+    font-size: 0.82rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s, color 0.15s;
+  }
+
+  .pin-toggle:hover {
+    background: rgba(201, 125, 246, 0.14);
+    border-color: rgba(201, 125, 246, 0.45);
+    color: #ffffff;
+  }
+
+  .pin-toggle.pinned {
+    background: rgba(201, 125, 246, 0.18);
+    border-color: rgba(201, 125, 246, 0.5);
+    color: #ffffff;
   }
 
   /* ---- settings ---------------------------------------------------------- */

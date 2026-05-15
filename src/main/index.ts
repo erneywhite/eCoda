@@ -11,7 +11,10 @@ import {
   ytdlpBrowserArg,
   getDefaultTab,
   setDefaultTab,
-  type DefaultTab
+  getPinnedPlaylists,
+  togglePinnedPlaylist,
+  type DefaultTab,
+  type PinnedPlaylist
 } from './auth'
 import {
   searchSongs,
@@ -298,6 +301,10 @@ app.whenReady().then(() => {
   }))
   ipcMain.handle('settings:getDefaultTab', () => getDefaultTab())
   ipcMain.handle('settings:setDefaultTab', (_event, tab: DefaultTab) => setDefaultTab(tab))
+  ipcMain.handle('settings:getPinned', () => getPinnedPlaylists())
+  ipcMain.handle('settings:togglePin', (_event, item: PinnedPlaylist) =>
+    togglePinnedPlaylist(item)
+  )
 
   createWindow()
 

@@ -39,6 +39,12 @@ export interface PlaylistView {
   tracks: SearchResult[]
 }
 
+export interface PinnedPlaylist {
+  id: string
+  title: string
+  thumbnail: string
+}
+
 export interface DownloadInfo {
   videoId: string
   title: string
@@ -99,6 +105,8 @@ export interface EcodaApi {
   settings: {
     getDefaultTab: () => Promise<'home' | 'search' | 'library'>
     setDefaultTab: (tab: 'home' | 'search' | 'library') => Promise<void>
+    getPinned: () => Promise<PinnedPlaylist[]>
+    togglePin: (item: PinnedPlaylist) => Promise<boolean>
   }
   debug: {
     harvestTokens: () => Promise<unknown>
