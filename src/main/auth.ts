@@ -160,6 +160,7 @@ export function ytdlpBrowserArg(id: string): string | null {
 }
 
 export type DefaultTab = 'home' | 'search' | 'library'
+export type Theme = 'purple' | 'cyan' | 'sunset' | 'forest' | 'crimson' | 'mono'
 
 // One pinned playlist as it lives in the user's sidebar shortcut list.
 // We snapshot the title + thumbnail at pin time so the sidebar can render
@@ -173,6 +174,7 @@ export interface PinnedPlaylist {
 interface Config {
   browser?: string
   defaultTab?: DefaultTab
+  theme?: Theme
   pinnedPlaylists?: PinnedPlaylist[]
 }
 
@@ -221,6 +223,15 @@ export async function getDefaultTab(): Promise<DefaultTab> {
 
 export async function setDefaultTab(tab: DefaultTab): Promise<void> {
   await writeConfig({ ...(await readConfig()), defaultTab: tab })
+}
+
+// User-chosen colour palette. 'purple' is the original/default.
+export async function getTheme(): Promise<Theme> {
+  return (await readConfig()).theme ?? 'purple'
+}
+
+export async function setTheme(theme: Theme): Promise<void> {
+  await writeConfig({ ...(await readConfig()), theme })
 }
 
 // "Liked Music" — auto-pinned, always first. The pseudo-id "LM" is what

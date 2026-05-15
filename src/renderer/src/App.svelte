@@ -7,7 +7,8 @@
     HomeSection,
     PinnedPlaylist,
     PlaylistView,
-    SearchResult
+    SearchResult,
+    Theme
   } from '../../preload/index.d'
 
   type View = 'home' | 'search' | 'playlist' | 'library' | 'settings'
@@ -101,6 +102,102 @@
   let playlistView = $state<PlaylistView | null>(null)
   let playlistLoading = $state(false)
   let playlistError = $state('')
+
+  // ---- theme system (colour palettes) -------------------------------------
+  // Each palette is a small map of CSS variables. applyTheme() writes them
+  // to :root so every existing var(--accent), var(--accent-rgb), etc in
+  // the stylesheet swaps in one place.
+  interface ThemeDef {
+    label: string
+    accent: string
+    accent2: string
+    accentRgb: string // "201, 125, 246" — used in rgba() wrappers
+    aurora1: string
+    aurora2: string
+    aurora3: string
+    swatch: string // gradient string for the picker dot
+  }
+  const THEMES: Record<Theme, ThemeDef> = {
+    purple: {
+      label: 'Фиолетовая',
+      accent: '#c97df6',
+      accent2: '#ff6dc8',
+      accentRgb: '201, 125, 246',
+      aurora1: 'rgba(201, 125, 246, 0.32)',
+      aurora2: 'rgba(255, 109, 200, 0.18)',
+      aurora3: 'rgba(80, 110, 255, 0.14)',
+      swatch: 'linear-gradient(135deg, #c97df6, #ff6dc8)'
+    },
+    cyan: {
+      label: 'Кибер-циан',
+      accent: '#7df9ff',
+      accent2: '#4ecdc4',
+      accentRgb: '125, 249, 255',
+      aurora1: 'rgba(125, 249, 255, 0.28)',
+      aurora2: 'rgba(78, 205, 196, 0.18)',
+      aurora3: 'rgba(100, 200, 220, 0.14)',
+      swatch: 'linear-gradient(135deg, #7df9ff, #4ecdc4)'
+    },
+    sunset: {
+      label: 'Закат',
+      accent: '#ff8a5b',
+      accent2: '#ffd166',
+      accentRgb: '255, 138, 91',
+      aurora1: 'rgba(255, 138, 91, 0.30)',
+      aurora2: 'rgba(255, 209, 102, 0.18)',
+      aurora3: 'rgba(255, 100, 60, 0.14)',
+      swatch: 'linear-gradient(135deg, #ff8a5b, #ffd166)'
+    },
+    forest: {
+      label: 'Лесная',
+      accent: '#a8e063',
+      accent2: '#56ab2f',
+      accentRgb: '168, 224, 99',
+      aurora1: 'rgba(168, 224, 99, 0.24)',
+      aurora2: 'rgba(86, 171, 47, 0.18)',
+      aurora3: 'rgba(60, 140, 80, 0.14)',
+      swatch: 'linear-gradient(135deg, #a8e063, #56ab2f)'
+    },
+    crimson: {
+      label: 'Кровавая',
+      accent: '#ff4f6b',
+      accent2: '#ff8a9c',
+      accentRgb: '255, 79, 107',
+      aurora1: 'rgba(255, 79, 107, 0.28)',
+      aurora2: 'rgba(255, 138, 156, 0.18)',
+      aurora3: 'rgba(200, 60, 100, 0.14)',
+      swatch: 'linear-gradient(135deg, #ff4f6b, #ff8a9c)'
+    },
+    mono: {
+      label: 'Монохром',
+      accent: '#e5e5e5',
+      accent2: '#a3a3a3',
+      accentRgb: '229, 229, 229',
+      aurora1: 'rgba(200, 200, 200, 0.14)',
+      aurora2: 'rgba(150, 150, 150, 0.10)',
+      aurora3: 'rgba(100, 100, 100, 0.08)',
+      swatch: 'linear-gradient(135deg, #e5e5e5, #a3a3a3)'
+    }
+  }
+
+  let theme = $state<Theme>('purple')
+
+  function applyTheme(name: Theme): void {
+    const t = THEMES[name] ?? THEMES.purple
+    const r = document.documentElement.style
+    r.setProperty('--accent', t.accent)
+    r.setProperty('--accent-2', t.accent2)
+    r.setProperty('--accent-rgb', t.accentRgb)
+    r.setProperty('--aurora-1', t.aurora1)
+    r.setProperty('--aurora-2', t.aurora2)
+    r.setProperty('--aurora-3', t.aurora3)
+  }
+
+  async function changeTheme(name: Theme): Promise<void> {
+    theme = name
+    applyTheme(name)
+    await window.api.settings.setTheme(name)
+  }
 
   // ---- pinned playlists (sidebar shortcuts under Library) ------------------
   let pinnedPlaylists = $state<PinnedPlaylist[]>([])
@@ -348,6 +445,10 @@
   }
 
   onMount(async () => {
+    // Load + apply the saved theme as the very first thing so the user
+    // doesn't see purple flash before their preferred palette kicks in.
+    theme = await window.api.settings.getTheme()
+    applyTheme(theme)
     browsers = await window.api.auth.browsers()
     connectedBrowser = await window.api.auth.status()
     if (connectedBrowser) {
@@ -976,6 +1077,29 @@
             </section>
 
             <section class="settings-card">
+              <h4>Цветовая палитра</h4>
+              <p class="settings-hint">
+                Переключает акцентный цвет, фоновое свечение и кнопки
+                плеера. Применяется мгновенно.
+              </p>
+              <div class="theme-grid">
+                {#each Object.entries(THEMES) as [key, def] (key)}
+                  <button
+                    class="theme-swatch"
+                    class:active={theme === key}
+                    style:--swatch={def.swatch}
+                    aria-label={def.label}
+                    title={def.label}
+                    onclick={() => changeTheme(key as Theme)}
+                  >
+                    <span class="theme-dot"></span>
+                    <span class="theme-label">{def.label}</span>
+                  </button>
+                {/each}
+              </div>
+            </section>
+
+            <section class="settings-card">
               <h4>Поведение</h4>
               <p class="settings-line">Открывать при запуске:</p>
               <div class="seg">
@@ -1267,6 +1391,18 @@
 </main>
 
 <style>
+  /* Theme palette — applyTheme() in script rewrites these at runtime.
+     The values here are the "purple" defaults so first paint before the
+     persisted theme loads still looks correct. */
+  :global(:root) {
+    --accent: #c97df6;
+    --accent-2: #ff6dc8;
+    --accent-rgb: 201, 125, 246;
+    --aurora-1: rgba(201, 125, 246, 0.32);
+    --aurora-2: rgba(255, 109, 200, 0.18);
+    --aurora-3: rgba(80, 110, 255, 0.14);
+  }
+
   /* Custom scrollbars everywhere — the default Windows ones are grey
      chunks that don't match the glass aesthetic. Thin, mostly transparent,
      lights up on hover. Firefox gets equivalent values via scrollbar-*. */
@@ -1288,7 +1424,7 @@
     background-clip: padding-box;
   }
   :global(::-webkit-scrollbar-thumb:hover) {
-    background: rgba(201, 125, 246, 0.45);
+    background: rgba(var(--accent-rgb), 0.45);
     background-clip: padding-box;
   }
   :global(::-webkit-scrollbar-corner) {
@@ -1306,9 +1442,9 @@
     position: fixed;
     inset: 0;
     background:
-      radial-gradient(900px 600px at 8% 12%, rgba(201, 125, 246, 0.32), transparent 60%),
-      radial-gradient(700px 500px at 92% 18%, rgba(255, 109, 200, 0.18), transparent 60%),
-      radial-gradient(900px 700px at 50% 95%, rgba(80, 110, 255, 0.14), transparent 60%),
+      radial-gradient(900px 600px at 8% 12%, var(--aurora-1), transparent 60%),
+      radial-gradient(700px 500px at 92% 18%, var(--aurora-2), transparent 60%),
+      radial-gradient(900px 700px at 50% 95%, var(--aurora-3), transparent 60%),
       #0c0816;
     z-index: -1;
     pointer-events: none;
@@ -1344,7 +1480,7 @@
     padding: 0.25rem 0.7rem;
     border: 1px solid #3a2d52;
     border-radius: 999px;
-    background: rgba(168, 85, 247, 0.07);
+    background: rgba(var(--accent-rgb), 0.08);
     color: #a99bc9;
     font-size: 0.72rem;
   }
@@ -1383,8 +1519,8 @@
   }
 
   .hist:hover:not(:disabled) {
-    background: rgba(168, 85, 247, 0.18);
-    border-color: rgba(168, 85, 247, 0.5);
+    background: rgba(var(--accent-rgb), 0.18);
+    border-color: rgba(var(--accent-rgb), 0.5);
     color: #ffffff;
   }
 
@@ -1498,11 +1634,11 @@
   .nav.active {
     background: linear-gradient(
       90deg,
-      rgba(201, 125, 246, 0.28),
-      rgba(255, 109, 200, 0.14)
+      rgba(var(--accent-rgb), 0.28),
+      rgba(var(--accent-rgb), 0.10)
     );
     color: #ffffff;
-    box-shadow: 0 4px 18px rgba(201, 125, 246, 0.18);
+    box-shadow: 0 4px 18px rgba(var(--accent-rgb), 0.18);
   }
 
   .nav:disabled {
@@ -1554,7 +1690,7 @@
   }
 
   .pin-row.active {
-    background: rgba(201, 125, 246, 0.18);
+    background: rgba(var(--accent-rgb), 0.18);
     color: #ffffff;
   }
 
@@ -1602,14 +1738,14 @@
   }
 
   .pin-toggle:hover {
-    background: rgba(201, 125, 246, 0.14);
-    border-color: rgba(201, 125, 246, 0.45);
+    background: rgba(var(--accent-rgb), 0.14);
+    border-color: rgba(var(--accent-rgb), 0.45);
     color: #ffffff;
   }
 
   .pin-toggle.pinned {
-    background: rgba(201, 125, 246, 0.18);
-    border-color: rgba(201, 125, 246, 0.5);
+    background: rgba(var(--accent-rgb), 0.18);
+    border-color: rgba(var(--accent-rgb), 0.5);
     color: #ffffff;
   }
 
@@ -1674,8 +1810,8 @@
   }
 
   .settings-btn:hover:not(:disabled) {
-    background: rgba(168, 85, 247, 0.18);
-    border-color: rgba(168, 85, 247, 0.5);
+    background: rgba(var(--accent-rgb), 0.18);
+    border-color: rgba(var(--accent-rgb), 0.5);
     color: #ffffff;
   }
 
@@ -1697,6 +1833,60 @@
 
   /* "Buy me a coffee" — warm-yellow gradient so it stands out as a
      thank-you button rather than a normal action. */
+  /* Theme picker — one row per palette: a coloured dot + the label,
+     active palette gets a tinted background + bold ring. Each swatch's
+     --swatch CSS var carries its own gradient so the dot picks the
+     correct palette regardless of the active theme. */
+  .theme-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+    gap: 0.45rem;
+    margin-top: 0.3rem;
+  }
+
+  .theme-swatch {
+    display: flex;
+    align-items: center;
+    gap: 0.55rem;
+    padding: 0.5rem 0.7rem;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.02);
+    color: #d4c9e8;
+    font-size: 0.83rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s, color 0.15s;
+  }
+
+  .theme-swatch:hover {
+    background: rgba(255, 255, 255, 0.06);
+    color: #ffffff;
+  }
+
+  .theme-swatch.active {
+    border-color: rgba(var(--accent-rgb), 0.6);
+    background: rgba(var(--accent-rgb), 0.12);
+    color: #ffffff;
+  }
+
+  .theme-dot {
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: var(--swatch);
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
+    flex-shrink: 0;
+  }
+
+  .theme-label {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
   /* Segmented control for "default tab" pref — three pill buttons that
      read as one connected group. Active state borrows the same purple
      glow we use for the active sidebar item. */
@@ -1719,13 +1909,13 @@
   }
 
   .seg-btn:hover:not(.active) {
-    background: rgba(168, 85, 247, 0.1);
+    background: rgba(var(--accent-rgb), 0.1);
     color: #ffffff;
   }
 
   .seg-btn.active {
-    background: rgba(168, 85, 247, 0.22);
-    border-color: rgba(168, 85, 247, 0.55);
+    background: rgba(var(--accent-rgb), 0.22);
+    border-color: rgba(var(--accent-rgb), 0.55);
     color: #ffffff;
   }
 
@@ -1867,19 +2057,19 @@
   }
 
   .card-pin:hover {
-    background: rgba(201, 125, 246, 0.55);
+    background: rgba(var(--accent-rgb), 0.55);
   }
 
   .card-pin.pinned {
-    background: rgba(201, 125, 246, 0.45);
+    background: rgba(var(--accent-rgb), 0.45);
     color: #ffffff;
   }
 
   .card-tile:hover {
     background: rgba(255, 255, 255, 0.07);
-    border-color: rgba(201, 125, 246, 0.45);
+    border-color: rgba(var(--accent-rgb), 0.45);
     transform: translateY(-3px);
-    box-shadow: 0 14px 36px rgba(201, 125, 246, 0.18);
+    box-shadow: 0 14px 36px rgba(var(--accent-rgb), 0.18);
   }
 
   .tile-thumb {
@@ -2007,8 +2197,8 @@
   }
 
   .dl-btn:hover:not(:disabled) {
-    background: rgba(168, 85, 247, 0.18);
-    border-color: rgba(168, 85, 247, 0.5);
+    background: rgba(var(--accent-rgb), 0.18);
+    border-color: rgba(var(--accent-rgb), 0.5);
     color: #ffffff;
   }
 
@@ -2077,11 +2267,11 @@
   }
 
   .track-row:hover:not(:disabled) {
-    background: rgba(168, 85, 247, 0.09);
+    background: rgba(var(--accent-rgb), 0.09);
   }
 
   .track-row.current {
-    background: rgba(168, 85, 247, 0.18);
+    background: rgba(var(--accent-rgb), 0.18);
   }
 
   .track-row:disabled {
@@ -2242,7 +2432,7 @@
   }
 
   .ctrl:hover {
-    background: rgba(168, 85, 247, 0.18);
+    background: rgba(var(--accent-rgb), 0.18);
     color: #ffffff;
   }
 
@@ -2254,16 +2444,17 @@
   .ctrl.play {
     width: 48px;
     height: 48px;
-    background: linear-gradient(135deg, #c97df6, #ff6dc8);
+    background: linear-gradient(135deg, var(--accent), var(--accent-2));
     color: #0a0612;
-    box-shadow: 0 8px 22px rgba(201, 125, 246, 0.5);
+    box-shadow: 0 8px 22px rgba(var(--accent-rgb), 0.5);
   }
 
   .ctrl.play:hover {
-    background: linear-gradient(135deg, #d493ff, #ff85d4);
+    background: linear-gradient(135deg, var(--accent), var(--accent-2));
+    filter: brightness(1.1);
     color: #0a0612;
     transform: scale(1.06);
-    box-shadow: 0 10px 28px rgba(201, 125, 246, 0.65);
+    box-shadow: 0 10px 28px rgba(var(--accent-rgb), 0.65);
   }
 
   /* Inline time readout next to the transport buttons, YT-Music style:
@@ -2296,8 +2487,8 @@
     border-radius: 999px;
     background: linear-gradient(
       to right,
-      #c97df6 0%,
-      #ff6dc8 var(--p, 0%),
+      var(--accent) 0%,
+      var(--accent-2) var(--p, 0%),
       rgba(255, 255, 255, 0.1) var(--p, 0%),
       rgba(255, 255, 255, 0.1) 100%
     );
@@ -2315,7 +2506,7 @@
     width: 11px;
     height: 11px;
     border-radius: 50%;
-    background: #c97df6;
+    background: var(--accent);
     border: none;
     opacity: 0;
     transition: opacity 0.15s ease;
@@ -2345,8 +2536,8 @@
     border-radius: 999px;
     background: linear-gradient(
       to right,
-      #c97df6 0%,
-      #ff6dc8 var(--p, 0%),
+      var(--accent) 0%,
+      var(--accent-2) var(--p, 0%),
       rgba(255, 255, 255, 0.1) var(--p, 0%),
       rgba(255, 255, 255, 0.1) 100%
     );
@@ -2394,7 +2585,7 @@
     padding: 0.4rem 2rem;
     color: #b9acd6;
     font-size: 0.84rem;
-    background: rgba(168, 85, 247, 0.07);
+    background: rgba(var(--accent-rgb), 0.08);
     border-top: 1px solid #241a38;
     flex-shrink: 0;
   }

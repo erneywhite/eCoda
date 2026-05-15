@@ -14,8 +14,11 @@ import {
   getPinnedPlaylists,
   togglePinnedPlaylist,
   updatePinSnapshot,
+  getTheme,
+  setTheme,
   type DefaultTab,
-  type PinnedPlaylist
+  type PinnedPlaylist,
+  type Theme
 } from './auth'
 import {
   searchSongs,
@@ -309,6 +312,8 @@ app.whenReady().then(() => {
   ipcMain.handle('settings:updatePinSnapshot', (_event, item: PinnedPlaylist) =>
     updatePinSnapshot(item)
   )
+  ipcMain.handle('settings:getTheme', () => getTheme())
+  ipcMain.handle('settings:setTheme', (_event, theme: Theme) => setTheme(theme))
 
   createWindow()
 

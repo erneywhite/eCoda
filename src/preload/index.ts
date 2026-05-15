@@ -51,7 +51,9 @@ const api = {
     togglePin: (item: { id: string; title: string; thumbnail: string }) =>
       ipcRenderer.invoke('settings:togglePin', item),
     updatePinSnapshot: (item: { id: string; title: string; thumbnail: string }) =>
-      ipcRenderer.invoke('settings:updatePinSnapshot', item)
+      ipcRenderer.invoke('settings:updatePinSnapshot', item),
+    getTheme: () => ipcRenderer.invoke('settings:getTheme'),
+    setTheme: (theme: string) => ipcRenderer.invoke('settings:setTheme', theme)
   },
   debug: {
     harvestTokens: () => ipcRenderer.invoke('debug:harvest-tokens'),

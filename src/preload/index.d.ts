@@ -45,6 +45,8 @@ export interface PinnedPlaylist {
   thumbnail: string
 }
 
+export type Theme = 'purple' | 'cyan' | 'sunset' | 'forest' | 'crimson' | 'mono'
+
 export interface DownloadInfo {
   videoId: string
   title: string
@@ -108,6 +110,8 @@ export interface EcodaApi {
     getPinned: () => Promise<PinnedPlaylist[]>
     togglePin: (item: PinnedPlaylist) => Promise<boolean>
     updatePinSnapshot: (item: PinnedPlaylist) => Promise<void>
+    getTheme: () => Promise<Theme>
+    setTheme: (theme: Theme) => Promise<void>
   }
   debug: {
     harvestTokens: () => Promise<unknown>
