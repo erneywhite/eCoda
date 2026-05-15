@@ -1,9 +1,15 @@
-import { Innertube } from 'youtubei.js'
+// youtubei.js is ESM-only; our main bundle is CommonJS. The static import is
+// kept as type-only (erased at compile time), and the module is loaded via
+// dynamic import() at runtime — Node handles the ESM/CJS boundary cleanly.
+import type { Innertube } from 'youtubei.js'
 
 let innertube: Innertube | null = null
 
 async function getInnertube(): Promise<Innertube> {
-  if (!innertube) innertube = await Innertube.create()
+  if (!innertube) {
+    const mod = await import('youtubei.js')
+    innertube = await mod.Innertube.create()
+  }
   return innertube
 }
 
