@@ -2,30 +2,42 @@
 
 Desktop client for YouTube Music — your library, fast playback, Spotify-style offline cache, and a native UI you can theme. Talks to YouTube's InnerTube API directly: no embedded webview, no heavy web player.
 
-> **Status:** Phase 4 done, 0.0.4 shipped. All core flows work; auto-update wired; Windows NSIS installer ready. Public 1.0 release pending the final brand assets from the artist.
+> **Status:** Phase 4 done, 0.0.13 shipped. Every core flow plus polish — playlist counts, unavailable-row handling, audio quality picker, Downloaded virtual playlist, live download progress, full continuation pagination. Public 1.0 release still pending the artist's final brand assets.
 
 ## Features
 
-- **Authentication via your browser's existing YouTube session** — Firefox, Chrome, Edge, Brave, Opera, Vivaldi, Chromium, Whale, and Firefox forks (Waterfox, LibreWolf, Floorp, Zen). No password input; eCoda reads the cookies you already have signed in there.
-- **Native Home** with YouTube Music's own recommendation grid.
-- **Native Library** showing your real playlists — including private ones and Liked Music — rendered as our own grid of cards.
-- **Native playlist view** with cover, track list, per-track and per-playlist download buttons.
-- **Pinned playlists in the sidebar** — Liked Music always pinned at the top, plus any playlist you pin (from the playlist header *or* from the Library card's hover overlay).
+### Library & navigation
+- **Browser-based authentication** — Firefox, Chrome, Edge, Brave, Opera, Vivaldi, Chromium, Whale, and Firefox forks (Waterfox, LibreWolf, Floorp, Zen). No password input; eCoda reads the cookies you already have signed in there. On every launch the cookies are silently re-dumped so YT's rotation never strands you on stale auth.
+- **Native Home** — YouTube Music's own recommendation grid.
+- **Native Library** — your real playlists (private and Liked Music included) rendered as our own card grid, fed through a SAPISIDHASH-signed page proxy.
+- **Native playlist view** with cover, full track list, big Play CTA, compact download chip, pin/unpin. The count line shows total duration ("69 треков · 4 часа 26 минут") with proper Russian pluralisation.
+- **Full playlist pagination** — playlists of any length load completely (followed continuation chains across both the old `musicPlaylistShelfContinuation` and the modern `appendContinuationItemsAction.continuationItems` shapes). Dedup is by `playlistSetVideoId` rather than `videoId`, so a track legitimately added to the same playlist twice shows up twice — matching YT's library-card count.
+- **Unavailable tracks visible** — when YT keeps a row with no playable `videoId` (deleted / region-blocked / Premium-only), eCoda renders it dimmed and italic with a "Track unavailable" tooltip instead of silently dropping it, so the inside count matches the card. Prev / next / Play-all skip over those rows automatically.
 - **Search** with thumbnails and click-to-play.
-- **Custom player bar** — YT-Music-style: aurora-glass background, thin top progress strip flush to the player's rounded top edge, prev / play / next + inline time, volume slider, mute toggle.
-- **Source-list-aware next/prev** — skipping follows whichever list you launched the track from (search results vs playlist).
-- **Background prefetch** — while one track plays, the next few in the active list are resolved in the background, so the next click is instant.
-- **Spotify-style offline cache** — download a single track (↓ button) or a whole playlist (📥 in the header), then play them instantly from disk on any future launch, fully offline. Audio + cover thumbnails are persisted; manifest in `<userData>/offline/manifest.json`. Bulk downloads return a "X of Y · N failed" summary with a one-click Retry-failed button.
-- **Resume where you left off** — last played track + queue + position is restored on launch as a paused, ready-to-play state in the player bar. First Play click resolves the stream and continues from the saved second.
-- **Remembers the window** — size, position, and maximized state persist across launches, with on-screen validation so a disconnected monitor doesn't strand the window off-screen.
-- **Silent reconnect on launch** — if cookies have rotated in the browser since the last Connect, eCoda refreshes them quietly in the background and re-fetches the current view, so Library never comes up empty just because the app sat unused for a while.
+- **"Downloaded" virtual playlist** in the sidebar — synthetic playlist materialised from the offline manifest, sorted newest-first, plays straight from disk.
+- **Pinned playlists** — Liked Music always pinned at the top, plus any playlist you pin (from the playlist header *or* from the Library card's hover overlay). A hover-Play chip on each pinned row navigates and starts the playlist in one click.
 - **Mouse-side-button navigation** + back/forward chips in the header.
+
+### Player
+- **Custom YT-Music-style player bar** — aurora-glass background, thin top progress strip flush to the player's rounded top edge, prev / play / next + inline time, volume slider, mute toggle, plus a download chip that mirrors the playlist-row state for the currently playing track.
+- **Source-list-aware next/prev** — skipping follows whichever list you launched the track from (search results vs playlist vs Downloaded), preserved across track changes.
+- **Background prefetch** — while one track plays, the next few in the active list are resolved in the background, so the next click is instant.
+- **Resume where you left off** — last track + queue + position restored on launch as a paused, ready-to-play state in the player bar. First Play click resolves the stream and continues from the saved second; no auto-blast on Windows boot.
+
+### Offline cache (download)
+- **Per-track ↓ / per-playlist 📥** with a live percentage ring driven by yt-dlp's own progress output (no fake spinner). Audio + cover thumbnails are persisted to `<userData>/offline/` (*not* `cache/` — see "How it works" for why).
+- **Bulk download summary** — after a playlist run, a "Downloaded X of Y · N failed" panel appears with a Retry-failed button. Per-track failure reasons are surfaced from yt-dlp's stderr.
+- **Audio quality picker** — Settings → Download quality. **Best** (~160 kbps Opus, default), **Medium** (~128 kbps AAC), **Saver** (~70 kbps Opus). Picks the matching stream directly from YouTube — no local re-encoding, no ffmpeg.
+
+### Cosmetics & comfort
 - **Eight colour themes** (Purple, Cyber Cyan, Sunset, Forest, Crimson, Mono, Ocean, Neon Pink) — palette switches the accent colour, glow, player gradient and aurora in one shot.
-- **Language switch** — Russian / English UI, persisted per-user.
+- **Language switch** — Russian / English UI, persisted per-user. YouTube responses are fetched in the matching locale so section titles + auto-playlist names also flip when you toggle.
 - **Default tab on launch** — pick Home, Search or Library.
+- **Remembers the window** — size, position, and maximized state persist across launches, with on-screen validation so a disconnected monitor doesn't strand the window off-screen.
+
+### Distribution & diagnostics
 - **Auto-update** via `electron-updater` against GitHub Releases. Silent check on startup, manual "Check for updates" button in Settings, one-click "Restart and install" once the new release is downloaded.
-- **Diagnostics in Settings** — paths to user data / offline cache / log file with one-click Open-in-Explorer, plus a "Verify cache" action that reconciles the manifest with what's actually on disk (drops dead entries, adopts orphaned audio files). Main-process console is mirrored to `<userData>/main.log` (2 MB rotation) for post-mortem debugging on packaged installs where DevTools are off.
-- **Premium-quality audio** when the connected account is YouTube Premium — pulls ~160 kbps Opus inside `.webm`.
+- **Diagnostics in Settings** — paths to user data / offline cache / log file with one-click Open-in-Explorer, plus a "Verify cache" action that reconciles the manifest with disk (drops dead entries, adopts orphaned audio files). Main-process console is mirrored to `<userData>/main.log` (2 MB rotation) for post-mortem debugging on packaged installs where DevTools are off.
 
 ## How it works
 
@@ -101,13 +113,16 @@ mockups/                 standalone HTML mockups (A/B/C) used during UI redesign
 
 ## Roadmap
 
-- **Phase 0 — project skeleton** — done
-- **Phase 1 — streaming MVP** — done (search, home, playlist navigation, custom player UI)
-- **Phase 2 — offline** — done (per-track + per-playlist downloads, persistent cache, instant disk playback via `media://`)
-- **Phase 3 — polish** — sidebar pinned playlists, eight colour themes, language switch, mouse-side-button navigation, settings with cache/diagnostics/about/updates/donate
-- **Phase 4 — distribution** — `electron-builder` NSIS installer, `electron-updater` against GitHub Releases (done; current build cycle: 0.0.x)
-- **Phase 5 (planned)** — shuffle, queue management, right-click context menus, "radio by track" via `getUpNext`, like/dislike, artist + album views, mini-player, system tray, global media keys, lyrics
-- **macOS port** — same codebase, `.dmg` target, needs Mac/CI + Apple notarisation
+- **Phase 0 — project skeleton** — ✅ done
+- **Phase 1 — streaming MVP** — ✅ done (search, home, playlist navigation, custom player UI)
+- **Phase 2 — offline** — ✅ done (per-track + per-playlist downloads, persistent cache, instant disk playback via `media://`)
+- **Phase 3 — polish** — ✅ done (sidebar pinned playlists, eight colour themes, language switch, mouse-side-button navigation, settings with cache/diagnostics/about/updates/donate, audio quality picker, Downloaded virtual playlist, live progress rings, total playlist duration, unavailable-row handling)
+- **Phase 4 — distribution** — ✅ done (`electron-builder` NSIS installer, `electron-updater` against GitHub Releases; current build cycle: 0.0.x, latest 0.0.13)
+- **Phase 5 — playback features (planned)** — shuffle / repeat modes, queue management (separate from sourceList), right-click context menu on tracks ("play next", "add to queue", "open artist", "remove from playlist"), "Radio by track" via `getUpNext`, like / dislike via page-proxy `/like/like`.
+- **Phase 6 — deeper navigation (planned)** — artist + album views, lyrics panel via `yt.music.getLyrics`.
+- **Phase 7 — system integration (planned)** — system tray icon + minimal menu, global media keys (Play / Pause / Next / Prev that work when the app isn't focused), mini-player mode (slim always-on-top window).
+- **Brand swap** — when the artist delivers the final wordmark + icon, drop them into `branding/` and rebuild.
+- **macOS port** — same codebase, `.dmg` target, needs Mac/CI + Apple notarisation.
 
 ## Disclaimer
 
