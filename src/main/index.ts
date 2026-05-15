@@ -92,15 +92,23 @@ function createWindow(): void {
 }
 
 app.whenReady().then(() => {
-  // Wire up media:// — translates media://<videoId> to the file on disk
+  // Wire up media:// — translates media://x/<videoId> to the file on disk
   // and lets Electron's net module stream it (Range requests, content-type
   // sniffing, the lot). HTML5 <audio> works against this URL identically
   // to a regular https stream.
+  //
+  // Standard-scheme URLs lowercase their host (per URL spec), and YouTube
+  // video IDs are case-sensitive, so the id MUST live in the path (which
+  // preserves case), not the host. The host segment "x" is a throwaway
+  // placeholder.
   protocol.handle('media', (request) => {
     const u = new URL(request.url)
-    const videoId = (u.hostname || u.pathname.replace(/^\//, '')).trim()
+    const videoId = u.pathname.replace(/^\//, '').trim()
     const path = getCachedFilePath(videoId)
-    if (!path) return new Response('not found', { status: 404 })
+    if (!path) {
+      console.warn(`[media://] not found for ${JSON.stringify(videoId)} (url=${request.url})`)
+      return new Response('not found', { status: 404 })
+    }
     return net.fetch(pathToFileURL(path).toString())
   })
 

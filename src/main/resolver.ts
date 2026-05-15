@@ -41,7 +41,9 @@ export async function resolveCached(videoId: string, browser: string): Promise<R
     return {
       title: '',
       format: cachedPath.split('.').pop() ?? 'audio',
-      streamUrl: `media://${videoId}`
+      // media://x/<id> — host is a throwaway, the id is in the path so
+      // it keeps its case (host segments are lowercased by URL parsers).
+      streamUrl: `media://x/${videoId}`
     }
   }
   const hit = cache.get(videoId)
