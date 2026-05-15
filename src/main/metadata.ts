@@ -52,24 +52,30 @@ function pickArtist(item: Record<string, unknown>): string {
   return ''
 }
 
+// youtubei.js wraps thumbnails in a MusicThumbnail-like object whose
+// .contents array holds the actual thumbnail entries; we also accept a raw
+// array shape just in case.
 function pickThumbnail(item: Record<string, unknown>): string {
-  const thumbs = item.thumbnail ?? item.thumbnails
-  if (Array.isArray(thumbs) && thumbs.length > 0) {
-    const first = thumbs[0]
-    if (first && typeof first === 'object') {
-      return asText((first as Record<string, unknown>).url)
-    }
+  const field = item.thumbnail ?? item.thumbnails
+  if (!field || typeof field !== 'object') return ''
+  const list = Array.isArray(field)
+    ? field
+    : Array.isArray((field as { contents?: unknown }).contents)
+      ? (field as { contents: unknown[] }).contents
+      : []
+  if (list.length > 0 && list[0] && typeof list[0] === 'object') {
+    const url = (list[0] as { url?: unknown }).url
+    if (typeof url === 'string') return url
   }
   return ''
 }
 
-// Searches YouTube Music for songs. Parses results defensively because
-// youtubei.js's internal response shape evolves with the library.
+// Searches YouTube Music for songs.
 export async function searchSongs(query: string): Promise<SearchResult[]> {
   const yt = await getInnertube()
   const raw = (await yt.music.search(query, { type: 'song' })) as unknown
-  const top = raw as { songs?: { contents?: unknown[] }; contents?: unknown[] }
-  const items: unknown[] = top.songs?.contents ?? top.contents ?? []
+  const top = raw as { songs?: { contents?: unknown[] } }
+  const items: unknown[] = top.songs?.contents ?? []
 
   const out: SearchResult[] = []
   for (const i of items) {

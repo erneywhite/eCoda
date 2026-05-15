@@ -20,6 +20,7 @@
   let searching = $state(false)
   let searchError = $state('')
   let searchResults = $state<SearchResultUI[]>([])
+  let searched = $state(false)
 
   let playing = $state<{
     id: string
@@ -56,6 +57,7 @@
     await window.api.auth.disconnect()
     connectedBrowser = null
     searchResults = []
+    searched = false
     playing = null
     playStatus = 'idle'
   }
@@ -71,6 +73,7 @@
     searchError = ''
     try {
       searchResults = await window.api.metadata.search(q)
+      searched = true
     } catch (e) {
       searchError = e instanceof Error ? e.message : String(e)
       searchResults = []
@@ -158,6 +161,10 @@
 
       {#if searchError}
         <p class="status error">Поиск не получился: {searchError}</p>
+      {/if}
+
+      {#if searched && !searching && searchResults.length === 0 && !searchError}
+        <p class="status">Ничего не нашлось по запросу.</p>
       {/if}
 
       {#if searchResults.length > 0}
