@@ -56,11 +56,11 @@ async function getInnertube(): Promise<Innertube> {
       return null
     })
     const mod = await import('youtubei.js')
-    const opts: Record<string, unknown> = {}
+    const opts: Record<string, unknown> = { lang: 'ru', location: 'RU' }
     if (cookie) opts.cookie = cookie
     if (tokens?.visitorData) opts.visitor_data = tokens.visitorData
     console.log(
-      `[metadata] creating Innertube cookie=${!!cookie} visitor_data=${!!tokens?.visitorData}`
+      `[metadata] creating Innertube cookie=${!!cookie} visitor_data=${!!tokens?.visitorData} lang=ru gl=RU`
     )
     innertube = await mod.Innertube.create(opts)
   }
@@ -480,6 +480,60 @@ export async function getPlaylistTracks(id: string): Promise<{
       duration,
       thumbnail: thumb
     })
+  }
+
+  // Public playlists from Home (RDCLAK… ids) sometimes come back through
+  // /browse without musicResponsiveListItemRenderer rows we can parse —
+  // page-proxy got the header but no track list. Fall back to
+  // youtubei.js getPlaylist for those, which knows the public-playlist
+  // shape and works anonymously.
+  if (tracks.length === 0) {
+    try {
+      const yt = await getInnertube()
+      const rawId = id.startsWith('VL') ? id.slice(2) : id
+      const pl = (await yt.music.getPlaylist(rawId)) as unknown
+      const obj = pl as Record<string, unknown>
+      const rawItems = Array.isArray(obj.items)
+        ? obj.items
+        : Array.isArray(obj.contents)
+          ? obj.contents
+          : []
+      for (const it of rawItems) {
+        if (!it || typeof it !== 'object') continue
+        const item = it as Record<string, unknown>
+        const videoId =
+          typeof item.id === 'string'
+            ? item.id
+            : typeof item.video_id === 'string'
+              ? item.video_id
+              : ''
+        if (!videoId || !/^[\w-]{11}$/.test(videoId)) continue
+        const trackTitle = asText(item.title) || asText(item.name)
+        if (!trackTitle) continue
+        const duration =
+          item.duration && typeof item.duration === 'object'
+            ? fmtDuration((item.duration as Record<string, unknown>).seconds)
+            : ''
+        tracks.push({
+          id: videoId,
+          title: trackTitle,
+          artist: pickArtist(item),
+          duration,
+          thumbnail: pickThumbnail(item)
+        })
+      }
+      // Also try to recover header info if our proxy parse missed it.
+      if (!title) {
+        const header = (obj.header ?? {}) as Record<string, unknown>
+        if (asText(header.title)) title = asText(header.title)
+        if (!subtitle && (asText(header.subtitle) || asText(header.description))) {
+          subtitle = asText(header.subtitle) || asText(header.description)
+        }
+        if (!thumbnail) thumbnail = pickThumbnail(header)
+      }
+    } catch (err) {
+      console.warn('[getPlaylistTracks] youtubei.js fallback failed:', err)
+    }
   }
 
   return { title, subtitle, thumbnail, tracks }

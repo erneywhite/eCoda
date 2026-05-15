@@ -212,6 +212,15 @@ export async function innertubeFetch(
         'SAPISIDHASH ' + ts + '_' + hashHex +
         ' SAPISID1PHASH ' + ts + '_' + hashHex +
         ' SAPISID3PHASH ' + ts + '_' + hashHex;
+      // Force Russian UI for any text the API returns — section titles,
+      // playlist metadata, autoplaylist names, etc. The hidden window
+      // loads with the locale of music.youtube.com (often en-US) and that
+      // bleeds into every InnerTube response we get back. Locale override
+      // wins regardless of any clientOverride.
+      contextForBody.client = Object.assign({}, contextForBody.client, {
+        hl: 'ru',
+        gl: 'RU'
+      });
       const callerBody = JSON.parse(bodyJson);
       const finalBody = Object.assign({}, callerBody, { context: contextForBody });
       const r = await fetch('/youtubei/v1' + endpoint + '?prettyPrint=false', {
