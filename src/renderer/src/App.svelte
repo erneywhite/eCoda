@@ -1214,6 +1214,19 @@
                 ☕ Купить мне кофе
               </button>
             </section>
+
+            <p class="settings-sig">
+              © 2026 Erney White ·
+              <a
+                href="#"
+                onclick={(e) => {
+                  e.preventDefault()
+                  window.open('https://github.com/erneywhite/eCoda', '_blank')
+                }}
+              >
+                github.com/erneywhite/eCoda
+              </a>
+            </p>
           </div>
         {:else if view === 'library'}
           <!-- Phase B native: page-proxy signs InnerTube calls so we get
@@ -1849,6 +1862,27 @@
     background: rgba(255, 60, 120, 0.12);
     border-color: rgba(255, 107, 157, 0.8);
     color: #ffffff;
+  }
+
+  /* Settings page footer signature — copyright + repo link, centered,
+     low-contrast so it doesn't compete with the cards above. */
+  .settings-sig {
+    margin: 1.5rem 0 0.5rem;
+    text-align: center;
+    color: #6c5d8a;
+    font-size: 0.78rem;
+  }
+
+  .settings-sig a {
+    color: #a99bc9;
+    text-decoration: none;
+    border-bottom: 1px dotted rgba(255, 255, 255, 0.18);
+    transition: color 0.15s ease, border-color 0.15s ease;
+  }
+
+  .settings-sig a:hover {
+    color: #ffffff;
+    border-bottom-color: rgba(255, 255, 255, 0.45);
   }
 
   /* "Buy me a coffee" — warm-yellow gradient so it stands out as a
