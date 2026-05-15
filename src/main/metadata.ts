@@ -1,0 +1,90 @@
+import { Innertube } from 'youtubei.js'
+
+let innertube: Innertube | null = null
+
+async function getInnertube(): Promise<Innertube> {
+  if (!innertube) innertube = await Innertube.create()
+  return innertube
+}
+
+export interface SearchResult {
+  id: string
+  title: string
+  artist: string
+  duration: string
+  thumbnail: string
+}
+
+function fmtDuration(seconds: unknown): string {
+  if (typeof seconds !== 'number' || !Number.isFinite(seconds) || seconds <= 0) return ''
+  const m = Math.floor(seconds / 60)
+  const s = Math.floor(seconds % 60)
+  return `${m}:${s.toString().padStart(2, '0')}`
+}
+
+// Pulls a string out of either a plain string or an object with a .text field
+// (the shape YouTube responses often use for runs of styled text).
+function asText(v: unknown): string {
+  if (typeof v === 'string') return v
+  if (v && typeof v === 'object' && 'text' in v) {
+    const t = (v as { text: unknown }).text
+    if (typeof t === 'string') return t
+  }
+  return ''
+}
+
+function pickArtist(item: Record<string, unknown>): string {
+  if (Array.isArray(item.artists)) {
+    return item.artists
+      .map((a) => asText((a as Record<string, unknown> | null)?.name))
+      .filter(Boolean)
+      .join(', ')
+  }
+  if (item.author && typeof item.author === 'object') {
+    return asText((item.author as Record<string, unknown>).name)
+  }
+  return ''
+}
+
+function pickThumbnail(item: Record<string, unknown>): string {
+  const thumbs = item.thumbnail ?? item.thumbnails
+  if (Array.isArray(thumbs) && thumbs.length > 0) {
+    const first = thumbs[0]
+    if (first && typeof first === 'object') {
+      return asText((first as Record<string, unknown>).url)
+    }
+  }
+  return ''
+}
+
+// Searches YouTube Music for songs. Parses results defensively because
+// youtubei.js's internal response shape evolves with the library.
+export async function searchSongs(query: string): Promise<SearchResult[]> {
+  const yt = await getInnertube()
+  const raw = (await yt.music.search(query, { type: 'song' })) as unknown
+  const top = raw as { songs?: { contents?: unknown[] }; contents?: unknown[] }
+  const items: unknown[] = top.songs?.contents ?? top.contents ?? []
+
+  const out: SearchResult[] = []
+  for (const i of items) {
+    if (!i || typeof i !== 'object') continue
+    const item = i as Record<string, unknown>
+    const id =
+      typeof item.id === 'string'
+        ? item.id
+        : typeof item.video_id === 'string'
+          ? item.video_id
+          : ''
+    if (!id) continue
+    const title = asText(item.title) || asText(item.name)
+    if (!title) continue
+    const artist = pickArtist(item)
+    const duration =
+      item.duration && typeof item.duration === 'object'
+        ? fmtDuration((item.duration as Record<string, unknown>).seconds)
+        : ''
+    const thumbnail = pickThumbnail(item)
+    out.push({ id, title, artist, duration, thumbnail })
+  }
+  return out.slice(0, 30)
+}

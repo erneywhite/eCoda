@@ -8,6 +8,9 @@ const api = {
     connect: (browser: string) => ipcRenderer.invoke('auth:connect', browser),
     disconnect: () => ipcRenderer.invoke('auth:disconnect'),
     openYouTube: () => ipcRenderer.invoke('auth:open-youtube')
+  },
+  metadata: {
+    search: (query: string) => ipcRenderer.invoke('metadata:search', query)
   }
 }
 

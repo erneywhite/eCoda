@@ -2,19 +2,34 @@
   import { onMount, tick } from 'svelte'
   import logo from './assets/logo.png'
 
-  type Status = 'idle' | 'resolving' | 'ready' | 'error'
+  type PlayStatus = 'idle' | 'resolving' | 'playing' | 'error'
+  type SearchResultUI = {
+    id: string
+    title: string
+    artist: string
+    duration: string
+    thumbnail: string
+  }
 
   let connectedBrowser = $state<string | null>(null)
   let browsers = $state<{ id: string; name: string }[]>([])
   let connecting = $state<string | null>(null)
   let connectError = $state('')
 
-  let input = $state('https://www.youtube.com/watch?v=dQw4w9WgXcQ')
-  let status = $state<Status>('idle')
-  let errorMsg = $state('')
-  let title = $state('')
-  let format = $state('')
-  let streamUrl = $state('')
+  let query = $state('')
+  let searching = $state(false)
+  let searchError = $state('')
+  let searchResults = $state<SearchResultUI[]>([])
+
+  let playing = $state<{
+    id: string
+    title: string
+    artist: string
+    format: string
+    streamUrl: string
+  } | null>(null)
+  let playStatus = $state<PlayStatus>('idle')
+  let playError = $state('')
   let audioEl = $state<HTMLAudioElement>()
 
   onMount(async () => {
@@ -40,30 +55,49 @@
   async function disconnect(): Promise<void> {
     await window.api.auth.disconnect()
     connectedBrowser = null
-    status = 'idle'
+    searchResults = []
+    playing = null
+    playStatus = 'idle'
   }
 
   function browserName(id: string | null): string {
     return browsers.find((b) => b.id === id)?.name ?? id ?? ''
   }
 
-  async function resolveAndPlay(): Promise<void> {
-    if (!input.trim() || status === 'resolving') return
-    status = 'resolving'
-    errorMsg = ''
-    title = ''
-    streamUrl = ''
+  async function doSearch(): Promise<void> {
+    const q = query.trim()
+    if (!q || searching) return
+    searching = true
+    searchError = ''
     try {
-      const result = await window.api.resolveAudio(input)
-      title = result.title
-      format = result.format
-      streamUrl = result.streamUrl
-      status = 'ready'
+      searchResults = await window.api.metadata.search(q)
+    } catch (e) {
+      searchError = e instanceof Error ? e.message : String(e)
+      searchResults = []
+    } finally {
+      searching = false
+    }
+  }
+
+  async function play(result: SearchResultUI): Promise<void> {
+    if (playStatus === 'resolving') return
+    playStatus = 'resolving'
+    playError = ''
+    try {
+      const r = await window.api.resolveAudio(result.id)
+      playing = {
+        id: result.id,
+        title: r.title || result.title,
+        artist: result.artist,
+        format: r.format,
+        streamUrl: r.streamUrl
+      }
+      playStatus = 'playing'
       await tick()
       audioEl?.play().catch(() => {})
     } catch (e) {
-      status = 'error'
-      errorMsg = e instanceof Error ? e.message : String(e)
+      playStatus = 'error'
+      playError = e instanceof Error ? e.message : String(e)
     }
   }
 </script>
@@ -73,7 +107,7 @@
     <img class="mark" src={logo} alt="eCoda" />
     <div class="title-block">
       <div class="logo">eCoda</div>
-      <div class="badge">Фаза 1 · вход + извлечение</div>
+      <div class="badge">Фаза 1 · поиск + воспроизведение</div>
     </div>
     {#if connectedBrowser}
       <button class="ghost" onclick={disconnect}>
@@ -110,35 +144,64 @@
     </section>
   {:else}
     <section class="card">
-      <p class="hint">
-        Вставь ссылку на трек/видео YouTube (или 11-значный ID) и нажми «Играть».
-      </p>
       <div class="row">
         <input
           type="text"
-          bind:value={input}
-          placeholder="https://music.youtube.com/watch?v=…"
-          onkeydown={(e) => e.key === 'Enter' && resolveAndPlay()}
+          bind:value={query}
+          placeholder="Поиск трека, артиста, альбома"
+          onkeydown={(e) => e.key === 'Enter' && doSearch()}
         />
-        <button onclick={resolveAndPlay} disabled={status === 'resolving'}>
-          {status === 'resolving' ? 'Достаю…' : 'Играть'}
+        <button onclick={doSearch} disabled={searching}>
+          {searching ? 'Ищу…' : 'Найти'}
         </button>
       </div>
 
-      {#if status === 'resolving'}
-        <p class="status">yt-dlp достаёт поток…</p>
+      {#if searchError}
+        <p class="status error">Поиск не получился: {searchError}</p>
       {/if}
-      {#if status === 'error'}
-        <p class="status error">Не получилось: {errorMsg}</p>
-      {/if}
-      {#if status === 'ready'}
-        <div class="track">
-          <div class="track-title">{title}</div>
-          <div class="track-meta">формат: {format}</div>
-        </div>
-        <audio bind:this={audioEl} src={streamUrl} controls></audio>
+
+      {#if searchResults.length > 0}
+        <ul class="results">
+          {#each searchResults as r (r.id)}
+            <li>
+              <button
+                class="result"
+                onclick={() => play(r)}
+                disabled={playStatus === 'resolving'}
+              >
+                {#if r.thumbnail}
+                  <img class="thumb" src={r.thumbnail} alt="" />
+                {:else}
+                  <div class="thumb thumb-empty"></div>
+                {/if}
+                <div class="meta">
+                  <div class="title">{r.title}</div>
+                  <div class="artist">{r.artist}</div>
+                </div>
+                <div class="duration">{r.duration}</div>
+              </button>
+            </li>
+          {/each}
+        </ul>
       {/if}
     </section>
+
+    {#if playing}
+      <section class="card now-playing">
+        <div class="track">
+          <div class="track-title">{playing.title}</div>
+          <div class="track-meta">{playing.artist} · формат: {playing.format}</div>
+        </div>
+        <audio bind:this={audioEl} src={playing.streamUrl} controls></audio>
+      </section>
+    {/if}
+
+    {#if playStatus === 'resolving'}
+      <p class="status">Достаю поток…</p>
+    {/if}
+    {#if playStatus === 'error'}
+      <p class="status error">Не получилось проиграть: {playError}</p>
+    {/if}
   {/if}
 </main>
 
@@ -146,7 +209,7 @@
   main {
     display: flex;
     flex-direction: column;
-    gap: 2rem;
+    gap: 1.5rem;
     height: 100vh;
     padding: 2.5rem;
     overflow-y: auto;
@@ -211,7 +274,7 @@
     display: flex;
     flex-direction: column;
     gap: 1rem;
-    max-width: 720px;
+    max-width: 820px;
     padding: 1.5rem;
     border: 1px solid #241a38;
     border-radius: 14px;
@@ -281,6 +344,89 @@
 
   .status.error {
     color: #ff6b9d;
+  }
+
+  .results {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+  }
+
+  .result {
+    display: flex;
+    align-items: center;
+    gap: 0.85rem;
+    width: 100%;
+    padding: 0.55rem;
+    border: none;
+    border-radius: 9px;
+    background: transparent;
+    color: #ffffff;
+    font-size: 0.9rem;
+    font-weight: normal;
+    cursor: pointer;
+    text-align: left;
+  }
+
+  .result:hover:not(:disabled) {
+    background: rgba(168, 85, 247, 0.09);
+  }
+
+  .result:disabled {
+    opacity: 0.55;
+    cursor: default;
+  }
+
+  .thumb {
+    flex: 0 0 auto;
+    width: 56px;
+    height: 56px;
+    border-radius: 6px;
+    background: #0e0a16;
+    object-fit: cover;
+  }
+
+  .thumb-empty {
+    border: 1px solid #2a2040;
+  }
+
+  .meta {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+  }
+
+  .title {
+    color: #ffffff;
+    font-size: 0.95rem;
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .artist {
+    color: #a99bc9;
+    font-size: 0.82rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .duration {
+    flex: 0 0 auto;
+    color: #8c7da8;
+    font-size: 0.82rem;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .now-playing {
+    border-color: #3a2d52;
   }
 
   .track {

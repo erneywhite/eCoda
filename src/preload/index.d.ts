@@ -9,6 +9,14 @@ export interface DetectedBrowser {
   name: string
 }
 
+export interface SearchResult {
+  id: string
+  title: string
+  artist: string
+  duration: string
+  thumbnail: string
+}
+
 export interface EcodaApi {
   resolveAudio: (input: string) => Promise<ResolvedAudio>
   auth: {
@@ -17,6 +25,9 @@ export interface EcodaApi {
     connect: (browser: string) => Promise<boolean>
     disconnect: () => Promise<boolean>
     openYouTube: () => Promise<boolean>
+  }
+  metadata: {
+    search: (query: string) => Promise<SearchResult[]>
   }
 }
 

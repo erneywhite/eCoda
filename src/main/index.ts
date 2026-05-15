@@ -3,6 +3,7 @@ import { join } from 'path'
 import icon from '../../resources/icon.png?asset'
 import { resolveAudio, verifyBrowserLogin } from './ytdlp'
 import { detectBrowsers, getBrowser, setBrowser, disconnect, ytdlpBrowserArg } from './auth'
+import { searchSongs } from './metadata'
 
 let mainWindow: BrowserWindow | null = null
 
@@ -62,6 +63,7 @@ app.whenReady().then(() => {
     shell.openExternal('https://www.youtube.com/')
     return true
   })
+  ipcMain.handle('metadata:search', (_event, query: string) => searchSongs(query))
   ipcMain.handle('audio:resolve', async (_event, input: string) => {
     const browser = await getBrowser()
     if (!browser) {
