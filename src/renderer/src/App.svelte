@@ -480,93 +480,103 @@
 
     {#if playing}
       <div class="player-bar">
-        <div class="now-playing">
-          <div
-            class="np-cover"
-            style:background-image={playing.thumbnail
-              ? `url("${playing.thumbnail}")`
-              : 'none'}
-          ></div>
-          <div class="np-meta">
-            <div class="np-title" title={playing.title}>{playing.title}</div>
-            <div class="np-artist" title={playing.artist}>
-              {playing.artist || playing.format}
-            </div>
-          </div>
+        <!-- YT Music-style: thin full-width progress strip on top, controls
+             row below it. Times sit on either end of the progress strip. -->
+        <div class="seek-row">
+          <span class="time">{fmtTime(currentTime)}</span>
+          <input
+            type="range"
+            class="seek"
+            min="0"
+            max={duration || 0}
+            step="0.5"
+            value={currentTime}
+            oninput={onSeekInput}
+            onchange={onSeekCommit}
+            disabled={!duration}
+            style:--p="{duration ? (currentTime / duration) * 100 : 0}%"
+          />
+          <span class="time">{fmtTime(duration)}</span>
         </div>
 
-        <div class="transport">
+        <div class="bottom-row">
+          <div class="now-playing">
+            <div
+              class="np-cover"
+              style:background-image={playing.thumbnail
+                ? `url("${playing.thumbnail}")`
+                : 'none'}
+            ></div>
+            <div class="np-meta">
+              <div class="np-title" title={playing.title}>{playing.title}</div>
+              <div class="np-artist" title={playing.artist || playing.format}>
+                {playing.artist || playing.format}
+              </div>
+            </div>
+          </div>
+
           <div class="transport-buttons">
-            <button class="ctrl small" onclick={playPrev} title="Предыдущий">
-              <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"
-                ><path d="M6 6h2v12H6zm3.5 6 8.5 6V6z" /></svg
-              >
+            <button class="ctrl" onclick={playPrev} aria-label="Предыдущий">
+              <!-- skip_previous (material): vertical bar + leftward triangle -->
+              <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor">
+                <path d="M6 6h2v12H6z" />
+                <path d="M9.5 12 18 6v12z" />
+              </svg>
             </button>
-            <button class="ctrl play" onclick={togglePlay} title={isPlaying ? 'Пауза' : 'Играть'}>
+            <button class="ctrl play" onclick={togglePlay} aria-label={isPlaying ? 'Пауза' : 'Играть'}>
               {#if isPlaying}
-                <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"
-                  ><path d="M6 5h4v14H6zm8 0h4v14h-4z" /></svg
+                <!-- pause: two bars -->
+                <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor">
+                  <path d="M6 5h4v14H6z" />
+                  <path d="M14 5h4v14h-4z" />
+                </svg>
+              {:else}
+                <!-- play: rightward triangle -->
+                <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor">
+                  <path d="M8 5v14l11-7z" />
+                </svg>
+              {/if}
+            </button>
+            <button class="ctrl" onclick={playNext} aria-label="Следующий">
+              <!-- skip_next (material): rightward triangle + vertical bar -->
+              <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor">
+                <path d="M6 6v12l8.5-6z" />
+                <path d="M16 6h2v12h-2z" />
+              </svg>
+            </button>
+          </div>
+
+          <div class="volume">
+            <button class="ctrl small" onclick={toggleMute} aria-label={muted ? 'Включить звук' : 'Выключить звук'}>
+              {#if muted || volume === 0}
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"
+                  ><path
+                    d="M3 9v6h4l5 5V4L7 9H3zm13.59 3L20 8.41 18.59 7 15 10.59 11.41 7 10 8.41 13.59 12 10 15.59 11.41 17 15 13.41 18.59 17 20 15.59z"
+                  /></svg
+                >
+              {:else if volume > 0.5}
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"
+                  ><path
+                    d="M3 9v6h4l5 5V4L7 9H3zm13.5 3A4.5 4.5 0 0 0 14 7.97v8.05A4.5 4.5 0 0 0 16.5 12zM14 3.23v2.06A7 7 0 0 1 14 18.71v2.06A9 9 0 0 0 14 3.23z"
+                  /></svg
                 >
               {:else}
-                <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"
-                  ><path d="M8 5v14l11-7z" /></svg
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"
+                  ><path d="M7 9v6h4l5 5V4l-5 5H7zm9.5 3A4.5 4.5 0 0 0 14 7.97v8.05A4.5 4.5 0 0 0 16.5 12z" /></svg
                 >
               {/if}
             </button>
-            <button class="ctrl small" onclick={playNext} title="Следующий">
-              <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"
-                ><path d="M16 6h2v12h-2zm-9.5 6L15 6v12z" /></svg
-              >
-            </button>
-          </div>
-          <div class="transport-seek">
-            <span class="time">{fmtTime(currentTime)}</span>
             <input
               type="range"
-              class="seek"
+              class="vol"
               min="0"
-              max={duration || 0}
-              step="0.5"
-              value={currentTime}
-              oninput={onSeekInput}
-              onchange={onSeekCommit}
-              disabled={!duration}
-              style:--p="{duration ? (currentTime / duration) * 100 : 0}%"
+              max="1"
+              step="0.01"
+              value={muted ? 0 : volume}
+              oninput={onVolumeInput}
+              style:--p="{(muted ? 0 : volume) * 100}%"
             />
-            <span class="time">{fmtTime(duration)}</span>
           </div>
-        </div>
-
-        <div class="volume">
-          <button class="ctrl tiny" onclick={toggleMute} title={muted ? 'Включить' : 'Выкл. звук'}>
-            {#if muted || volume === 0}
-              <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"
-                ><path
-                  d="M3 9v6h4l5 5V4L7 9H3zm13.59 3L20 8.41 18.59 7 15 10.59 11.41 7 10 8.41 13.59 12 10 15.59 11.41 17 15 13.41 18.59 17 20 15.59z"
-                /></svg
-              >
-            {:else if volume > 0.5}
-              <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"
-                ><path
-                  d="M3 9v6h4l5 5V4L7 9H3zm13.5 3A4.5 4.5 0 0 0 14 7.97v8.05A4.5 4.5 0 0 0 16.5 12zM14 3.23v2.06A7 7 0 0 1 14 18.71v2.06A9 9 0 0 0 14 3.23z"
-                /></svg
-              >
-            {:else}
-              <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"
-                ><path d="M7 9v6h4l5 5V4l-5 5H7zm9.5 3A4.5 4.5 0 0 0 14 7.97v8.05A4.5 4.5 0 0 0 16.5 12z" /></svg
-              >
-            {/if}
-          </button>
-          <input
-            type="range"
-            class="vol"
-            min="0"
-            max="1"
-            step="0.01"
-            value={muted ? 0 : volume}
-            oninput={onVolumeInput}
-            style:--p="{(muted ? 0 : volume) * 100}%"
-          />
         </div>
 
         <audio
@@ -998,17 +1008,31 @@
     font-variant-numeric: tabular-nums;
   }
 
-  /* ---- player bar --------------------------------------------------------- */
+  /* ---- player bar (YT Music style) -------------------------------------- */
 
   .player-bar {
-    display: grid;
-    grid-template-columns: minmax(220px, 28%) 1fr minmax(140px, 18%);
-    gap: 1.5rem;
-    align-items: center;
-    padding: 0.85rem 1.5rem;
+    display: flex;
+    flex-direction: column;
     border-top: 1px solid #241a38;
     background: #0f0a18;
     flex-shrink: 0;
+  }
+
+  /* Full-width progress strip just under the top border, with times on
+     either side — mirrors music.youtube.com's bottom bar. */
+  .seek-row {
+    display: flex;
+    align-items: center;
+    gap: 0.7rem;
+    padding: 0.4rem 1.5rem 0.2rem;
+  }
+
+  .bottom-row {
+    display: grid;
+    grid-template-columns: minmax(220px, 1fr) auto minmax(140px, 1fr);
+    gap: 1.5rem;
+    align-items: center;
+    padding: 0.5rem 1.5rem 0.85rem;
   }
 
   .now-playing {
@@ -1020,8 +1044,8 @@
 
   .np-cover {
     flex: 0 0 auto;
-    width: 52px;
-    height: 52px;
+    width: 54px;
+    height: 54px;
     border-radius: 6px;
     background-color: #0e0a16;
     background-position: center;
@@ -1034,7 +1058,7 @@
     min-width: 0;
     display: flex;
     flex-direction: column;
-    gap: 0.15rem;
+    gap: 0.18rem;
   }
 
   .np-title {
@@ -1056,30 +1080,23 @@
 
   /* ---- transport (center column) ---- */
 
-  .transport {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 0.35rem;
-    min-width: 0;
-  }
-
   .transport-buttons {
     display: flex;
-    gap: 0.4rem;
+    gap: 0.7rem;
     align-items: center;
+    justify-content: center;
   }
 
   /* Override the global purple-gradient button rule for control buttons —
-     they need to be discrete icon buttons, not full-width CTAs. */
+     they're icon buttons, not full-width CTAs. */
   .ctrl {
-    width: 34px;
-    height: 34px;
+    width: 40px;
+    height: 40px;
     padding: 0;
     border: none;
     border-radius: 50%;
     background: transparent;
-    color: #b9acd6;
+    color: #d4c9e8;
     cursor: pointer;
     display: inline-flex;
     align-items: center;
@@ -1093,18 +1110,13 @@
   }
 
   .ctrl.small {
-    width: 32px;
-    height: 32px;
-  }
-
-  .ctrl.tiny {
-    width: 26px;
-    height: 26px;
+    width: 30px;
+    height: 30px;
   }
 
   .ctrl.play {
-    width: 40px;
-    height: 40px;
+    width: 46px;
+    height: 46px;
     background: #ffffff;
     color: #0e0a16;
   }
@@ -1115,36 +1127,39 @@
     transform: scale(1.06);
   }
 
-  .transport-seek {
-    display: flex;
-    align-items: center;
-    gap: 0.7rem;
-    width: 100%;
-    max-width: 620px;
-  }
-
   .time {
     color: #8c7da8;
     font-size: 0.74rem;
     font-variant-numeric: tabular-nums;
-    width: 36px;
+    width: 40px;
     text-align: center;
     flex-shrink: 0;
   }
 
   /* ---- range sliders (seek + volume) ----
-     A subtle filled-purple-on-fill, grey-on-rest track. The fill width is
-     driven by a CSS variable (--p) set inline by the markup so we don't
-     have to listen to input events twice (once for state, once for paint). */
+     YT-Music-style: very thin grey track that grows a filled purple bar
+     under the played portion. The thumb is hidden by default and only
+     appears on hover. Fill width is driven by an inline `--p` CSS var so
+     the rule stays declarative. */
   .seek,
   .vol {
-    flex: 1;
     -webkit-appearance: none;
     appearance: none;
     background: transparent;
     margin: 0;
-    height: 18px;
     cursor: pointer;
+    padding: 0;
+  }
+
+  .seek {
+    flex: 1;
+    height: 14px;
+  }
+
+  .vol {
+    width: 100%;
+    max-width: 110px;
+    height: 14px;
   }
 
   .seek:disabled {
@@ -1154,7 +1169,7 @@
 
   .seek::-webkit-slider-runnable-track,
   .vol::-webkit-slider-runnable-track {
-    height: 4px;
+    height: 3px;
     border-radius: 999px;
     background: linear-gradient(
       to right,
@@ -1165,13 +1180,18 @@
     );
   }
 
+  .seek:hover::-webkit-slider-runnable-track,
+  .vol:hover::-webkit-slider-runnable-track {
+    height: 4px;
+  }
+
   .seek::-webkit-slider-thumb,
   .vol::-webkit-slider-thumb {
     -webkit-appearance: none;
     appearance: none;
     margin-top: -5px;
-    width: 14px;
-    height: 14px;
+    width: 13px;
+    height: 13px;
     border-radius: 50%;
     background: #ffffff;
     border: none;

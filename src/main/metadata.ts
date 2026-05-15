@@ -78,14 +78,21 @@ function asText(v: unknown): string {
 
 function pickArtist(item: Record<string, unknown>): string {
   if (Array.isArray(item.artists)) {
-    return item.artists
+    const joined = item.artists
       .map((a) => asText((a as Record<string, unknown> | null)?.name))
       .filter(Boolean)
       .join(', ')
+    if (joined) return joined
   }
   if (item.author && typeof item.author === 'object') {
-    return asText((item.author as Record<string, unknown>).name)
+    const n = asText((item.author as Record<string, unknown>).name)
+    if (n) return n
   }
+  // MusicResponsiveListItem (used inside playlists/albums) exposes the
+  // artist line as `subtitle` — a Text with the format "Artist • Album".
+  // Take the part before the first bullet so we don't render the album too.
+  const subtitle = asText(item.subtitle)
+  if (subtitle) return subtitle.split(/\s*[•·]\s*/)[0]
   return ''
 }
 
