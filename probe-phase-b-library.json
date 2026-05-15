@@ -1,0 +1,131 @@
+{
+  "responseContext": {
+    "serviceTrackingParams": [
+      {
+        "service": "GFEEDBACK",
+        "params": [
+          {
+            "key": "browse_id",
+            "value": "FEmusic_library_landing"
+          },
+          {
+            "key": "browse_id_prefix",
+            "value": ""
+          },
+          {
+            "key": "logged_in",
+            "value": "0"
+          }
+        ]
+      },
+      {
+        "service": "CSI",
+        "params": [
+          {
+            "key": "c",
+            "value": "WEB_REMIX"
+          },
+          {
+            "key": "cver",
+            "value": "1.20250219.01.00"
+          },
+          {
+            "key": "yt_li",
+            "value": "0"
+          },
+          {
+            "key": "GetBrowseLibraryLandingPage_rid",
+            "value": "0xb644122f23c1410d"
+          }
+        ]
+      },
+      {
+        "service": "ECATCHER",
+        "params": [
+          {
+            "key": "client.version",
+            "value": "1.20000101"
+          },
+          {
+            "key": "client.name",
+            "value": "WEB_REMIX"
+          }
+        ]
+      }
+    ],
+    "responseId": "IhMIpJiCyIK7lAMVmDsGAB28uSa6"
+  },
+  "contents": {
+    "singleColumnBrowseResultsRenderer": {
+      "tabs": [
+        {
+          "tabRenderer": {
+            "selected": true,
+            "content": {
+              "sectionListRenderer": {
+                "contents": [
+                  {
+                    "itemSectionRenderer": {
+                      "contents": [
+                        {
+                          "messageRenderer": {
+                            "text": {
+                              "runs": [
+                                {
+                                  "text": "Explore your favorites"
+                                }
+                              ]
+                            },
+                            "trackingParams": "CAQQljsYACITCKSYgsiCu5QDFZg7BgAdvLkmug==",
+                            "button": {
+                              "buttonRenderer": {
+                                "style": "STYLE_DEFAULT",
+                                "isDisabled": false,
+                                "text": {
+                                  "runs": [
+                                    {
+                                      "text": "Sign in"
+                                    }
+                                  ]
+                                },
+                                "navigationEndpoint": {
+                                  "clickTrackingParams": "CAUQ8FsiEwikmILIgruUAxWYOwYAHby5JrrKAQQh63_x",
+                                  "signInEndpoint": {
+                                    "hack": true
+                                  }
+                                },
+                                "trackingParams": "CAUQ8FsiEwikmILIgruUAxWYOwYAHby5Jro="
+                              }
+                            },
+                            "subtext": {
+                              "messageSubtextRenderer": {
+                                "text": {
+                                  "runs": [
+                                    {
+                                      "text": "Sign in to access tracks that you liked or saved"
+                                    }
+                                  ]
+                                }
+                              }
+                            },
+                            "style": {
+                              "value": "RENDER_STYLE_VERTICAL_CENTERED"
+                            }
+                          }
+                        }
+                      ],
+                      "trackingParams": "CAMQuy8YACITCKSYgsiCu5QDFZg7BgAdvLkmug=="
+                    }
+                  }
+                ],
+                "trackingParams": "CAIQui8iEwikmILIgruUAxWYOwYAHby5Jro="
+              }
+            },
+            "trackingParams": "CAEQ8JMBGAAiEwikmILIgruUAxWYOwYAHby5Jro="
+          }
+        }
+      ]
+    }
+  },
+  "trackingParams": "CAAQhGciEwikmILIgruUAxWYOwYAHby5JrrKAQQh63_x"
+}

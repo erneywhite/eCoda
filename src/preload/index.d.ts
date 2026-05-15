@@ -39,6 +39,31 @@ export interface PlaylistView {
   tracks: SearchResult[]
 }
 
+export interface DownloadInfo {
+  videoId: string
+  title: string
+  artist: string
+  thumbnail: string
+}
+
+export interface DownloadedTrack {
+  videoId: string
+  title: string
+  artist: string
+  thumbnail: string
+  ext: string
+  sizeBytes: number
+  downloadedAt: number
+}
+
+export interface DownloadProgress {
+  done: number
+  total: number
+  videoId: string
+  title: string
+  errored: boolean
+}
+
 export interface EcodaApi {
   resolveAudio: (input: string) => Promise<ResolvedAudio>
   prefetchAudio: (ids: string[]) => Promise<boolean>
@@ -57,6 +82,14 @@ export interface EcodaApi {
   }
   library: {
     prepare: () => Promise<{ ok: true; cookies: number } | { ok: false; error: string }>
+  }
+  downloads: {
+    status: (ids: string[]) => Promise<string[]>
+    list: () => Promise<DownloadedTrack[]>
+    track: (info: DownloadInfo) => Promise<DownloadedTrack>
+    playlist: (tracks: DownloadInfo[]) => Promise<boolean>
+    delete: (videoId: string) => Promise<boolean>
+    onProgress: (cb: (p: DownloadProgress) => void) => () => void
   }
   debug: {
     harvestTokens: () => Promise<unknown>

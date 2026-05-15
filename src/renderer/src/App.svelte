@@ -1,7 +1,13 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte'
   import logo from './assets/logo.png'
-  import type { HomeItem, HomeSection, PlaylistView, SearchResult } from '../../preload/index.d'
+  import type {
+    DownloadProgress,
+    HomeItem,
+    HomeSection,
+    PlaylistView,
+    SearchResult
+  } from '../../preload/index.d'
 
   type View = 'home' | 'search' | 'playlist' | 'library'
   type PlayStatus = 'idle' | 'resolving' | 'playing' | 'error'
@@ -32,6 +38,89 @@
   let playlistView = $state<PlaylistView | null>(null)
   let playlistLoading = $state(false)
   let playlistError = $state('')
+
+  // ---- downloads (Phase 2: offline cache) ----------------------------------
+  // We use SvelteSet via $state<Set<...>> so the UI reacts when items move
+  // in and out of these sets.
+  let downloadedIds = $state<Set<string>>(new Set())
+  let downloadingIds = $state<Set<string>>(new Set())
+  let bulkProgress = $state<{ done: number; total: number; currentTitle: string } | null>(null)
+
+  function addDownloaded(id: string): void {
+    const s = new Set(downloadedIds)
+    s.add(id)
+    downloadedIds = s
+  }
+  function removeDownloaded(id: string): void {
+    const s = new Set(downloadedIds)
+    s.delete(id)
+    downloadedIds = s
+  }
+  function setDownloading(id: string, value: boolean): void {
+    const s = new Set(downloadingIds)
+    if (value) s.add(id)
+    else s.delete(id)
+    downloadingIds = s
+  }
+
+  async function refreshDownloadStatus(tracks: SearchResult[]): Promise<void> {
+    if (tracks.length === 0) return
+    const ids = tracks.map((t) => t.id)
+    const got = await window.api.downloads.status(ids)
+    const s = new Set(downloadedIds)
+    for (const id of got) s.add(id)
+    downloadedIds = s
+  }
+
+  async function toggleTrackDownload(track: SearchResult): Promise<void> {
+    if (downloadingIds.has(track.id)) return
+    if (downloadedIds.has(track.id)) {
+      // already downloaded → delete
+      const ok = await window.api.downloads.delete(track.id)
+      if (ok) removeDownloaded(track.id)
+      return
+    }
+    setDownloading(track.id, true)
+    try {
+      await window.api.downloads.track({
+        videoId: track.id,
+        title: track.title,
+        artist: track.artist,
+        thumbnail: track.thumbnail
+      })
+      addDownloaded(track.id)
+    } catch (err) {
+      console.warn('download failed', err)
+    } finally {
+      setDownloading(track.id, false)
+    }
+  }
+
+  async function downloadCurrentPlaylist(): Promise<void> {
+    if (!playlistView || bulkProgress) return
+    const pending = playlistView.tracks.filter((t) => !downloadedIds.has(t.id))
+    if (pending.length === 0) return
+    bulkProgress = { done: 0, total: pending.length, currentTitle: '' }
+    try {
+      await window.api.downloads.playlist(
+        pending.map((t) => ({
+          videoId: t.id,
+          title: t.title,
+          artist: t.artist,
+          thumbnail: t.thumbnail
+        }))
+      )
+    } catch (err) {
+      console.warn('bulk download failed', err)
+    } finally {
+      bulkProgress = null
+    }
+  }
+
+  function handleDownloadProgress(p: DownloadProgress): void {
+    if (!p.errored) addDownloaded(p.videoId)
+    if (bulkProgress) bulkProgress = { done: p.done, total: p.total, currentTitle: p.title }
+  }
 
   // ---- library view (Phase B: native via page-proxy) -----------------------
   // Single section "Мои плейлисты" for now. Tracks/Albums/Artists tabs go
@@ -107,6 +196,10 @@
     browsers = await window.api.auth.browsers()
     connectedBrowser = await window.api.auth.status()
     if (connectedBrowser) void loadHome()
+    // Subscribe to per-track download progress; live updates for the bulk
+    // progress UI + flipping each row's badge as it completes.
+    const unsub = window.api.downloads.onProgress(handleDownloadProgress)
+    return () => unsub()
   })
 
   async function connect(browser: { id: string; name: string }): Promise<void> {
@@ -232,6 +325,9 @@
     }
     try {
       playlistView = await window.api.metadata.playlist(id)
+      // Once we have the track list, check which of them are already on
+      // disk so the download badges render in the correct state.
+      if (playlistView) void refreshDownloadStatus(playlistView.tracks)
     } catch (e) {
       playlistError = e instanceof Error ? e.message : String(e)
     } finally {
@@ -464,6 +560,20 @@
                   <div class="playlist-count">
                     {playlistView.tracks.length} треков
                   </div>
+                  {#if bulkProgress}
+                    <div class="bulk-progress">
+                      Скачиваю {bulkProgress.done} / {bulkProgress.total}
+                      {#if bulkProgress.currentTitle}
+                        · {bulkProgress.currentTitle}
+                      {/if}
+                    </div>
+                  {:else if playlistView.tracks.some((t) => !downloadedIds.has(t.id))}
+                    <button class="dl-bulk" onclick={downloadCurrentPlaylist}>
+                      📥 Скачать ({playlistView.tracks.filter((t) => !downloadedIds.has(t.id)).length})
+                    </button>
+                  {:else}
+                    <div class="all-saved">✓ Все треки сохранены</div>
+                  {/if}
                 {/if}
               </div>
             </div>
@@ -477,7 +587,7 @@
           {#if playlistView && playlistView.tracks.length > 0}
             <ul class="track-list">
               {#each playlistView.tracks as r (r.id)}
-                <li>
+                <li class="track-li">
                   <button
                     class="track-row"
                     class:current={playing?.id === r.id}
@@ -493,6 +603,26 @@
                       <div class="artist">{r.artist}</div>
                     </div>
                     <div class="duration">{r.duration}</div>
+                  </button>
+                  <button
+                    class="dl-btn"
+                    class:done={downloadedIds.has(r.id)}
+                    class:busy={downloadingIds.has(r.id)}
+                    title={downloadedIds.has(r.id)
+                      ? 'Удалить с устройства'
+                      : downloadingIds.has(r.id)
+                        ? 'Скачиваю…'
+                        : 'Скачать'}
+                    onclick={() => toggleTrackDownload(r)}
+                    disabled={downloadingIds.has(r.id)}
+                  >
+                    {#if downloadedIds.has(r.id)}
+                      ✓
+                    {:else if downloadingIds.has(r.id)}
+                      ⋯
+                    {:else}
+                      ↓
+                    {/if}
                   </button>
                 </li>
               {/each}
@@ -1000,6 +1130,79 @@
     min-height: 0;
     border: none;
     margin: 0 0 -1.5rem 0;
+  }
+
+  /* ---- offline download buttons (playlist view only) --------------------- */
+
+  .track-li {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+  }
+  .track-li .track-row {
+    flex: 1;
+  }
+
+  .dl-btn {
+    flex: 0 0 auto;
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    border: 1px solid #2a2040;
+    border-radius: 50%;
+    background: transparent;
+    color: #b9acd6;
+    font-size: 1rem;
+    font-weight: 700;
+    line-height: 1;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+  }
+
+  .dl-btn:hover:not(:disabled) {
+    background: rgba(168, 85, 247, 0.18);
+    border-color: rgba(168, 85, 247, 0.5);
+    color: #ffffff;
+  }
+
+  .dl-btn.done {
+    border-color: rgba(120, 200, 120, 0.55);
+    background: rgba(120, 200, 120, 0.15);
+    color: #9eef9e;
+  }
+
+  .dl-btn.busy {
+    cursor: default;
+    opacity: 0.7;
+  }
+
+  .dl-bulk {
+    align-self: flex-start;
+    margin-top: 0.4rem;
+    padding: 0.55rem 1.1rem;
+    border: none;
+    border-radius: 9px;
+    background: linear-gradient(135deg, #a22ff0, #e24dff);
+    color: #ffffff;
+    font-size: 0.85rem;
+    font-weight: 700;
+    cursor: pointer;
+  }
+
+  .bulk-progress {
+    margin-top: 0.4rem;
+    color: #c9b8e6;
+    font-size: 0.82rem;
+    font-style: italic;
+  }
+
+  .all-saved {
+    margin-top: 0.4rem;
+    color: #9eef9e;
+    font-size: 0.82rem;
   }
 
   /* ---- track list (shared between search + playlist) ---------------------- */

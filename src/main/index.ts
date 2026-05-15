@@ -11,6 +11,14 @@ import {
   resetInnertube
 } from './metadata'
 import { resolveCached, queuePrefetch, clearResolverCache } from './resolver'
+import {
+  downloadOne,
+  downloadMany,
+  deleteDownloadedTrack,
+  getDownloadedStatus,
+  listDownloadedTracks,
+  type TrackInfo
+} from './downloads'
 import { importCookiesToMusicSession, clearMusicSessionCookies } from './library-session'
 import { harvestTokens, resetHarvest, browseViaPage, innertubeFetch } from './token-harvest'
 
@@ -186,6 +194,41 @@ app.whenReady().then(() => {
     queuePrefetch(Array.isArray(ids) ? ids : [], arg)
     return true
   })
+
+  // -------- Downloads (Phase 2: offline cache) ---------------------------
+  // Returns the subset of provided ids that are already cached on disk.
+  ipcMain.handle('downloads:status', (_event, ids: string[]) =>
+    getDownloadedStatus(Array.isArray(ids) ? ids : [])
+  )
+  ipcMain.handle('downloads:list', () => listDownloadedTracks())
+  // Downloads a single track. Renderer passes the metadata it already has
+  // so we don't fetch it twice.
+  ipcMain.handle('downloads:track', async (_event, info: TrackInfo) => {
+    const browser = await getBrowser()
+    if (!browser) throw new Error('No browser connected')
+    const arg = ytdlpBrowserArg(browser)
+    if (!arg) throw new Error('Cookies unavailable')
+    return downloadOne(info, arg)
+  })
+  // Downloads a whole playlist sequentially. Progress events are streamed
+  // back to the renderer so it can show "12 / 95".
+  ipcMain.handle('downloads:playlist', async (event, tracks: TrackInfo[]) => {
+    const browser = await getBrowser()
+    if (!browser) throw new Error('No browser connected')
+    const arg = ytdlpBrowserArg(browser)
+    if (!arg) throw new Error('Cookies unavailable')
+    await downloadMany(Array.isArray(tracks) ? tracks : [], arg, (done, total, current, errored) => {
+      event.sender.send('downloads:progress', {
+        done,
+        total,
+        videoId: current.videoId,
+        title: current.title,
+        errored
+      })
+    })
+    return true
+  })
+  ipcMain.handle('downloads:delete', (_event, videoId: string) => deleteDownloadedTrack(videoId))
 
   createWindow()
 
