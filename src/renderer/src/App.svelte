@@ -265,7 +265,25 @@
     // Subscribe to per-track download progress; live updates for the bulk
     // progress UI + flipping each row's badge as it completes.
     const unsub = window.api.downloads.onProgress(handleDownloadProgress)
-    return () => unsub()
+    // Mouse side-buttons: XButton1 (back) = event.button 3, XButton2
+    // (forward) = event.button 4. Matches browsers and File Explorer on
+    // Windows. preventDefault stops the default "navigate back" behaviour
+    // that would otherwise leave dev-tools or Electron itself trying to
+    // do something with the click.
+    const onMouse = (e: MouseEvent): void => {
+      if (e.button === 3) {
+        e.preventDefault()
+        goBack()
+      } else if (e.button === 4) {
+        e.preventDefault()
+        goForward()
+      }
+    }
+    window.addEventListener('mouseup', onMouse)
+    return () => {
+      unsub()
+      window.removeEventListener('mouseup', onMouse)
+    }
   })
 
   async function connect(browser: { id: string; name: string }): Promise<void> {
