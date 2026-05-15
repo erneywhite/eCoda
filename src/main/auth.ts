@@ -180,12 +180,46 @@ export interface PinnedPlaylist {
   thumbnail: string
 }
 
+// Window geometry remembered between launches so the user doesn't have to
+// re-arrange the app every time. The bounds are validated against the
+// current display layout before being applied — if a monitor was
+// disconnected the window snaps back to a default on the primary display.
+export interface WindowState {
+  x?: number
+  y?: number
+  width: number
+  height: number
+  isMaximized?: boolean
+}
+
+// Minimal snapshot of what was playing when the app last exited. Restored
+// on launch as a paused track ready to resume from `currentTime`. We keep
+// the sourceList so prev/next still work after restore.
+export interface SessionTrack {
+  id: string
+  title: string
+  artist: string
+  thumbnail: string
+  duration?: string
+}
+export interface LastSession {
+  track: SessionTrack
+  sourceList: SessionTrack[]
+  // Optional context — playlist the track was launched from, so the UI
+  // can surface a hint like "from My Liked Songs" on the resume banner.
+  sourceListId?: string
+  sourceListTitle?: string
+  currentTime: number
+}
+
 interface Config {
   browser?: string
   defaultTab?: DefaultTab
   theme?: Theme
   lang?: Lang
   pinnedPlaylists?: PinnedPlaylist[]
+  windowState?: WindowState
+  lastSession?: LastSession
 }
 
 function configPath(): string {
@@ -301,6 +335,34 @@ export async function updatePinSnapshot(item: PinnedPlaylist): Promise<void> {
     cfg.pinnedPlaylists = list
     await writeConfig(cfg)
   }
+}
+
+// Window bounds + maximized flag persisted across launches. The renderer
+// doesn't talk to these directly — index.ts handles save/restore around
+// the main BrowserWindow lifecycle.
+export async function getWindowState(): Promise<WindowState | null> {
+  return (await readConfig()).windowState ?? null
+}
+
+export async function setWindowState(state: WindowState): Promise<void> {
+  await writeConfig({ ...(await readConfig()), windowState: state })
+}
+
+// Last track + queue context + position. Saved on track change / pause /
+// throttled timeupdate; cleared on auth disconnect (no point pointing the
+// user at a track they can no longer resolve).
+export async function getLastSession(): Promise<LastSession | null> {
+  return (await readConfig()).lastSession ?? null
+}
+
+export async function setLastSession(session: LastSession): Promise<void> {
+  await writeConfig({ ...(await readConfig()), lastSession: session })
+}
+
+export async function clearLastSession(): Promise<void> {
+  const cfg = await readConfig()
+  delete cfg.lastSession
+  await writeConfig(cfg)
 }
 
 // Toggles a playlist's pinned state. Returns true if it's pinned now,

@@ -88,6 +88,36 @@ export interface DownloadProgress {
   videoId: string
   title: string
   errored: boolean
+  errorReason?: string
+}
+
+export interface SessionTrack {
+  id: string
+  title: string
+  artist: string
+  thumbnail: string
+  duration?: string
+}
+
+export interface LastSession {
+  track: SessionTrack
+  sourceList: SessionTrack[]
+  sourceListId?: string
+  sourceListTitle?: string
+  currentTime: number
+}
+
+export interface CacheVerifyResult {
+  manifestEntries: number
+  filesOnDisk: number
+  removedDeadEntries: number
+  recoveredOrphans: number
+  totalAfter: number
+}
+
+export interface DownloadManySummary {
+  ok: number
+  failed: Array<{ videoId: string; title: string; reason: string }>
 }
 
 export interface EcodaApi {
@@ -99,6 +129,7 @@ export interface EcodaApi {
     connect: (browser: string) => Promise<boolean>
     disconnect: () => Promise<boolean>
     openYouTube: () => Promise<boolean>
+    onRefreshed: (cb: () => void) => () => void
   }
   metadata: {
     search: (query: string) => Promise<SearchResult[]>
@@ -114,13 +145,21 @@ export interface EcodaApi {
     list: () => Promise<DownloadedTrack[]>
     stats: () => Promise<{ tracks: number; bytes: number }>
     track: (info: DownloadInfo) => Promise<DownloadedTrack>
-    playlist: (tracks: DownloadInfo[]) => Promise<boolean>
+    playlist: (tracks: DownloadInfo[]) => Promise<DownloadManySummary>
     delete: (videoId: string) => Promise<boolean>
     clearAll: () => Promise<number>
+    verify: () => Promise<CacheVerifyResult>
     onProgress: (cb: (p: DownloadProgress) => void) => () => void
   }
   app: {
-    info: () => Promise<{ name: string; version: string; userData: string; repoUrl: string }>
+    info: () => Promise<{
+      name: string
+      version: string
+      userData: string
+      logPath: string
+      repoUrl: string
+    }>
+    openPath: (target: string) => Promise<boolean>
   }
   updater: {
     check: () => Promise<boolean>
@@ -138,6 +177,11 @@ export interface EcodaApi {
     setTheme: (theme: Theme) => Promise<void>
     getLang: () => Promise<Lang>
     setLang: (lang: Lang) => Promise<void>
+  }
+  session: {
+    get: () => Promise<LastSession | null>
+    set: (s: LastSession) => Promise<void>
+    clear: () => Promise<void>
   }
   debug: {
     harvestTokens: () => Promise<unknown>

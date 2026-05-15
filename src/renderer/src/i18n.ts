@@ -131,7 +131,26 @@ const RU: Strings = {
   'settings.donate.title': 'Понравилась программа?',
   'settings.donate.hint':
     'eCoda полностью бесплатна и open-source. Если хочешь поддержать разработку — можно угостить кофе.',
-  'settings.donate.button': '☕ Купить мне кофе'
+  'settings.donate.button': '☕ Купить мне кофе',
+
+  // Diagnostics (Settings)
+  'settings.diag.title': 'Диагностика',
+  'settings.diag.hint':
+    'Если кеш «исчезает» между запусками или ты хочешь посмотреть логи — здесь основные пути и кнопки.',
+  'settings.diag.userData': 'Папка данных',
+  'settings.diag.cache': 'Папка кеша',
+  'settings.diag.logFile': 'Файл логов',
+  'settings.diag.open': 'Открыть',
+  'settings.diag.verify': 'Проверить кеш',
+  'settings.diag.verifying': 'Проверяю…',
+  'settings.diag.verifyResult':
+    'Проверено. Записей в манифесте: {entries}. Файлов на диске: {files}. Удалено битых: {dead}. Восстановлено: {orphans}.',
+
+  // Download summary (after bulk download)
+  'downloads.summary.ok': 'Скачано {ok} из {total}',
+  'downloads.summary.failed': '{n} не удалось скачать',
+  'downloads.summary.retry': 'Повторить неудачные',
+  'downloads.summary.dismiss': 'OK'
 }
 
 const EN: Strings = {
@@ -245,7 +264,24 @@ const EN: Strings = {
   'settings.donate.title': 'Like the app?',
   'settings.donate.hint':
     'eCoda is fully free and open-source. If you want to support development, you can buy me a coffee.',
-  'settings.donate.button': '☕ Buy me a coffee'
+  'settings.donate.button': '☕ Buy me a coffee',
+
+  'settings.diag.title': 'Diagnostics',
+  'settings.diag.hint':
+    'If the cache “disappears” between launches or you want to look at the logs — here are the main paths and buttons.',
+  'settings.diag.userData': 'User data folder',
+  'settings.diag.cache': 'Cache folder',
+  'settings.diag.logFile': 'Log file',
+  'settings.diag.open': 'Open',
+  'settings.diag.verify': 'Verify cache',
+  'settings.diag.verifying': 'Verifying…',
+  'settings.diag.verifyResult':
+    'Verified. Manifest entries: {entries}. Files on disk: {files}. Dead entries removed: {dead}. Orphans recovered: {orphans}.',
+
+  'downloads.summary.ok': 'Downloaded {ok} of {total}',
+  'downloads.summary.failed': '{n} failed to download',
+  'downloads.summary.retry': 'Retry failed',
+  'downloads.summary.dismiss': 'OK'
 }
 
 const TABLES: Record<Lang, Strings> = { ru: RU, en: EN }

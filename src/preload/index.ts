@@ -8,7 +8,15 @@ const api = {
     status: () => ipcRenderer.invoke('auth:status'),
     connect: (browser: string) => ipcRenderer.invoke('auth:connect', browser),
     disconnect: () => ipcRenderer.invoke('auth:disconnect'),
-    openYouTube: () => ipcRenderer.invoke('auth:open-youtube')
+    openYouTube: () => ipcRenderer.invoke('auth:open-youtube'),
+    // Fires after the main process silently refreshed cookies on launch.
+    // The renderer should drop any auth-bound caches and re-fetch the
+    // current view so an initially-empty Library/Home is repopulated.
+    onRefreshed: (cb: () => void) => {
+      const wrapped = (): void => cb()
+      ipcRenderer.on('auth:refreshed', wrapped)
+      return () => ipcRenderer.removeListener('auth:refreshed', wrapped)
+    }
   },
   metadata: {
     search: (query: string) => ipcRenderer.invoke('metadata:search', query),
@@ -29,19 +37,37 @@ const api = {
       ipcRenderer.invoke('downloads:playlist', tracks),
     delete: (videoId: string) => ipcRenderer.invoke('downloads:delete', videoId),
     clearAll: () => ipcRenderer.invoke('downloads:clearAll'),
+    verify: () => ipcRenderer.invoke('downloads:verify'),
     // The renderer subscribes once at mount; the unsubscribe function is
     // returned so $effect-style teardown can remove the listener cleanly.
     onProgress: (
-      cb: (p: { done: number; total: number; videoId: string; title: string; errored: boolean }) => void
+      cb: (p: {
+        done: number
+        total: number
+        videoId: string
+        title: string
+        errored: boolean
+        errorReason?: string
+      }) => void
     ) => {
       const wrapped = (_event: unknown, payload: unknown) =>
-        cb(payload as { done: number; total: number; videoId: string; title: string; errored: boolean })
+        cb(
+          payload as {
+            done: number
+            total: number
+            videoId: string
+            title: string
+            errored: boolean
+            errorReason?: string
+          }
+        )
       ipcRenderer.on('downloads:progress', wrapped)
       return () => ipcRenderer.removeListener('downloads:progress', wrapped)
     }
   },
   app: {
-    info: () => ipcRenderer.invoke('app:info')
+    info: () => ipcRenderer.invoke('app:info'),
+    openPath: (target: string) => ipcRenderer.invoke('app:openPath', target)
   },
   updater: {
     check: () => ipcRenderer.invoke('update:check'),
@@ -66,6 +92,13 @@ const api = {
     setTheme: (theme: string) => ipcRenderer.invoke('settings:setTheme', theme),
     getLang: () => ipcRenderer.invoke('settings:getLang'),
     setLang: (lang: 'ru' | 'en') => ipcRenderer.invoke('settings:setLang', lang)
+  },
+  // Last-playing track + queue + position. Resume-on-launch is wired
+  // around these three IPCs.
+  session: {
+    get: () => ipcRenderer.invoke('session:get'),
+    set: (s: unknown) => ipcRenderer.invoke('session:set', s),
+    clear: () => ipcRenderer.invoke('session:clear')
   },
   debug: {
     harvestTokens: () => ipcRenderer.invoke('debug:harvest-tokens'),

@@ -3,12 +3,15 @@
   import wordmark from './assets/wordmark.png'
   import { translate, LANG_LABELS, type Lang } from './i18n'
   import type {
+    CacheVerifyResult,
     DownloadProgress,
     HomeItem,
     HomeSection,
+    LastSession,
     PinnedPlaylist,
     PlaylistView,
     SearchResult,
+    SessionTrack,
     Theme,
     UpdaterEvent
   } from '../../preload/index.d'
@@ -321,17 +324,40 @@
   }
 
   // ---- settings -----------------------------------------------------------
-  let appInfo = $state<{ name: string; version: string; userData: string; repoUrl: string } | null>(
-    null
-  )
+  let appInfo = $state<{
+    name: string
+    version: string
+    userData: string
+    logPath: string
+    repoUrl: string
+  } | null>(null)
   let cacheStats = $state<{ tracks: number; bytes: number } | null>(null)
   let clearingCache = $state(false)
   let defaultTab = $state<'home' | 'search' | 'library'>('home')
+  // Diagnostics card state — Verify cache button + last result.
+  let verifying = $state(false)
+  let verifyResult = $state<CacheVerifyResult | null>(null)
 
   async function loadSettings(): Promise<void> {
     appInfo = await window.api.app.info()
     cacheStats = await window.api.downloads.stats()
     defaultTab = await window.api.settings.getDefaultTab()
+  }
+
+  async function verifyCacheAction(): Promise<void> {
+    if (verifying) return
+    verifying = true
+    try {
+      verifyResult = await window.api.downloads.verify()
+      cacheStats = await window.api.downloads.stats()
+    } finally {
+      verifying = false
+    }
+  }
+
+  function openInExplorer(target?: string): void {
+    if (!target) return
+    void window.api.app.openPath(target)
   }
 
   async function changeDefaultTab(tab: 'home' | 'search' | 'library'): Promise<void> {
@@ -365,6 +391,17 @@
   let downloadedIds = $state<Set<string>>(new Set())
   let downloadingIds = $state<Set<string>>(new Set())
   let bulkProgress = $state<{ done: number; total: number; currentTitle: string } | null>(null)
+  // After a bulk download wraps up: how many succeeded, the list of tracks
+  // that didn't, and an inline "Retry failed" affordance. Banner sits below
+  // the bulk progress strip in the playlist header.
+  let bulkResult = $state<{
+    ok: number
+    total: number
+    failed: Array<{ videoId: string; title: string; reason: string }>
+  } | null>(null)
+  // Per-track error reasons captured during a bulk run so the playlist
+  // rows can show a tooltip like "Sign in to confirm" next to the ✗ chip.
+  let failedReasons = $state<Map<string, string>>(new Map())
 
   function addDownloaded(id: string): void {
     const s = new Set(downloadedIds)
@@ -427,25 +464,67 @@
     if (!playlistView || bulkProgress) return
     const pending = playlistView.tracks.filter((t) => !downloadedIds.has(t.id))
     if (pending.length === 0) return
-    bulkProgress = { done: 0, total: pending.length, currentTitle: '' }
+    await runBulkDownload(pending)
+  }
+
+  async function runBulkDownload(tracks: SearchResult[]): Promise<void> {
+    bulkProgress = { done: 0, total: tracks.length, currentTitle: '' }
+    bulkResult = null
+    // Reset per-track error map for fresh failures only — old ones from
+    // other batches still appear on their original rows.
+    for (const t of tracks) {
+      const next = new Map(failedReasons)
+      next.delete(t.id)
+      failedReasons = next
+    }
     try {
-      await window.api.downloads.playlist(
-        pending.map((t) => ({
+      const summary = await window.api.downloads.playlist(
+        tracks.map((t) => ({
           videoId: t.id,
           title: t.title,
           artist: t.artist,
           thumbnail: t.thumbnail
         }))
       )
+      bulkResult = { ok: summary.ok, total: tracks.length, failed: summary.failed }
     } catch (err) {
       console.warn('bulk download failed', err)
+      bulkResult = {
+        ok: 0,
+        total: tracks.length,
+        failed: tracks.map((t) => ({
+          videoId: t.id,
+          title: t.title,
+          reason: err instanceof Error ? err.message : String(err)
+        }))
+      }
     } finally {
       bulkProgress = null
     }
   }
 
+  async function retryFailedDownloads(): Promise<void> {
+    if (!playlistView || !bulkResult || bulkProgress) return
+    const failedIds = new Set(bulkResult.failed.map((f) => f.videoId))
+    const tracks = playlistView.tracks.filter((t) => failedIds.has(t.id))
+    if (tracks.length === 0) return
+    await runBulkDownload(tracks)
+  }
+
   function handleDownloadProgress(p: DownloadProgress): void {
-    if (!p.errored) addDownloaded(p.videoId)
+    if (!p.errored) {
+      addDownloaded(p.videoId)
+      // Clear any stale failure for this id — it just succeeded.
+      if (failedReasons.has(p.videoId)) {
+        const next = new Map(failedReasons)
+        next.delete(p.videoId)
+        failedReasons = next
+      }
+    } else if (p.errorReason) {
+      const next = new Map(failedReasons)
+      next.set(p.videoId, p.errorReason)
+      failedReasons = next
+    }
     if (bulkProgress) bulkProgress = { done: p.done, total: p.total, currentTitle: p.title }
   }
 
@@ -466,6 +545,10 @@
     streamUrl: string
     thumbnail: string
     sourceList: SearchResult[]
+    // Optional context — playlist id + title the track was launched from,
+    // so the resume banner on next launch can render "from My Playlist".
+    sourceListId?: string
+    sourceListTitle?: string
   } | null>(null)
   let playStatus = $state<PlayStatus>('idle')
   let playError = $state('')
@@ -480,6 +563,98 @@
   // While the user is dragging the seek bar we don't want the audio's
   // timeupdate to fight the slider position — pause the binding.
   let seeking = $state(false)
+  // When a saved session is restored on launch, the player bar shows up
+  // immediately with the right track + paused at the saved position —
+  // no banner, no extra click. `playing.streamUrl` stays empty until the
+  // user actually hits Play (which kicks off resolve + seek + start). The
+  // saved position lives in pendingResumeTime; canplay reads it and seeks.
+  let pendingResumeTime = $state<number | null>(null)
+
+  // Throttle for "save session on timeupdate" — every 5 seconds while
+  // playing is enough to recover within striking distance of where the
+  // user actually left off. We piggy-back on the timeupdate handler so
+  // we don't need a separate setInterval.
+  let lastSessionSaveAt = 0
+  const SESSION_SAVE_INTERVAL_MS = 5000
+
+  // Builds a snapshot of the current player state and persists it. Called
+  // on track change / pause / throttled timeupdate. No-op when nothing is
+  // playing (the resume banner is cleared via clear() in disconnect()).
+  function persistSession(timeOverride?: number): void {
+    if (!playing) return
+    const time = typeof timeOverride === 'number' ? timeOverride : currentTime
+    // The playing object and SearchResult share enough shape that we can
+    // narrow both into a SessionTrack with one helper.
+    const trackOf = (t: {
+      id: string
+      title: string
+      artist: string
+      thumbnail: string
+      duration?: string
+    }): SessionTrack => ({
+      id: t.id,
+      title: t.title,
+      artist: t.artist ?? '',
+      thumbnail: t.thumbnail ?? '',
+      duration: t.duration
+    })
+    const payload: LastSession = {
+      track: trackOf(playing),
+      sourceList: (playing.sourceList ?? []).map(trackOf),
+      sourceListId: playing.sourceListId,
+      sourceListTitle: playing.sourceListTitle,
+      currentTime: Number.isFinite(time) ? time : 0
+    }
+    lastSessionSaveAt = Date.now()
+    void window.api.session.set(payload).catch((err) => console.warn('session save failed', err))
+  }
+
+  function maybePersistSessionOnTime(): void {
+    if (!playing) return
+    if (Date.now() - lastSessionSaveAt < SESSION_SAVE_INTERVAL_MS) return
+    persistSession()
+  }
+
+  // Hydrates `playing` from a saved LastSession WITHOUT resolving the
+  // stream. The player bar appears with the right cover, title, artist
+  // and seek-position; clicking Play triggers playTrack via togglePlay,
+  // which resolves, seeks to pendingResumeTime, and starts audio.
+  function hydrateDeferredSession(saved: LastSession): void {
+    const list: SearchResult[] = (saved.sourceList ?? []).map((t) => ({
+      id: t.id,
+      title: t.title,
+      artist: t.artist,
+      duration: t.duration ?? '',
+      thumbnail: t.thumbnail
+    }))
+    const trackAsResult: SearchResult = {
+      id: saved.track.id,
+      title: saved.track.title,
+      artist: saved.track.artist,
+      duration: saved.track.duration ?? '',
+      thumbnail: saved.track.thumbnail
+    }
+    playing = {
+      id: trackAsResult.id,
+      title: trackAsResult.title,
+      artist: trackAsResult.artist,
+      format: '',
+      // Empty streamUrl is the "deferred resume" marker — togglePlay sees
+      // this and routes a Play click into playTrack rather than audioEl.
+      streamUrl: '',
+      thumbnail: trackAsResult.thumbnail,
+      sourceList: list.length > 0 ? list : [trackAsResult],
+      sourceListId: saved.sourceListId,
+      sourceListTitle: saved.sourceListTitle
+    }
+    pendingResumeTime = saved.currentTime > 1 ? saved.currentTime : null
+    // Seed the UI clock to the saved position so the seek bar already
+    // shows the right spot before audio actually loads.
+    currentTime = Number.isFinite(saved.currentTime) ? saved.currentTime : 0
+    duration = 0
+    isPlaying = false
+    playStatus = 'idle'
+  }
 
   function fmtTime(s: number): string {
     if (!Number.isFinite(s) || s < 0) return '0:00'
@@ -489,6 +664,24 @@
   }
 
   function togglePlay(): void {
+    // Deferred-resume state: playing is hydrated but streamUrl is empty
+    // (session restored on launch). First Play click kicks off the actual
+    // resolve + seek + start via playTrack; canplay reads pendingResumeTime
+    // and lands on the saved position.
+    if (playing && !playing.streamUrl) {
+      const t: SearchResult = {
+        id: playing.id,
+        title: playing.title,
+        artist: playing.artist,
+        duration: '',
+        thumbnail: playing.thumbnail
+      }
+      void playTrack(t, playing.sourceList, {
+        id: playing.sourceListId,
+        title: playing.sourceListTitle
+      })
+      return
+    }
     if (!audioEl) return
     if (audioEl.paused) audioEl.play().catch(() => {})
     else audioEl.pause()
@@ -519,33 +712,37 @@
     muted = audioEl.muted
   }
 
-  onMount(async () => {
-    // Load + apply the saved theme as the very first thing so the user
-    // doesn't see purple flash before their preferred palette kicks in.
-    theme = await window.api.settings.getTheme()
-    applyTheme(theme)
-    // Load saved language so labels render in the right locale on first
-    // paint. Fallback is 'ru' (handled by the IPC default).
-    lang = await window.api.settings.getLang()
-    browsers = await window.api.auth.browsers()
-    connectedBrowser = await window.api.auth.status()
-    if (connectedBrowser) {
-      void loadPinned()
-      // Honour the user's preferred startup tab.
-      const initial = await window.api.settings.getDefaultTab()
-      defaultTab = initial
-      // Reset history to start from the chosen view so back-button
-      // doesn't reveal a stale 'home' entry the user never visited.
-      historyStack = [{ kind: initial }]
-      historyIndex = 0
-      view = initial
-      applyEntry({ kind: initial })
-    }
+  // onMount stays synchronous so we can return a proper cleanup closure
+  // (Svelte 5 typedef requires `() => () => void | Promise<never>` — an
+  // async onMount that returns a teardown would violate the Promise<never>
+  // branch). The asynchronous initial-load work runs in an IIFE; the IPC
+  // subscribers and mouse listener are wired straight away so events that
+  // arrive mid-init still land in the right handlers.
+  onMount(() => {
     // Subscribe to per-track download progress; live updates for the bulk
     // progress UI + flipping each row's badge as it completes.
     const unsub = window.api.downloads.onProgress(handleDownloadProgress)
     // Auto-updater event stream — drives the "Обновления" Settings card.
     const unsubUpd = window.api.updater.onEvent(handleUpdaterEvent)
+    // Silent reconnect just refreshed cookies in main — drop the
+    // logged-in-required caches and re-fetch whatever the user is
+    // currently looking at. Stops the "empty Library on first launch
+    // after upgrade until you Disconnect+Connect" bug.
+    const unsubAuth = window.api.auth.onRefreshed(() => {
+      console.log('[renderer] auth refreshed — re-fetching current view')
+      homeSections = null
+      libraryPlaylists = null
+      pinnedPlaylists = []
+      void loadPinned()
+      if (view === 'home') void loadHome()
+      else if (view === 'library') void loadLibraryData()
+      else if (view === 'playlist' && openPlaylistId) {
+        const id = openPlaylistId
+        playlistView = null
+        openPlaylistId = null
+        void loadPlaylistData(id)
+      }
+    })
     // Mouse side-buttons: XButton1 (back) = event.button 3, XButton2
     // (forward) = event.button 4. Matches browsers and File Explorer on
     // Windows. preventDefault stops the default "navigate back" behaviour
@@ -561,9 +758,46 @@
       }
     }
     window.addEventListener('mouseup', onMouse)
+
+    void (async () => {
+      // Load + apply the saved theme as the very first thing so the user
+      // doesn't see purple flash before their preferred palette kicks in.
+      theme = await window.api.settings.getTheme()
+      applyTheme(theme)
+      // Load saved language so labels render in the right locale on first
+      // paint. Fallback is 'ru' (handled by the IPC default).
+      lang = await window.api.settings.getLang()
+      browsers = await window.api.auth.browsers()
+      connectedBrowser = await window.api.auth.status()
+      if (connectedBrowser) {
+        void loadPinned()
+        // Honour the user's preferred startup tab.
+        const initial = await window.api.settings.getDefaultTab()
+        defaultTab = initial
+        // Reset history to start from the chosen view so back-button
+        // doesn't reveal a stale 'home' entry the user never visited.
+        historyStack = [{ kind: initial }]
+        historyIndex = 0
+        view = initial
+        applyEntry({ kind: initial })
+        // Look for a saved playback session — if there is one we restore
+        // the player bar straight away: same track, same queue, seeked
+        // to where the user left off, PAUSED. Clicking Play resolves the
+        // stream and continues. No banner, no auto-play (audio blasting
+        // on Windows boot would be surprising).
+        try {
+          const saved = await window.api.session.get()
+          if (saved && saved.track && saved.track.id) hydrateDeferredSession(saved)
+        } catch (err) {
+          console.warn('session restore failed', err)
+        }
+      }
+    })()
+
     return () => {
       unsub()
       unsubUpd()
+      unsubAuth()
       window.removeEventListener('mouseup', onMouse)
     }
   })
@@ -598,6 +832,10 @@
     libraryPlaylists = null
     libraryError = ''
     pinnedPlaylists = []
+    // The deferred-resume track points at something the now-anonymous
+    // user can no longer resolve. Drop the pending seek so the next
+    // resolved track plays from 0:00.
+    pendingResumeTime = null
     historyStack = [{ kind: 'home' }]
     historyIndex = 0
     view = 'home'
@@ -772,7 +1010,11 @@
     return list.slice(idx + 1, idx + 1 + PREFETCH_AHEAD).map((r) => r.id)
   }
 
-  async function playTrack(track: SearchResult, sourceList: SearchResult[]): Promise<void> {
+  async function playTrack(
+    track: SearchResult,
+    sourceList: SearchResult[],
+    sourceContext?: { id?: string; title?: string }
+  ): Promise<void> {
     if (playStatus === 'resolving') return
     playStatus = 'resolving'
     playError = ''
@@ -788,11 +1030,16 @@
         format: r.format,
         streamUrl: r.streamUrl,
         thumbnail: track.thumbnail,
-        sourceList
+        sourceList,
+        sourceListId: sourceContext?.id,
+        sourceListTitle: sourceContext?.title
       }
       playStatus = 'playing'
-      // Reset transport state so the UI doesn't briefly show old times
-      currentTime = 0
+      // Reset transport state so the UI doesn't briefly show old times.
+      // For a deferred-resume start, seed currentTime to the saved
+      // position so the seek bar doesn't jump back to 0:00 before canplay
+      // fires the actual seek.
+      currentTime = pendingResumeTime && pendingResumeTime > 1 ? pendingResumeTime : 0
       duration = 0
       await tick()
       const el = audioEl
@@ -801,12 +1048,24 @@
         el.muted = muted
         const onCanPlay = (): void => {
           el.removeEventListener('canplay', onCanPlay)
+          // Resume from the position saved before the previous app close.
+          if (pendingResumeTime !== null && pendingResumeTime > 1 && Number.isFinite(el.duration)) {
+            try {
+              el.currentTime = Math.min(pendingResumeTime, el.duration - 1)
+              currentTime = el.currentTime
+            } catch {
+              // ignore — some streams reject seek before fully ready
+            }
+            pendingResumeTime = null
+          }
           const ids = nextIdsFrom(track.id, sourceList)
           if (ids.length > 0) void window.api.prefetchAudio(ids)
         }
         el.addEventListener('canplay', onCanPlay)
         el.play().catch(() => {})
       }
+      // Save the freshly-set track into config so a restart can resume it.
+      persistSession(0)
     } catch (e) {
       playStatus = 'error'
       playError = e instanceof Error ? e.message : String(e)
@@ -818,7 +1077,10 @@
     const list = playing.sourceList
     const idx = list.findIndex((r) => r.id === playing!.id)
     if (idx < 0 || idx + 1 >= list.length) return
-    await playTrack(list[idx + 1], list)
+    await playTrack(list[idx + 1], list, {
+      id: playing.sourceListId,
+      title: playing.sourceListTitle
+    })
   }
 
   async function playPrev(): Promise<void> {
@@ -826,7 +1088,10 @@
     const list = playing.sourceList
     const idx = list.findIndex((r) => r.id === playing!.id)
     if (idx <= 0) return
-    await playTrack(list[idx - 1], list)
+    await playTrack(list[idx - 1], list, {
+      id: playing.sourceListId,
+      title: playing.sourceListTitle
+    })
   }
 </script>
 
@@ -1085,6 +1350,28 @@
                         · {bulkProgress.currentTitle}
                       {/if}
                     </div>
+                  {:else if bulkResult}
+                    <div class="bulk-result" class:has-fail={bulkResult.failed.length > 0}>
+                      <div class="bulk-result-line">
+                        {t('downloads.summary.ok', {
+                          ok: bulkResult.ok,
+                          total: bulkResult.total
+                        })}
+                        {#if bulkResult.failed.length > 0}
+                          · {t('downloads.summary.failed', { n: bulkResult.failed.length })}
+                        {/if}
+                      </div>
+                      <div class="bulk-result-actions">
+                        {#if bulkResult.failed.length > 0}
+                          <button class="dl-bulk retry" onclick={retryFailedDownloads}>
+                            {t('downloads.summary.retry')}
+                          </button>
+                        {/if}
+                        <button class="dl-bulk dismiss" onclick={() => (bulkResult = null)}>
+                          {t('downloads.summary.dismiss')}
+                        </button>
+                      </div>
+                    </div>
                   {:else if playlistView.tracks.some((t) => !downloadedIds.has(t.id))}
                     <button class="dl-bulk" onclick={downloadCurrentPlaylist}>
                       {t('playlist.download.bulk', {
@@ -1111,7 +1398,11 @@
                   <button
                     class="track-row"
                     class:current={playing?.id === r.id}
-                    onclick={() => playTrack(r, playlistView!.tracks)}
+                    onclick={() =>
+                      playTrack(r, playlistView!.tracks, {
+                        id: openPlaylistId ?? undefined,
+                        title: playlistView!.title
+                      })}
                     disabled={playStatus === 'resolving'}
                   >
                     <div
@@ -1328,6 +1619,57 @@
               </button>
             </section>
 
+            <section class="settings-card">
+              <h4>{t('settings.diag.title')}</h4>
+              <p class="settings-hint">{t('settings.diag.hint')}</p>
+              <ul class="diag-list">
+                <li>
+                  <span class="diag-label">{t('settings.diag.userData')}</span>
+                  <code>{appInfo?.userData ?? '…'}</code>
+                  <button
+                    class="settings-btn small"
+                    onclick={() => openInExplorer(appInfo?.userData)}
+                  >
+                    {t('settings.diag.open')}
+                  </button>
+                </li>
+                <li>
+                  <span class="diag-label">{t('settings.diag.cache')}</span>
+                  <code>{appInfo?.userData ? `${appInfo.userData}\\offline` : '…'}</code>
+                  <button
+                    class="settings-btn small"
+                    onclick={() =>
+                      openInExplorer(appInfo?.userData ? `${appInfo.userData}\\offline` : undefined)}
+                  >
+                    {t('settings.diag.open')}
+                  </button>
+                </li>
+                <li>
+                  <span class="diag-label">{t('settings.diag.logFile')}</span>
+                  <code>{appInfo?.logPath ?? '…'}</code>
+                  <button
+                    class="settings-btn small"
+                    onclick={() => openInExplorer(appInfo?.logPath)}
+                  >
+                    {t('settings.diag.open')}
+                  </button>
+                </li>
+              </ul>
+              <button class="settings-btn" onclick={verifyCacheAction} disabled={verifying}>
+                {verifying ? t('settings.diag.verifying') : t('settings.diag.verify')}
+              </button>
+              {#if verifyResult}
+                <p class="settings-hint diag-result">
+                  {t('settings.diag.verifyResult', {
+                    entries: verifyResult.manifestEntries,
+                    files: verifyResult.filesOnDisk,
+                    dead: verifyResult.removedDeadEntries,
+                    orphans: verifyResult.recoveredOrphans
+                  })}
+                </p>
+              {/if}
+            </section>
+
             <p class="settings-sig">
               © 2026 Erney White ·
               <a
@@ -1522,15 +1864,29 @@
           </div>
         </div>
 
+        <!-- Audio element only mounts once we have a real stream URL.
+             A deferred-resume entry sets playing.streamUrl='' so the
+             player bar appears without trying to load anything; togglePlay
+             then triggers a real playTrack which fills in streamUrl. -->
+        {#if playing.streamUrl}
         <audio
           bind:this={audioEl}
           src={playing.streamUrl}
           onended={playNext}
           onplay={() => (isPlaying = true)}
-          onpause={() => (isPlaying = false)}
+          onpause={() => {
+            isPlaying = false
+            // Catch the exact position the user paused at — the throttled
+            // timeupdate save might be up to 5s behind it.
+            persistSession()
+          }}
+          onseeked={() => persistSession()}
           onloadedmetadata={() => (duration = audioEl?.duration ?? 0)}
           ontimeupdate={() => {
             if (!seeking && audioEl) currentTime = audioEl.currentTime
+            // Throttled save so a long song still rescues "where I left
+            // off" if the OS kills us without a clean shutdown.
+            maybePersistSessionOnTime()
           }}
           onvolumechange={() => {
             if (audioEl) {
@@ -1539,6 +1895,7 @@
             }
           }}
         ></audio>
+        {/if}
       </div>
     {/if}
   {/if}
@@ -1983,6 +2340,53 @@
     background: rgba(255, 60, 120, 0.12);
     border-color: rgba(255, 107, 157, 0.8);
     color: #ffffff;
+  }
+
+  .settings-btn.small {
+    padding: 0.3rem 0.65rem;
+    font-size: 0.75rem;
+    margin-top: 0;
+    align-self: center;
+  }
+
+  /* Diagnostics list — labelled rows with the path as a monospace block
+     and an "Open" chip on the right. Lets the user copy/paste the path
+     OR jump straight to it in Explorer. */
+  .diag-list {
+    margin: 0.5rem 0 0.8rem;
+    padding: 0;
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+  .diag-list li {
+    display: grid;
+    grid-template-columns: 140px 1fr auto;
+    align-items: center;
+    gap: 0.6rem;
+    padding: 0.5rem 0.6rem;
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.025);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+  }
+  .diag-label {
+    color: #a4a0b8;
+    font-size: 0.78rem;
+  }
+  .diag-list code {
+    font-family: 'Cascadia Mono', 'Consolas', monospace;
+    font-size: 0.72rem;
+    color: #d4c9e8;
+    overflow-wrap: anywhere;
+    word-break: break-all;
+    background: rgba(0, 0, 0, 0.3);
+    border-radius: 5px;
+    padding: 0.25rem 0.4rem;
+  }
+  .diag-result {
+    margin-top: 0.6rem;
+    color: #b8aedb;
   }
 
   /* Settings page footer signature — copyright + repo link, centered,
@@ -2450,6 +2854,43 @@
     color: #c9b8e6;
     font-size: 0.82rem;
     font-style: italic;
+  }
+
+  /* Post-bulk summary panel: "Downloaded X of Y · N failed" + Retry/OK. */
+  .bulk-result {
+    margin-top: 0.5rem;
+    padding: 0.5rem 0.7rem;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 9px;
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+  }
+  .bulk-result.has-fail {
+    border-color: rgba(255, 107, 157, 0.45);
+    background: rgba(255, 60, 120, 0.07);
+  }
+  .bulk-result-line {
+    color: #d4c9e8;
+    font-size: 0.85rem;
+  }
+  .bulk-result-actions {
+    display: flex;
+    gap: 0.4rem;
+  }
+  .dl-bulk.retry {
+    background: rgba(255, 60, 120, 0.18);
+    border: 1px solid rgba(255, 107, 157, 0.5);
+    color: #ffb5cb;
+  }
+  .dl-bulk.retry:hover {
+    background: rgba(255, 60, 120, 0.3);
+    color: #ffffff;
+  }
+  .dl-bulk.dismiss {
+    background: transparent;
+    color: #a4a0b8;
   }
 
   .all-saved {

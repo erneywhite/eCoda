@@ -9,13 +9,22 @@ import denoPath from '../../resources/deno.exe?asset'
 const run = promisify(execFile)
 
 // Cache layout:
-//   <userData>/cache/<videoId>.<ext>     — actual audio files
-//   <userData>/cache/manifest.json       — index keyed by videoId
+//   <userData>/offline/<videoId>.<ext>     — actual audio files
+//   <userData>/offline/thumbs/<videoId>.jpg — cached thumbnails
+//   <userData>/offline/manifest.json       — index keyed by videoId
 //
 // The manifest mirrors the on-disk reality. We keep both because
 //   - the file is the source of truth for "is this track playable offline"
 //   - the manifest carries metadata (title/artist/thumbnail) so the UI
 //     can render saved tracks without going back to the server.
+//
+// HISTORICAL NOTE: this used to be `<userData>/cache/`. On Windows
+// (case-insensitive file system) that path resolves to the SAME directory
+// as Chromium's internal `Cache/`. Chromium owns its HTTP cache and
+// evicts large entries under size pressure — our audio files (50–200 MB
+// .webm Opus each) got wiped between launches that way. Renamed to
+// `offline/` to escape the collision; migrateLegacyCache() below tries to
+// copy any pre-rename leftovers exactly once.
 
 export interface DownloadedTrack {
   videoId: string
@@ -37,9 +46,79 @@ interface Manifest {
 }
 
 function getCacheDir(): string {
-  const dir = join(app.getPath('userData'), 'cache')
-  if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
+  // `offline/` — see HISTORICAL NOTE at the top of this file for why
+  // this isn't called `cache/` even though that's the obvious name.
+  const dir = join(app.getPath('userData'), 'offline')
+  if (!existsSync(dir)) {
+    mkdirSync(dir, { recursive: true })
+    // Best-effort one-shot migration from the old cache/ location. After
+    // it runs the directory creation is idempotent and migrate is a no-op
+    // because there's nothing left to copy.
+    migrateLegacyCache(dir)
+  }
   return dir
+}
+
+// One-time copy of any surviving files from <userData>/cache/ to the new
+// <userData>/offline/ location. Most users will have nothing left here
+// (Chromium long since cleaned them) — this is just so the few who
+// caught their audio files in the same launch window don't lose them.
+let legacyMigrated = false
+function migrateLegacyCache(target: string): void {
+  if (legacyMigrated) return
+  legacyMigrated = true
+  const legacyDir = join(app.getPath('userData'), 'cache')
+  if (!existsSync(legacyDir)) return
+  try {
+    let migrated = 0
+    const files = readdirSync(legacyDir)
+    for (const name of files) {
+      const dot = name.indexOf('.')
+      // Only adopt files that look like our naming: <11 char id>.<ext>
+      // or `manifest.json` or `thumbs/`. Chromium's own files have wildly
+      // different shapes; ignore them.
+      if (name === 'manifest.json') {
+        try {
+          const buf = readFileSync(join(legacyDir, name))
+          writeFileSync(join(target, name), buf)
+          migrated++
+        } catch (err) {
+          console.warn(`[downloads] migrate: copy manifest failed:`, err)
+        }
+        continue
+      }
+      if (name === 'thumbs') {
+        try {
+          const subdir = join(legacyDir, 'thumbs')
+          const tgtSub = join(target, 'thumbs')
+          if (!existsSync(tgtSub)) mkdirSync(tgtSub, { recursive: true })
+          for (const tn of readdirSync(subdir)) {
+            try {
+              const buf = readFileSync(join(subdir, tn))
+              writeFileSync(join(tgtSub, tn), buf)
+              migrated++
+            } catch (err) {
+              console.warn(`[downloads] migrate: copy thumb ${tn} failed:`, err)
+            }
+          }
+        } catch (err) {
+          console.warn('[downloads] migrate: thumbs dir failed:', err)
+        }
+        continue
+      }
+      if (dot !== 11) continue
+      try {
+        const buf = readFileSync(join(legacyDir, name))
+        writeFileSync(join(target, name), buf)
+        migrated++
+      } catch (err) {
+        console.warn(`[downloads] migrate: copy ${name} failed:`, err)
+      }
+    }
+    console.log(`[downloads] migrate from legacy cache/: ${migrated} file(s) copied`)
+  } catch (err) {
+    console.warn('[downloads] migrate: enumeration failed:', err)
+  }
 }
 
 function getManifestPath(): string {
@@ -48,18 +127,26 @@ function getManifestPath(): string {
 
 function loadManifest(): Manifest {
   const path = getManifestPath()
-  if (!existsSync(path)) return { version: 1, tracks: {} }
+  if (!existsSync(path)) {
+    console.log(`[downloads] loadManifest: no file at ${path} — starting empty`)
+    return { version: 1, tracks: {} }
+  }
   try {
-    const m = JSON.parse(readFileSync(path, 'utf-8')) as Manifest
+    const raw = readFileSync(path, 'utf-8')
+    const m = JSON.parse(raw) as Manifest
     if (m && m.version === 1 && m.tracks) return m
-  } catch {
-    // fall through to a fresh manifest
+    console.warn(
+      `[downloads] loadManifest: file at ${path} has unexpected shape (version=${(m as { version?: unknown })?.version}), reset`
+    )
+  } catch (err) {
+    console.warn(`[downloads] loadManifest: parse failed at ${path}, reset:`, err)
   }
   return { version: 1, tracks: {} }
 }
 
 function saveManifest(m: Manifest): void {
-  writeFileSync(getManifestPath(), JSON.stringify(m, null, 2), 'utf-8')
+  const path = getManifestPath()
+  writeFileSync(path, JSON.stringify(m, null, 2), 'utf-8')
 }
 
 function getThumbsDir(): string {
@@ -77,23 +164,42 @@ export function getCachedThumbPath(videoId: string): string | null {
   return existsSync(path) ? path : null
 }
 
-// File path of a cached track. Null if not downloaded.
+// File path of a cached track. Null if not downloaded. Repairs a stale
+// extension automatically (same recovery path as getDownloadedStatus).
 export function getCachedFilePath(videoId: string): string | null {
   const m = loadManifest()
   const entry = m.tracks[videoId]
   if (!entry) return null
-  const path = join(getCacheDir(), `${videoId}.${entry.ext}`)
+  const cacheDir = getCacheDir()
+  const expected = join(cacheDir, `${videoId}.${entry.ext}`)
+  if (existsSync(expected)) return expected
+  // Manifest's extension drifted? Try the actual file.
+  const stillThere = findCachedFile(cacheDir, videoId)
+  if (stillThere) {
+    const newExt = stillThere.slice(videoId.length + 1)
+    console.warn(
+      `[downloads] getCachedFilePath: ${videoId} repaired — manifest ext "${entry.ext}" vs disk "${newExt}"`
+    )
+    m.tracks[videoId] = { ...entry, ext: newExt }
+    saveManifest(m)
+    return join(cacheDir, stillThere)
+  }
   // Trust but verify: if the file disappeared from disk, drop it from
   // the manifest so we don't keep serving a dead path.
-  if (!existsSync(path)) {
-    delete m.tracks[videoId]
-    saveManifest(m)
-    return null
-  }
-  return path
+  console.warn(
+    `[downloads] getCachedFilePath: ${videoId} dropped — file missing at ${expected}`
+  )
+  delete m.tracks[videoId]
+  saveManifest(m)
+  return null
 }
 
 // Returns a Set of videoIds out of the input list that are present on disk.
+// We also try to recover from the case where the manifest entry's stored
+// extension stopped matching what's actually on disk (e.g. yt-dlp picked a
+// different container on a re-download) — instead of dropping the entry we
+// repair it. That stops the "cache appears empty after restart" failure
+// mode the user hit on packaged builds.
 export function getDownloadedStatus(videoIds: string[]): string[] {
   const m = loadManifest()
   const cacheDir = getCacheDir()
@@ -102,15 +208,46 @@ export function getDownloadedStatus(videoIds: string[]): string[] {
   for (const id of videoIds) {
     const entry = m.tracks[id]
     if (!entry) continue
-    if (!existsSync(join(cacheDir, `${id}.${entry.ext}`))) {
-      delete m.tracks[id]
-      mutated = true
+    const expected = join(cacheDir, `${id}.${entry.ext}`)
+    if (existsSync(expected)) {
+      out.push(id)
       continue
     }
-    out.push(id)
+    // Look for any file in cacheDir whose stem matches this id —
+    // covers the "manifest says .webm, file on disk is .m4a" case.
+    const stillThere = findCachedFile(cacheDir, id)
+    if (stillThere) {
+      const newExt = stillThere.slice(id.length + 1)
+      console.warn(
+        `[downloads] getDownloadedStatus: ${id} repaired — manifest ext "${entry.ext}" vs disk "${newExt}"`
+      )
+      m.tracks[id] = { ...entry, ext: newExt }
+      mutated = true
+      out.push(id)
+      continue
+    }
+    console.warn(
+      `[downloads] getDownloadedStatus: ${id} dropped — file missing at ${expected}`
+    )
+    delete m.tracks[id]
+    mutated = true
   }
   if (mutated) saveManifest(m)
   return out
+}
+
+// Finds any cached file in `dir` whose name starts with `<id>.` (case-
+// sensitive — videoIds are case-sensitive). Returns just the file name,
+// or null if none. Used by status/path lookups to survive a drifting
+// manifest extension.
+function findCachedFile(dir: string, id: string): string | null {
+  try {
+    const files = readdirSync(dir)
+    const found = files.find((f) => f.startsWith(`${id}.`))
+    return found ?? null
+  } catch {
+    return null
+  }
 }
 
 // Lists every cached track (for a future "Downloaded" library tab).
@@ -127,6 +264,104 @@ export function getCacheStats(): { tracks: number; bytes: number } {
   let bytes = 0
   for (const t of Object.values(m.tracks)) bytes += t.sizeBytes ?? 0
   return { tracks: Object.keys(m.tracks).length, bytes }
+}
+
+// Reconcile the manifest with what's actually on disk. Two failure modes
+// it patches up:
+//   1. Manifest entry, no file → drop the dead entry
+//   2. File on disk, no manifest entry → adopt the orphan with a
+//      placeholder title; user can re-download it later to fix metadata
+// The summary is shown in Settings → Diagnostics so the user can see
+// "Cache: removed 0 dead entries, recovered 7 orphans" after a flaky
+// restart.
+export interface CacheVerifyResult {
+  manifestEntries: number
+  filesOnDisk: number
+  removedDeadEntries: number
+  recoveredOrphans: number
+  totalAfter: number
+}
+
+export function verifyCache(): CacheVerifyResult {
+  const cacheDir = getCacheDir()
+  const m = loadManifest()
+  const initialEntries = Object.keys(m.tracks).length
+  let removedDead = 0
+  let recovered = 0
+  let mutated = false
+
+  // Scan disk first — anything that matches "<11 char id>.<ext>" is a
+  // candidate audio file. Anything else (manifest.json, thumbs/, etc.)
+  // is ignored.
+  const onDisk = new Set<string>()
+  const fileByIdOnDisk = new Map<string, string>()
+  try {
+    for (const name of readdirSync(cacheDir)) {
+      const dot = name.indexOf('.')
+      if (dot !== 11) continue // YouTube ids are always 11 chars
+      const id = name.slice(0, dot)
+      // Filter junk like "manifest.json" — alphabetic-only first chars
+      // exist in real ids, but ".json" extension is a giveaway.
+      const ext = name.slice(dot + 1)
+      if (ext === 'json') continue
+      onDisk.add(id)
+      fileByIdOnDisk.set(id, name)
+    }
+  } catch (err) {
+    console.warn('[downloads] verifyCache: readdir failed:', err)
+  }
+
+  // Drop manifest entries whose file is missing on disk.
+  for (const id of Object.keys(m.tracks)) {
+    if (!onDisk.has(id)) {
+      console.warn(`[downloads] verifyCache: dead entry ${id} → removed`)
+      delete m.tracks[id]
+      removedDead++
+      mutated = true
+    }
+  }
+
+  // Recover files on disk that aren't in the manifest. Metadata is
+  // minimal (placeholder title = id) — the user can re-trigger the row
+  // from the playlist to populate it properly.
+  for (const id of onDisk) {
+    if (m.tracks[id]) continue
+    const name = fileByIdOnDisk.get(id) ?? ''
+    const ext = name.slice(id.length + 1)
+    let sizeBytes = 0
+    try {
+      sizeBytes = readFileSync(join(cacheDir, name)).byteLength
+    } catch {
+      // not readable — skip
+      continue
+    }
+    console.warn(`[downloads] verifyCache: orphan ${name} → adopted as ${id}`)
+    m.tracks[id] = {
+      videoId: id,
+      title: `(${id})`,
+      artist: '',
+      thumbnail: '',
+      ext,
+      sizeBytes,
+      downloadedAt: Date.now(),
+      hasThumb: existsSync(join(getThumbsDir(), `${id}.jpg`))
+    }
+    recovered++
+    mutated = true
+  }
+
+  if (mutated) saveManifest(m)
+  const totalAfter = Object.keys(m.tracks).length
+  console.log(
+    `[downloads] verifyCache: initialEntries=${initialEntries} onDisk=${onDisk.size} removedDead=${removedDead} recovered=${recovered} totalAfter=${totalAfter} cacheDir=${cacheDir}`
+  )
+  return {
+    manifestEntries: initialEntries,
+    filesOnDisk: onDisk.size,
+    removedDeadEntries: removedDead,
+    recoveredOrphans: recovered,
+    totalAfter
+  }
 }
 
 // Nukes the entire offline cache (audio files, thumbnails, manifest).
@@ -246,29 +481,68 @@ export async function downloadOne(info: TrackInfo, browser: string): Promise<Dow
   return entry
 }
 
+// Best-effort one-line summary of why yt-dlp rejected. The Node `execFile`
+// rejection bundles stdout/stderr into the error, so we pull the last
+// non-empty stderr line — that's almost always the actual yt-dlp diagnostic
+// (e.g. "ERROR: [youtube] xxx: Video unavailable" / "Sign in to confirm...").
+function summarizeDownloadError(err: unknown): string {
+  if (!(err instanceof Error)) return String(err)
+  // execFile errors carry .stderr / .stdout
+  const e = err as Error & { stderr?: string; stdout?: string }
+  const lines: string[] = []
+  if (typeof e.stderr === 'string') lines.push(...e.stderr.split(/\r?\n/))
+  if (typeof e.stdout === 'string') lines.push(...e.stdout.split(/\r?\n/))
+  const last = lines
+    .map((l) => l.trim())
+    .reverse()
+    .find((l) => l.length > 0 && !l.startsWith('[debug]') && !l.startsWith('[download]'))
+  if (last) return last.slice(0, 240)
+  return e.message
+}
+
 // Sequentially downloads a list of tracks. Calls onProgress after each
 // completion (success or failure) so the renderer can update a "12 / 95"
 // counter. Skips tracks that are already cached.
+export interface DownloadManySummary {
+  ok: number
+  failed: Array<{ videoId: string; title: string; reason: string }>
+}
+
 export async function downloadMany(
   tracks: TrackInfo[],
   browser: string,
-  onProgress: (done: number, total: number, current: TrackInfo, errored: boolean) => void
-): Promise<void> {
+  onProgress: (
+    done: number,
+    total: number,
+    current: TrackInfo,
+    errored: boolean,
+    errorReason?: string
+  ) => void
+): Promise<DownloadManySummary> {
   const total = tracks.length
   let done = 0
+  let ok = 0
+  const failed: DownloadManySummary['failed'] = []
+  console.log(`[downloads] downloadMany: starting batch of ${total}`)
   for (const t of tracks) {
     let errored = false
+    let reason: string | undefined
     try {
       await downloadOne(t, browser)
+      ok++
     } catch (err) {
       errored = true
-      console.warn(`[downloads] failed for ${t.videoId} (${t.title}):`, err)
+      reason = summarizeDownloadError(err)
+      failed.push({ videoId: t.videoId, title: t.title, reason })
+      console.warn(`[downloads] failed for ${t.videoId} (${t.title}): ${reason}`)
     }
     done++
     try {
-      onProgress(done, total, t, errored)
+      onProgress(done, total, t, errored, reason)
     } catch {
       // ignore renderer-side errors
     }
   }
+  console.log(`[downloads] downloadMany: done ok=${ok} failed=${failed.length} total=${total}`)
+  return { ok, failed }
 }

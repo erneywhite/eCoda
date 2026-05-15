@@ -1,4 +1,4 @@
-import { app, shell, BrowserWindow, ipcMain, protocol, net } from 'electron'
+import { app, shell, BrowserWindow, ipcMain, protocol, net, screen } from 'electron'
 import { join } from 'path'
 import { pathToFileURL } from 'node:url'
 import icon from '../../resources/icon.png?asset'
@@ -18,11 +18,19 @@ import {
   setTheme,
   getLang,
   setLang,
+  getWindowState,
+  setWindowState,
+  getLastSession,
+  setLastSession,
+  clearLastSession,
   type DefaultTab,
   type Lang,
+  type LastSession,
   type PinnedPlaylist,
-  type Theme
+  type Theme,
+  type WindowState
 } from './auth'
+import { installLogger, getLogPath } from './logger'
 import {
   searchSongs,
   getHomeSections,
@@ -41,6 +49,7 @@ import {
   clearAllDownloads,
   getDownloadedStatus,
   listDownloadedTracks,
+  verifyCache,
   type TrackInfo
 } from './downloads'
 import { importCookiesToMusicSession, clearMusicSessionCookies } from './library-session'
@@ -73,10 +82,66 @@ protocol.registerSchemesAsPrivileged([
   }
 ])
 
-function createWindow(): void {
+// Validate saved bounds against the live display layout — a monitor that
+// was attached last session may be gone now, in which case the window would
+// "open" off-screen and look like it never launched. We require the bounds
+// to intersect at least one display's workArea with a 100px overlap so a
+// barely-clipped window still counts as on-screen.
+function isOnScreen(b: { x: number; y: number; width: number; height: number }): boolean {
+  const displays = screen.getAllDisplays()
+  for (const d of displays) {
+    const wa = d.workArea
+    const ix = Math.max(b.x, wa.x)
+    const iy = Math.max(b.y, wa.y)
+    const ax = Math.min(b.x + b.width, wa.x + wa.width)
+    const ay = Math.min(b.y + b.height, wa.y + wa.height)
+    if (ax - ix >= 100 && ay - iy >= 100) return true
+  }
+  return false
+}
+
+// Debounced window-state writer. resize/move fire dozens of times per
+// second while dragging; we coalesce them into a single config write.
+let saveStateTimer: NodeJS.Timeout | null = null
+function scheduleSaveWindowState(): void {
+  if (saveStateTimer) clearTimeout(saveStateTimer)
+  saveStateTimer = setTimeout(() => {
+    saveStateTimer = null
+    if (!mainWindow || mainWindow.isDestroyed()) return
+    // Don't save zero/minimized states — restoring to (0,0,0,0) would
+    // make the next launch look broken.
+    if (mainWindow.isMinimized()) return
+    const isMaximized = mainWindow.isMaximized()
+    // While maximized, getBounds() returns the maximized rect. We want the
+    // RESTORED bounds for next-launch sizing, so use getNormalBounds().
+    const b = isMaximized ? mainWindow.getNormalBounds() : mainWindow.getBounds()
+    if (b.width < 200 || b.height < 200) return
+    const state: WindowState = {
+      x: b.x,
+      y: b.y,
+      width: b.width,
+      height: b.height,
+      isMaximized
+    }
+    void setWindowState(state).catch((err) => console.warn('[window-state] save failed:', err))
+  }, 400)
+}
+
+async function createWindow(): Promise<void> {
+  const saved = await getWindowState().catch(() => null)
+  // Start from saved bounds if they exist AND are still on-screen.
+  // Otherwise fall back to defaults centred by Electron.
+  const useSaved =
+    saved &&
+    typeof saved.x === 'number' &&
+    typeof saved.y === 'number' &&
+    isOnScreen({ x: saved.x, y: saved.y, width: saved.width, height: saved.height })
+
   mainWindow = new BrowserWindow({
-    width: 1200,
-    height: 800,
+    width: useSaved ? saved!.width : 1200,
+    height: useSaved ? saved!.height : 800,
+    x: useSaved ? saved!.x : undefined,
+    y: useSaved ? saved!.y : undefined,
     minWidth: 940,
     minHeight: 560,
     show: false,
@@ -98,6 +163,10 @@ function createWindow(): void {
     }
   })
 
+  // Maximize after creation, not via the BrowserWindow options, so the
+  // RESTORED bounds we just passed in stick when the user un-maximizes.
+  if (saved?.isMaximized) mainWindow.maximize()
+
   mainWindow.on('ready-to-show', () => {
     mainWindow?.show()
     // DevTools open by default in dev only — easier to inspect renderer
@@ -110,6 +179,40 @@ function createWindow(): void {
     if (mainWindow) {
       registerMainWindow(mainWindow)
       silentCheckOnStartup()
+    }
+  })
+
+  // Window geometry persistence: every move/resize/maximize change kicks
+  // a debounced write. close() fires AFTER the bounds are zeroed, so we
+  // also save on 'close' to capture the very last state explicitly.
+  mainWindow.on('resize', scheduleSaveWindowState)
+  mainWindow.on('move', scheduleSaveWindowState)
+  mainWindow.on('maximize', scheduleSaveWindowState)
+  mainWindow.on('unmaximize', scheduleSaveWindowState)
+  mainWindow.on('close', () => {
+    if (saveStateTimer) {
+      clearTimeout(saveStateTimer)
+      saveStateTimer = null
+    }
+    if (!mainWindow || mainWindow.isDestroyed()) return
+    const isMaximized = mainWindow.isMaximized()
+    const b = isMaximized ? mainWindow.getNormalBounds() : mainWindow.getBounds()
+    if (b.width >= 200 && b.height >= 200) {
+      const state: WindowState = {
+        x: b.x,
+        y: b.y,
+        width: b.width,
+        height: b.height,
+        isMaximized
+      }
+      try {
+        // Sync write via a fire-and-forget promise — we'll get cut off if
+        // it doesn't resolve in time, but the debounced timer should have
+        // already saved everything bar the very last micro-change.
+        void setWindowState(state)
+      } catch (err) {
+        console.warn('[window-state] final save failed:', err)
+      }
     }
   })
 
@@ -130,7 +233,12 @@ function createWindow(): void {
   }
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
+  // First thing after ready: hook console.log/warn/error into a file at
+  // <userData>/main.log. The packaged app has no stdout console visible
+  // to the user; without this we'd be flying blind whenever a bug needs
+  // diagnosing from a real install.
+  installLogger()
   // Wire up media:// — translates media://<kind>/<videoId> to the file
   // on disk and lets Electron's net module stream it (Range requests,
   // content-type sniffing, the lot). HTML5 <audio>/<img>/background-image
@@ -182,6 +290,9 @@ app.whenReady().then(() => {
     resetInnertube()
     resetHarvest()
     clearResolverCache()
+    // The resume-banner points at a track the user can no longer resolve
+    // without auth. Drop it so we don't surface a dead link next launch.
+    await clearLastSession()
     await clearMusicSessionCookies()
     return true
   })
@@ -295,34 +406,54 @@ app.whenReady().then(() => {
     return downloadOne(info, arg)
   })
   // Downloads a whole playlist sequentially. Progress events are streamed
-  // back to the renderer so it can show "12 / 95".
+  // back to the renderer so it can show "12 / 95". Returns a summary of
+  // what worked and what failed so the UI can offer Retry-failed.
   ipcMain.handle('downloads:playlist', async (event, tracks: TrackInfo[]) => {
     const browser = await getBrowser()
     if (!browser) throw new Error('No browser connected')
     const arg = ytdlpBrowserArg(browser)
     if (!arg) throw new Error('Cookies unavailable')
-    await downloadMany(Array.isArray(tracks) ? tracks : [], arg, (done, total, current, errored) => {
-      event.sender.send('downloads:progress', {
-        done,
-        total,
-        videoId: current.videoId,
-        title: current.title,
-        errored
-      })
-    })
-    return true
+    const summary = await downloadMany(
+      Array.isArray(tracks) ? tracks : [],
+      arg,
+      (done, total, current, errored, errorReason) => {
+        event.sender.send('downloads:progress', {
+          done,
+          total,
+          videoId: current.videoId,
+          title: current.title,
+          errored,
+          errorReason
+        })
+      }
+    )
+    return summary
   })
   ipcMain.handle('downloads:delete', (_event, videoId: string) => deleteDownloadedTrack(videoId))
   ipcMain.handle('downloads:stats', () => getCacheStats())
   ipcMain.handle('downloads:clearAll', () => clearAllDownloads())
+  // Scan the cache directory, reconcile manifest entries with files on
+  // disk, and report what was patched up. Surfaced from Settings →
+  // Diagnostics so the user can recover from a flaky restart by hand.
+  ipcMain.handle('downloads:verify', () => verifyCache())
 
-  // App-level info for Settings.
+  // App-level info for Settings. logPath lets us surface "Open log file"
+  // so the user can ship us the file when investigating bugs.
   ipcMain.handle('app:info', () => ({
     name: app.getName(),
     version: app.getVersion(),
     userData: app.getPath('userData'),
+    logPath: getLogPath(),
     repoUrl: 'https://github.com/erneywhite/eCoda'
   }))
+  // Open a folder or file in Explorer (Windows) / Finder (macOS). Used by
+  // the Settings "Cache" and "Diagnostics" cards.
+  ipcMain.handle('app:openPath', async (_event, target: string) => {
+    if (!target) return false
+    const err = await shell.openPath(target)
+    if (err) console.warn('[app:openPath] failed:', target, err)
+    return err === ''
+  })
   ipcMain.handle('settings:getDefaultTab', () => getDefaultTab())
   ipcMain.handle('settings:setDefaultTab', (_event, tab: DefaultTab) => setDefaultTab(tab))
   ipcMain.handle('settings:getPinned', () => getPinnedPlaylists())
@@ -342,6 +473,13 @@ app.whenReady().then(() => {
     resetInnertube()
   })
 
+  // Last-playing track + queue + position. Renderer pushes a snapshot on
+  // every track change / pause / throttled timeupdate; we restore it on
+  // launch as a paused track ready to resume.
+  ipcMain.handle('session:get', () => getLastSession())
+  ipcMain.handle('session:set', (_event, s: LastSession) => setLastSession(s))
+  ipcMain.handle('session:clear', () => clearLastSession())
+
   // Auto-update IPC. `update:event` flows back via webContents.send from
   // the updater module — renderer subscribes once and reacts to each
   // lifecycle state.
@@ -352,12 +490,62 @@ app.whenReady().then(() => {
     return true
   })
 
-  createWindow()
+  await createWindow()
 
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow()
+    if (BrowserWindow.getAllWindows().length === 0) void createWindow()
   })
+
+  // Silent reconnect: the userData carries forward across launches AND
+  // across app versions (same appId → same %APPDATA%\ecoda path). But
+  // YouTube periodically rotates SAPISID / __Secure-3PSID in the browser,
+  // and our youtube-cookies.txt was last dumped on the previous Connect.
+  // If the browser's live cookies have rotated since then, the file is
+  // stale → persist:music imports stale cookies → page-proxy /browse
+  // comes back logged_in=0 → Library is empty. We refresh on every launch
+  // so the user never has to manually Disconnect+Connect just because
+  // they reopened the app a day later or installed an upgrade.
+  void silentReconnect()
 })
+
+// Refreshes the cookies file from the currently-installed-and-configured
+// browser, then pushes them into persist:music and tears down any cached
+// page-proxy state so the next InnerTube call uses the new session. Emits
+// `auth:refreshed` so the renderer can drop any logged-in-required caches
+// (Library, Home, current playlist) and re-fetch them with the new auth.
+async function silentReconnect(): Promise<void> {
+  const browser = await getBrowser()
+  if (!browser) return
+  const arg = ytdlpBrowserArg(browser)
+  if (!arg) {
+    console.warn('[startup-reconnect] cookies path could not be resolved:', browser)
+    return
+  }
+  console.log('[startup-reconnect] refreshing cookies for', browser)
+  const t0 = Date.now()
+  try {
+    const ok = await verifyBrowserLogin(arg)
+    if (!ok) {
+      console.warn(
+        `[startup-reconnect] verifyBrowserLogin failed in ${Date.now() - t0}ms — cookies may have expired in the browser; user will need to Disconnect+Connect`
+      )
+      return
+    }
+    resetInnertube()
+    resetHarvest()
+    try {
+      await importCookiesToMusicSession()
+    } catch (err) {
+      console.warn('[startup-reconnect] importCookiesToMusicSession failed:', err)
+    }
+    console.log(`[startup-reconnect] done in ${Date.now() - t0}ms`)
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('auth:refreshed')
+    }
+  } catch (err) {
+    console.warn('[startup-reconnect] failed:', err)
+  }
+}
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
