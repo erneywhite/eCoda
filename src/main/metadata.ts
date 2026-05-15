@@ -164,9 +164,11 @@ function toVideoId(input: string): string {
 export async function extractStreamUrl(input: string): Promise<ResolvedAudio> {
   const yt = await getInnertube()
   const videoId = toVideoId(input)
-  // getBasicInfo is lighter than getInfo (skips watch-next/comments/related)
-  // — same streaming_data + basic_info, less to parse over the wire.
-  const info = await yt.getBasicInfo(videoId)
+  // NOTE: must be getInfo, not getBasicInfo. youtubei.js's getBasicInfo
+  // returns a response WITHOUT streaming_data, so chooseFormat throws
+  // "Streaming data not available" on every call and we fall back to
+  // yt-dlp — defeating the whole point of the fast path.
+  const info = await yt.getInfo(videoId)
 
   const format = info.chooseFormat({ type: 'audio', quality: 'best' })
   if (!format) throw new Error('No audio format available')
