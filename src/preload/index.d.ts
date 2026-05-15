@@ -61,6 +61,7 @@ export interface EcodaApi {
   debug: {
     harvestTokens: () => Promise<unknown>
     browseViaPage: (browseId: string) => Promise<unknown>
+    saveBrowse: (browseId: string) => Promise<{ ok: true; file: string } | { ok: false; error: string }>
   }
 }
 

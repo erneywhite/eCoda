@@ -257,7 +257,10 @@
       const r = await window.api.resolveAudio(track.id)
       playing = {
         id: track.id,
-        title: r.title || track.title,
+        // Prefer the title we already have from InnerTube (full UTF-8 via
+        // page-proxy) over yt-dlp's stdout — Windows yt-dlp output can
+        // mojibake even with PYTHONIOENCODING set, depending on bundling.
+        title: track.title || r.title,
         artist: track.artist,
         format: r.format,
         streamUrl: r.streamUrl,

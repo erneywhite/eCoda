@@ -21,7 +21,8 @@ const api = {
   },
   debug: {
     harvestTokens: () => ipcRenderer.invoke('debug:harvest-tokens'),
-    browseViaPage: (browseId: string) => ipcRenderer.invoke('debug:browse-via-page', browseId)
+    browseViaPage: (browseId: string) => ipcRenderer.invoke('debug:browse-via-page', browseId),
+    saveBrowse: (browseId: string) => ipcRenderer.invoke('debug:save-browse', browseId)
   }
 }
 

@@ -289,6 +289,31 @@ function thumbnailUrl(t: unknown): string {
   return typeof last?.url === 'string' ? last.url : ''
 }
 
+// Walks an arbitrary YT renderer subtree and returns the first thumbnails
+// URL it finds. Saves us from having to know the exact nesting (sometimes
+// item.thumbnail.musicThumbnailRenderer.thumbnail.thumbnails[], sometimes
+// shifted by a level depending on shelf type).
+function findFirstThumbnail(node: unknown): string {
+  if (!node || typeof node !== 'object') return ''
+  if (Array.isArray(node)) {
+    for (const child of node) {
+      const r = findFirstThumbnail(child)
+      if (r) return r
+    }
+    return ''
+  }
+  const obj = node as Record<string, unknown>
+  if (Array.isArray(obj.thumbnails)) {
+    const last = (obj.thumbnails as Array<{ url?: unknown }>).at(-1)
+    if (typeof last?.url === 'string') return last.url
+  }
+  for (const v of Object.values(obj)) {
+    const r = findFirstThumbnail(v)
+    if (r) return r
+  }
+  return ''
+}
+
 // Parses a musicTwoRowItemRenderer (the playlist/album/artist card shape
 // used in HomeFeed AND library landing) into our HomeItem.
 function parseTwoRowItem(r: Record<string, unknown>): HomeItem | null {
@@ -444,12 +469,9 @@ export async function getPlaylistTracks(id: string): Promise<{
     const artist = col1.split(/\s*[•·]\s*/)[0]
     // duration in fixedColumns[0] (some shapes) or flexColumns[2] (others)
     const duration = fixedColText(item, 0) || flexColText(item, 2)
-    // Thumbnail structure: item.thumbnail.musicThumbnailRenderer.thumbnail.thumbnails[]
-    // — we need to drill TWO levels into the renderer, not one.
-    const tRenderer = (item.thumbnail as Record<string, unknown>)?.musicThumbnailRenderer as
-      | Record<string, unknown>
-      | undefined
-    const thumb = thumbnailUrl(tRenderer?.thumbnail ?? tRenderer ?? item.thumbnail)
+    // Thumbnail nesting varies per shelf type. Just walk the item subtree
+    // and use the first thumbnails[] we find.
+    const thumb = findFirstThumbnail(item)
 
     tracks.push({
       id: videoId,

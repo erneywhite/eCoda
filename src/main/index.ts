@@ -12,7 +12,7 @@ import {
 } from './metadata'
 import { resolveCached, queuePrefetch, clearResolverCache } from './resolver'
 import { importCookiesToMusicSession, clearMusicSessionCookies } from './library-session'
-import { harvestTokens, resetHarvest, browseViaPage } from './token-harvest'
+import { harvestTokens, resetHarvest, browseViaPage, innertubeFetch } from './token-harvest'
 
 let mainWindow: BrowserWindow | null = null
 
@@ -119,6 +119,20 @@ app.whenReady().then(() => {
   ipcMain.handle('debug:harvest-tokens', async () => {
     const t = await harvestTokens()
     return t
+  })
+  // Diagnostic — dumps a /browse response to userData/debug-<id>.json so
+  // we can inspect the raw shape next time YouTube changes the schema.
+  ipcMain.handle('debug:save-browse', async (_event, browseId: string) => {
+    try {
+      const data = await innertubeFetch('/browse', { browseId })
+      const file = join(app.getPath('userData'), `debug-${browseId.replace(/[^\w-]/g, '_')}.json`)
+      const fs = await import('node:fs')
+      fs.writeFileSync(file, JSON.stringify(data, null, 2), 'utf-8')
+      console.log('[debug] wrote', file)
+      return { ok: true, file }
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) }
+    }
   })
   // Diagnostic — proxies a /browse call through the hidden window so the
   // request gets signed by the real browser engine. Use to verify whether
