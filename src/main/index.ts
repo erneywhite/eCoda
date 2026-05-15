@@ -6,6 +6,7 @@ import { detectBrowsers, getBrowser, setBrowser, disconnect, ytdlpBrowserArg } f
 import { searchSongs, getHomeSections, getPlaylistTracks, resetInnertube } from './metadata'
 import { resolveCached, queuePrefetch, clearResolverCache } from './resolver'
 import { importCookiesToMusicSession, clearMusicSessionCookies } from './library-session'
+import { harvestTokens, resetHarvest } from './token-harvest'
 
 let mainWindow: BrowserWindow | null = null
 
@@ -68,17 +69,20 @@ app.whenReady().then(() => {
       // The cookies file was just refreshed by verifyBrowserLogin; force
       // youtubei.js to pick them up on the next request.
       resetInnertube()
+      resetHarvest()
       // Push the same cookies into the persist:music partition so the
-      // Library tab's <webview> sees a live YT Music session.
-      void importCookiesToMusicSession().catch((err) =>
-        console.warn('[auth:connect] importCookiesToMusicSession failed:', err)
-      )
+      // Library tab's <webview> sees a live YT Music session, then prime
+      // the token harvest in the background so Phase B paths are warm.
+      void importCookiesToMusicSession()
+        .then(() => harvestTokens())
+        .catch((err) => console.warn('[auth:connect] post-import flow failed:', err))
     }
     return ok
   })
   ipcMain.handle('auth:disconnect', async () => {
     await disconnect()
     resetInnertube()
+    resetHarvest()
     clearResolverCache()
     await clearMusicSessionCookies()
     return true
@@ -99,6 +103,13 @@ app.whenReady().then(() => {
     } catch (err) {
       return { ok: false, error: err instanceof Error ? err.message : String(err) }
     }
+  })
+  // Diagnostic — pulls the live ytcfg.data_ from a hidden music.youtube.com
+  // window. Phase B groundwork: visitor_data + client info we'll pipe into
+  // youtubei.js so it stops being treated as anonymous.
+  ipcMain.handle('debug:harvest-tokens', async () => {
+    const t = await harvestTokens()
+    return t
   })
   // Resolves a single track's stream URL. yt-dlp is the only working path —
   // youtubei.js can't get music streams without po_token (see metadata.ts).
