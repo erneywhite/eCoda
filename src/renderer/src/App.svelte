@@ -671,18 +671,25 @@
     display: flex;
     flex-direction: column;
     gap: 0.4rem;
-    padding: 0.5rem;
-    border: none;
+    padding: 0.6rem;
+    /* min-width:0 is required for the grid item to actually shrink to the
+       column width — without it, any long subtitle would push the tile
+       wider than its column and overlap the next tile. */
+    min-width: 0;
+    overflow: hidden;
+    border: 1px solid #241a38;
     border-radius: 10px;
-    background: transparent;
+    background: #150f22;
     color: #ffffff;
     text-align: left;
     cursor: pointer;
-    transition: background 0.15s ease;
+    transition: background 0.15s ease, border-color 0.15s ease, transform 0.15s ease;
   }
 
   .card-tile:hover {
-    background: rgba(168, 85, 247, 0.09);
+    background: #1a1228;
+    border-color: rgba(168, 85, 247, 0.35);
+    transform: translateY(-2px);
   }
 
   .tile-thumb {
@@ -710,9 +717,15 @@
   .tile-subtitle {
     font-size: 0.78rem;
     color: #8c7da8;
+    line-height: 1.3;
+    /* Clamp to 2 lines — long artist lists ("Ed Sheeran, Meghan Trainor,
+       Bruno Mars, Dua Lipa") render fully on a single line by default and
+       blow out the grid; clamping keeps the tile a stable height. */
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    -webkit-box-orient: vertical;
     overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
   }
 
   /* ---- playlist header ---------------------------------------------------- */
