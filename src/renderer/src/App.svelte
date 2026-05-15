@@ -578,7 +578,7 @@
         void loadPinned()
         void loadHome()
       } else {
-        connectError = `В ${browser.name} не найден вход в YouTube. Войди в YouTube в этом браузере и попробуй снова.`
+        connectError = t('connect.error', { browser: browser.name })
       }
     } finally {
       connecting = null
@@ -860,27 +860,23 @@
 
   {#if !connectedBrowser}
     <section class="card">
-      <h2>Подключить аккаунт YouTube</h2>
-      <p class="hint">
-        eCoda берёт твою сессию YouTube из браузера, где ты уже залогинен — вводить
-        ничего не нужно. Браузер можно держать закрытым, вкладка с YouTube не нужна.
-        Выбери браузер:
-      </p>
+      <h2>{t('connect.title')}</h2>
+      <p class="hint">{t('connect.hint')}</p>
       {#if browsers.length > 0}
         <div class="browsers">
           {#each browsers as b (b.id)}
             <button onclick={() => connect(b)} disabled={connecting !== null}>
-              {connecting === b.id ? `Проверяю ${b.name}…` : b.name}
+              {connecting === b.id ? t('connect.checking', { browser: b.name }) : b.name}
             </button>
           {/each}
         </div>
       {:else}
-        <p class="status">Поддерживаемые браузеры на этом компьютере не найдены.</p>
+        <p class="status">{t('connect.noBrowsers')}</p>
       {/if}
       {#if connectError}
         <p class="status error">{connectError}</p>
         <button class="ghost" onclick={() => window.api.auth.openYouTube()}>
-          Войти в YouTube в браузере
+          {t('connect.openYouTube')}
         </button>
       {/if}
     </section>
@@ -968,10 +964,10 @@
       <section class="view-wrap">
         {#if view === 'home'}
           {#if homeLoading}
-            <p class="status">Загружаю главную…</p>
+            <div class="spinner"></div>
           {:else if homeError}
-            <p class="status error">Не получилось: {homeError}</p>
-            <button onclick={() => loadHome()}>Попробовать ещё раз</button>
+            <p class="status error">{t('home.error', { error: homeError })}</p>
+            <button onclick={() => loadHome()}>{t('home.retry')}</button>
           {:else if homeSections && homeSections.length > 0}
             {#each homeSections as section (section.title)}
               <div class="section">
@@ -1000,18 +996,18 @@
             <input
               type="text"
               bind:value={query}
-              placeholder="Поиск трека, артиста, альбома"
+              placeholder={t('search.placeholder')}
               onkeydown={(e) => e.key === 'Enter' && doSearch()}
             />
             <button onclick={doSearch} disabled={searching}>
-              {searching ? 'Ищу…' : 'Найти'}
+              {searching ? t('search.button.busy') : t('search.button.idle')}
             </button>
           </div>
           {#if searchError}
-            <p class="status error">Поиск не получился: {searchError}</p>
+            <p class="status error">{t('search.error', { error: searchError })}</p>
           {/if}
           {#if searched && !searching && searchResults.length === 0 && !searchError}
-            <p class="status">Ничего не нашлось по запросу.</p>
+            <p class="status">{t('search.empty')}</p>
           {/if}
           {#if searchResults.length > 0}
             <ul class="track-list">
@@ -1055,7 +1051,7 @@
                 <div class="playlist-subtitle">{playlistView.subtitle}</div>
                 {#if !playlistLoading}
                   <div class="playlist-count">
-                    {playlistView.tracks.length} треков
+                    {t('playlist.count', { n: playlistView.tracks.length })}
                   </div>
                   {#if !isLikedMusicId(openPlaylistId)}
                     <button
@@ -1063,45 +1059,50 @@
                       class:pinned={isPinned(openPlaylistId)}
                       onclick={togglePinCurrent}
                       title={isPinned(openPlaylistId)
-                        ? 'Открепить из сайдбара'
-                        : 'Закрепить в сайдбаре'}
+                        ? t('playlist.pinTitle.remove')
+                        : t('playlist.pinTitle.add')}
                     >
                       {#if isPinned(openPlaylistId)}
                         <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
                           <path d="M16 9V4l1-1V1H7v2l1 1v5l-2 2v2h5v7l1 1 1-1v-7h5v-2l-2-2z" />
                         </svg>
-                        Закреплено
+                        {t('playlist.pinned')}
                       {:else}
                         <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
                           <path d="M14 4v5l2 2v2h-5v7l-1 1-1-1v-7H4v-2l2-2V4H4V2h14v2h-2zm-2 0H8v5l-2 2h10l-2-2V4z"/>
                         </svg>
-                        Закрепить
+                        {t('playlist.pin')}
                       {/if}
                     </button>
                   {/if}
                   {#if bulkProgress}
                     <div class="bulk-progress">
-                      Скачиваю {bulkProgress.done} / {bulkProgress.total}
+                      {t('playlist.download.progress', {
+                        done: bulkProgress.done,
+                        total: bulkProgress.total
+                      })}
                       {#if bulkProgress.currentTitle}
                         · {bulkProgress.currentTitle}
                       {/if}
                     </div>
                   {:else if playlistView.tracks.some((t) => !downloadedIds.has(t.id))}
                     <button class="dl-bulk" onclick={downloadCurrentPlaylist}>
-                      📥 Скачать ({playlistView.tracks.filter((t) => !downloadedIds.has(t.id)).length})
+                      {t('playlist.download.bulk', {
+                        n: playlistView.tracks.filter((t) => !downloadedIds.has(t.id)).length
+                      })}
                     </button>
                   {:else}
-                    <div class="all-saved">✓ Все треки сохранены</div>
+                    <div class="all-saved">{t('playlist.download.allSaved')}</div>
                   {/if}
                 {/if}
               </div>
             </div>
           {/if}
           {#if playlistLoading}
-            <p class="status">Загружаю плейлист…</p>
+            <div class="spinner"></div>
           {/if}
           {#if playlistError}
-            <p class="status error">Не получилось: {playlistError}</p>
+            <p class="status error">{t('home.error', { error: playlistError })}</p>
           {/if}
           {#if playlistView && playlistView.tracks.length > 0}
             <ul class="track-list">
@@ -1128,10 +1129,10 @@
                     class:done={downloadedIds.has(r.id)}
                     class:busy={downloadingIds.has(r.id)}
                     title={downloadedIds.has(r.id)
-                      ? 'Удалить с устройства'
+                      ? t('track.dl.done')
                       : downloadingIds.has(r.id)
-                        ? 'Скачиваю…'
-                        : 'Скачать'}
+                        ? t('track.dl.busy')
+                        : t('track.dl.idle')}
                     onclick={() => toggleTrackDownload(r)}
                     disabled={downloadingIds.has(r.id)}
                   >
@@ -1345,10 +1346,10 @@
                the real authenticated library response, then we render the
                cards ourselves with the same grid as Home. -->
           {#if libraryLoading}
-            <p class="status">Загружаю библиотеку…</p>
+            <div class="spinner"></div>
           {:else if libraryError}
-            <p class="status error">Не получилось: {libraryError}</p>
-            <button onclick={openLibrary}>Попробовать ещё раз</button>
+            <p class="status error">{t('home.error', { error: libraryError })}</p>
+            <button onclick={openLibrary}>{t('home.retry')}</button>
           {:else if libraryPlaylists && libraryPlaylists.items.length > 0}
             <div class="section">
               <h3>{t('library.myPlaylists')}</h3>
@@ -1367,8 +1368,10 @@
                         class:pinned={isPinned(item.id)}
                         role="button"
                         tabindex="0"
-                        aria-label={isPinned(item.id) ? 'Открепить' : 'Закрепить'}
-                        title={isPinned(item.id) ? 'Открепить из сайдбара' : 'Закрепить в сайдбаре'}
+                        aria-label={isPinned(item.id) ? t('playlist.pinned') : t('playlist.pin')}
+                        title={isPinned(item.id)
+                          ? t('playlist.pinTitle.remove')
+                          : t('playlist.pinTitle.add')}
                         onclick={(e) => {
                           e.stopPropagation()
                           void togglePinFromItem(item)
@@ -1410,10 +1413,12 @@
     </div>
 
     {#if playStatus === 'resolving'}
-      <div class="resolving-bar">Достаю поток…</div>
+      <div class="resolving-bar">
+        <span class="spinner spinner-inline"></span>
+      </div>
     {/if}
     {#if playStatus === 'error'}
-      <div class="resolving-bar error">Не получилось: {playError}</div>
+      <div class="resolving-bar error">{t('player.error', { error: playError })}</div>
     {/if}
 
     {#if playing}
@@ -2172,6 +2177,30 @@
     margin: 0;
     color: #b9acd6;
     font-size: 0.88rem;
+  }
+
+  /* Generic spinner — replaces "Загружаю..." text. Spins one accent-coloured
+     arc over a faint white track. Big block for inside-view loaders,
+     inline mini-variant for the player resolving bar. */
+  .spinner {
+    width: 36px;
+    height: 36px;
+    border: 3px solid rgba(255, 255, 255, 0.08);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    margin: 1.5rem 0 0 0;
+    animation: spin 0.8s linear infinite;
+  }
+  .spinner-inline {
+    width: 16px;
+    height: 16px;
+    border-width: 2px;
+    margin: 0;
+    display: inline-block;
+    vertical-align: middle;
+  }
+  @keyframes spin {
+    to { transform: rotate(360deg); }
   }
 
   .status.error {
