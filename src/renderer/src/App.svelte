@@ -1095,6 +1095,25 @@
 </main>
 
 <style>
+  /* Mockup B: aurora gradient mesh behind everything. Three coloured
+     radial blurs scattered, with the deep purple base showing through
+     the gaps. Pinned to viewport so it doesn't scroll with content. */
+  :global(body) {
+    position: relative;
+  }
+  :global(body)::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background:
+      radial-gradient(900px 600px at 8% 12%, rgba(201, 125, 246, 0.32), transparent 60%),
+      radial-gradient(700px 500px at 92% 18%, rgba(255, 109, 200, 0.18), transparent 60%),
+      radial-gradient(900px 700px at 50% 95%, rgba(80, 110, 255, 0.14), transparent 60%),
+      #0c0816;
+    z-index: -1;
+    pointer-events: none;
+  }
+
   main {
     display: flex;
     flex-direction: column;
@@ -1186,9 +1205,11 @@
     max-width: 820px;
     margin: 0 2rem;
     padding: 1.5rem;
-    border: 1px solid #241a38;
-    border-radius: 14px;
-    background: #150f22;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 16px;
+    background: rgba(255, 255, 255, 0.04);
+    backdrop-filter: blur(24px);
+    -webkit-backdrop-filter: blur(24px);
   }
 
   h2 {
@@ -1231,8 +1252,15 @@
   .sidebar {
     display: flex;
     flex-direction: column;
-    gap: 0.3rem;
-    padding: 0.5rem 0;
+    gap: 0.25rem;
+    padding: 0.8rem 0.5rem;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.07);
+    border-radius: 16px;
+    backdrop-filter: blur(24px);
+    -webkit-backdrop-filter: blur(24px);
+    height: fit-content;
+    margin-top: 0.5rem;
   }
 
   .nav {
@@ -1249,13 +1277,18 @@
   }
 
   .nav:hover:not(:disabled) {
-    background: rgba(168, 85, 247, 0.07);
+    background: rgba(255, 255, 255, 0.05);
     color: #ffffff;
   }
 
   .nav.active {
-    background: rgba(168, 85, 247, 0.18);
+    background: linear-gradient(
+      90deg,
+      rgba(201, 125, 246, 0.28),
+      rgba(255, 109, 200, 0.14)
+    );
     color: #ffffff;
+    box-shadow: 0 4px 18px rgba(201, 125, 246, 0.18);
   }
 
   .nav:disabled {
@@ -1282,9 +1315,11 @@
     flex-direction: column;
     gap: 0.5rem;
     padding: 1.1rem 1.3rem;
-    border: 1px solid #241a38;
-    border-radius: 12px;
-    background: #150f22;
+    border: 1px solid rgba(255, 255, 255, 0.07);
+    border-radius: 16px;
+    background: rgba(255, 255, 255, 0.04);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
   }
 
   .settings-card h4 {
@@ -1474,19 +1509,23 @@
        wider than its column and overlap the next tile. */
     min-width: 0;
     overflow: hidden;
-    border: 1px solid #241a38;
-    border-radius: 10px;
-    background: #150f22;
+    border: 1px solid rgba(255, 255, 255, 0.07);
+    border-radius: 14px;
+    background: rgba(255, 255, 255, 0.04);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
     color: #ffffff;
     text-align: left;
     cursor: pointer;
-    transition: background 0.15s ease, border-color 0.15s ease, transform 0.15s ease;
+    transition: background 0.18s ease, border-color 0.18s ease,
+      transform 0.18s ease, box-shadow 0.18s ease;
   }
 
   .card-tile:hover {
-    background: #1a1228;
-    border-color: rgba(168, 85, 247, 0.35);
-    transform: translateY(-2px);
+    background: rgba(255, 255, 255, 0.07);
+    border-color: rgba(201, 125, 246, 0.45);
+    transform: translateY(-3px);
+    box-shadow: 0 14px 36px rgba(201, 125, 246, 0.18);
   }
 
   .tile-thumb {
@@ -1535,14 +1574,14 @@
 
   .playlist-cover {
     flex: 0 0 auto;
-    width: 180px;
-    height: 180px;
-    border-radius: 10px;
+    width: 200px;
+    height: 200px;
+    border-radius: 14px;
     background-color: #0e0a16;
     background-position: center;
     background-size: cover;
     background-repeat: no-repeat;
-    box-shadow: 0 12px 28px rgba(0, 0, 0, 0.5);
+    box-shadow: 0 18px 44px rgba(0, 0, 0, 0.55);
   }
 
   .playlist-info {
@@ -1744,7 +1783,10 @@
   .player-bar {
     display: flex;
     flex-direction: column;
-    background: #0f0a18;
+    background: rgba(20, 12, 36, 0.55);
+    backdrop-filter: blur(28px);
+    -webkit-backdrop-filter: blur(28px);
+    border-top: 1px solid rgba(255, 255, 255, 0.07);
     flex-shrink: 0;
   }
 
@@ -1780,14 +1822,14 @@
 
   .np-cover {
     flex: 0 0 auto;
-    width: 54px;
-    height: 54px;
-    border-radius: 6px;
+    width: 56px;
+    height: 56px;
+    border-radius: 10px;
     background-color: #0e0a16;
     background-position: center;
     background-size: cover;
     background-repeat: no-repeat;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+    box-shadow: 0 8px 22px rgba(0, 0, 0, 0.45);
   }
 
   .np-meta {
@@ -1851,16 +1893,18 @@
   }
 
   .ctrl.play {
-    width: 46px;
-    height: 46px;
-    background: #ffffff;
-    color: #0e0a16;
+    width: 48px;
+    height: 48px;
+    background: linear-gradient(135deg, #c97df6, #ff6dc8);
+    color: #0a0612;
+    box-shadow: 0 8px 22px rgba(201, 125, 246, 0.5);
   }
 
   .ctrl.play:hover {
-    background: #ffffff;
-    color: #0e0a16;
+    background: linear-gradient(135deg, #d493ff, #ff85d4);
+    color: #0a0612;
     transform: scale(1.06);
+    box-shadow: 0 10px 28px rgba(201, 125, 246, 0.65);
   }
 
   /* Inline time readout next to the transport buttons, YT-Music style:
@@ -1896,9 +1940,9 @@
     background: linear-gradient(
       to right,
       #c97df6 0%,
-      #c97df6 var(--p, 0%),
-      #2a2040 var(--p, 0%),
-      #2a2040 100%
+      #ff6dc8 var(--p, 0%),
+      rgba(255, 255, 255, 0.08) var(--p, 0%),
+      rgba(255, 255, 255, 0.08) 100%
     );
     transition: height 0.12s ease;
   }
@@ -1945,9 +1989,9 @@
     background: linear-gradient(
       to right,
       #c97df6 0%,
-      #c97df6 var(--p, 0%),
-      #2a2040 var(--p, 0%),
-      #2a2040 100%
+      #ff6dc8 var(--p, 0%),
+      rgba(255, 255, 255, 0.1) var(--p, 0%),
+      rgba(255, 255, 255, 0.1) 100%
     );
   }
 

@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8" />
+<title>eCoda — Mockup A: Spotify Premium Dark</title>
+<style>
+  :root {
+    --bg: #0a0612;
+    --panel: #110a1d;
+    --panel-2: #18102a;
+    --border: #221638;
+    --text: #ffffff;
+    --muted: #a99bc9;
+    --dim: #6c5d8a;
+    --accent: #c97df6;
+    --accent-2: #e24dff;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    overflow: hidden;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .app {
+    display: grid;
+    grid-template-rows: 80px 1fr 92px;
+    height: 100vh;
+  }
+
+  /* ---- Header ---- */
+  header {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    padding: 0 2rem;
+    border-bottom: 1px solid var(--border);
+  }
+  .wordmark { height: 56px; filter: drop-shadow(0 0 16px rgba(201, 125, 246, 0.35)); }
+  .badge {
+    padding: 0.25rem 0.7rem;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    color: var(--muted);
+    font-size: 0.72rem;
+  }
+  .history-nav { margin-left: auto; display: flex; gap: 0.3rem; }
+  .hist {
+    width: 32px; height: 32px;
+    border: 1px solid var(--border);
+    border-radius: 50%;
+    background: transparent;
+    color: var(--muted);
+    cursor: pointer;
+    font-size: 1.1rem;
+  }
+  .hist:hover { background: rgba(201, 125, 246, 0.18); color: #fff; }
+
+  /* ---- Layout ---- */
+  .layout { display: grid; grid-template-columns: 220px 1fr; gap: 1rem; padding: 0 2rem; min-height: 0; }
+
+  /* ---- Sidebar ---- */
+  aside {
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+    padding: 1rem 0;
+  }
+  .nav {
+    display: flex; align-items: center; gap: 0.7rem;
+    padding: 0.7rem 1rem;
+    border: none; border-radius: 8px;
+    background: transparent; color: var(--muted);
+    font-size: 0.92rem; font-weight: 600;
+    cursor: pointer; text-align: left;
+  }
+  .nav:hover { background: rgba(255,255,255,0.04); color: #fff; }
+  .nav.active { background: rgba(201, 125, 246, 0.14); color: #fff; }
+  .nav-spacer { flex: 1; }
+
+  /* ---- Main view ---- */
+  .view { overflow-y: auto; padding: 1rem 0 2rem; }
+  h2 {
+    font-size: 1.4rem; font-weight: 800;
+    margin: 0.5rem 0 1rem; color: #fff;
+    letter-spacing: -0.02em;
+  }
+  h3 {
+    font-size: 1.05rem; font-weight: 700;
+    margin: 1.6rem 0 0.8rem; color: #fff;
+  }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+    gap: 1rem;
+  }
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+    cursor: pointer;
+    transition: background 0.15s, transform 0.15s, border-color 0.15s;
+    display: flex; flex-direction: column;
+  }
+  .card:hover {
+    background: var(--panel-2);
+    border-color: rgba(201, 125, 246, 0.35);
+    transform: translateY(-3px);
+  }
+  .cover {
+    aspect-ratio: 1;
+    position: relative;
+  }
+  .cover::after {
+    content: '▶';
+    position: absolute; right: 8px; bottom: 8px;
+    width: 36px; height: 36px;
+    border-radius: 50%;
+    background: var(--accent);
+    color: #0a0612;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 0.9rem;
+    opacity: 0;
+    transform: translateY(8px);
+    transition: opacity 0.15s, transform 0.15s;
+    box-shadow: 0 6px 18px rgba(201, 125, 246, 0.5);
+  }
+  .card:hover .cover::after { opacity: 1; transform: translateY(0); }
+  .meta { padding: 0.7rem 0.8rem 0.9rem; min-width: 0; }
+  .meta .title { font-size: 0.86rem; font-weight: 700; color: #fff; line-height: 1.25;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .meta .sub { font-size: 0.74rem; color: var(--muted); margin-top: 0.2rem;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  /* Cover gradients (placeholder art) */
+  .c1 { background: linear-gradient(135deg, #ff6b6b, #ffe66d); }
+  .c2 { background: linear-gradient(135deg, #4ecdc4, #1a535c); }
+  .c3 { background: linear-gradient(135deg, #c44569, #f8b500); }
+  .c4 { background: linear-gradient(135deg, #786fa6, #f19066); }
+  .c5 { background: linear-gradient(135deg, #574b90, #f8a5c2); }
+  .c6 { background: linear-gradient(135deg, #303952, #f7d794); }
+  .c7 { background: linear-gradient(135deg, #6a89cc, #b8e994); }
+  .c8 { background: linear-gradient(135deg, #82589f, #f5cd79); }
+  .c9 { background: linear-gradient(135deg, #cf6a87, #786fa6); }
+  .c10 { background: linear-gradient(135deg, #303952, #cf6a87); }
+
+  /* ---- Player bar ---- */
+  .player {
+    display: flex; flex-direction: column;
+    background: var(--panel);
+    border-top: 1px solid var(--border);
+  }
+  .seek {
+    height: 4px;
+    background: linear-gradient(to right, var(--accent) 0%, var(--accent) 32%, #2a2040 32%, #2a2040 100%);
+    cursor: pointer;
+  }
+  .player-row {
+    display: grid;
+    grid-template-columns: minmax(220px, 1fr) auto minmax(140px, 1fr);
+    align-items: center;
+    gap: 1.5rem;
+    padding: 0.6rem 1.5rem 0.85rem;
+  }
+  .np { display: flex; gap: 0.85rem; align-items: center; min-width: 0; }
+  .np-cover {
+    width: 54px; height: 54px; border-radius: 6px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+    background: linear-gradient(135deg, #c44569, #f8b500);
+  }
+  .np-title { font-size: 0.92rem; font-weight: 700; color: #fff;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .np-sub { font-size: 0.78rem; color: var(--muted); margin-top: 0.15rem; }
+  .controls { display: flex; gap: 0.5rem; align-items: center; justify-content: center; }
+  .ctrl {
+    width: 40px; height: 40px; padding: 0;
+    border: none; border-radius: 50%;
+    background: transparent; color: #d4c9e8;
+    cursor: pointer;
+  }
+  .ctrl:hover { background: rgba(201, 125, 246, 0.18); color: #fff; }
+  .ctrl.play { width: 46px; height: 46px; background: #fff; color: #0a0612; }
+  .time { color: var(--muted); font-size: 0.78rem; margin-left: 0.6rem; }
+  .volume {
+    display: flex; align-items: center; gap: 0.4rem; justify-content: flex-end;
+  }
+  .vol-bar {
+    width: 100px; height: 4px;
+    background: linear-gradient(to right, var(--accent) 0%, var(--accent) 65%, #2a2040 65%, #2a2040 100%);
+    border-radius: 999px;
+  }
+
+  svg { width: 22px; height: 22px; fill: currentColor; }
+  .ctrl.play svg { width: 22px; height: 22px; }
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <img class="wordmark" src="wordmark.png" alt="eCoda" />
+    <div class="badge">Phase 2 · native library</div>
+    <div class="history-nav">
+      <button class="hist">‹</button>
+      <button class="hist">›</button>
+    </div>
+  </header>
+
+  <div class="layout">
+    <aside>
+      <button class="nav active"><span>🏠</span><span>Главная</span></button>
+      <button class="nav"><span>🔍</span><span>Поиск</span></button>
+      <button class="nav"><span>📚</span><span>Библиотека</span></button>
+      <div class="nav-spacer"></div>
+      <button class="nav"><span>⚙</span><span>Настройки</span></button>
+    </aside>
+
+    <section class="view">
+      <h2>Push you out of bed</h2>
+      <div class="grid">
+        <div class="card"><div class="cover c1"></div><div class="meta"><div class="title">Happy Pop</div><div class="sub">Ed Sheeran, Bruno Mars</div></div></div>
+        <div class="card"><div class="cover c2"></div><div class="meta"><div class="title">German Schlager Classics</div><div class="sub">Helene Fischer, Michelle</div></div></div>
+        <div class="card"><div class="cover c3"></div><div class="meta"><div class="title">80s Sing-Alongs</div><div class="sub">Culture Club, Tiffany</div></div></div>
+        <div class="card"><div class="cover c4"></div><div class="meta"><div class="title">Megahits: 90s</div><div class="sub">Backstreet Boys, La Bouche</div></div></div>
+        <div class="card"><div class="cover c5"></div><div class="meta"><div class="title">Megahits: 70s</div><div class="sub">ABBA, Bee Gees</div></div></div>
+      </div>
+
+      <h3>Today's biggest hits</h3>
+      <div class="grid">
+        <div class="card"><div class="cover c6"></div><div class="meta"><div class="title">Ultimate Radio Hits</div><div class="sub">Dua Lipa, Lady Gaga</div></div></div>
+        <div class="card"><div class="cover c7"></div><div class="meta"><div class="title">Happy Pop Hits</div><div class="sub">Myles Smith, Bruno Mars</div></div></div>
+        <div class="card"><div class="cover c8"></div><div class="meta"><div class="title">Energy Boost</div><div class="sub">David Guetta, Ely Oaks</div></div></div>
+        <div class="card"><div class="cover c9"></div><div class="meta"><div class="title">Singalong Hits Germany</div><div class="sub">AYLIVA, Mark Forster</div></div></div>
+        <div class="card"><div class="cover c10"></div><div class="meta"><div class="title">Megahits: 80s</div><div class="sub">Falco, Herbert Grönemeyer</div></div></div>
+      </div>
+    </section>
+  </div>
+
+  <div class="player">
+    <div class="seek"></div>
+    <div class="player-row">
+      <div class="np">
+        <div class="np-cover"></div>
+        <div>
+          <div class="np-title">Born in the U.S.A. (Official Video)</div>
+          <div class="np-sub">Bruce Springsteen</div>
+        </div>
+      </div>
+      <div class="controls">
+        <button class="ctrl"><svg viewBox="0 0 24 24"><path d="M6 6h2v12H6z"/><path d="M9.5 12 18 6v12z"/></svg></button>
+        <button class="ctrl play"><svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg></button>
+        <button class="ctrl"><svg viewBox="0 0 24 24"><path d="M6 6v12l8.5-6z"/><path d="M16 6h2v12h-2z"/></svg></button>
+        <span class="time">1:31 / 4:44</span>
+      </div>
+      <div class="volume">
+        <button class="ctrl" style="width:30px;height:30px"><svg viewBox="0 0 24 24" width="18" height="18"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3A4.5 4.5 0 0 0 14 7.97v8.05A4.5 4.5 0 0 0 16.5 12z"/></svg></button>
+        <div class="vol-bar"></div>
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

@@ -64,7 +64,7 @@ function createWindow(): void {
     minHeight: 560,
     show: false,
     autoHideMenuBar: true,
-    backgroundColor: '#0e0a16',
+    backgroundColor: '#0c0816',
     title: 'eCoda',
     icon,
     webPreferences: {
