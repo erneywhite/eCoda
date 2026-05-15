@@ -5,6 +5,7 @@ import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import ytdlpPath from '../../resources/yt-dlp.exe?asset'
 import denoPath from '../../resources/deno.exe?asset'
+import { getAudioQuality, type AudioQuality } from './auth'
 
 const run = promisify(execFile)
 
@@ -256,6 +257,60 @@ export function listDownloadedTracks(): DownloadedTrack[] {
   return Object.values(m.tracks).sort((a, b) => b.downloadedAt - a.downloadedAt)
 }
 
+// Materialises the offline cache as a synthetic playlist so the renderer
+// can show it under the same UI as any other playlist (cover + track
+// list + per-track controls). Sorted newest-first by download time.
+// Thumbnails resolve to media://thumb/<id> when we have a local copy —
+// otherwise we fall back to the YT CDN URL captured at download time.
+export interface DownloadsPlaylistView {
+  title: string
+  subtitle: string
+  thumbnail: string
+  totalBytes: number
+  tracks: Array<{
+    id: string
+    title: string
+    artist: string
+    duration: string
+    thumbnail: string
+    sizeBytes: number
+  }>
+}
+
+export function getDownloadsAsPlaylist(): DownloadsPlaylistView {
+  const m = loadManifest()
+  const sorted = Object.values(m.tracks).sort((a, b) => b.downloadedAt - a.downloadedAt)
+  let totalBytes = 0
+  const tracks = sorted.map((t) => {
+    totalBytes += t.sizeBytes ?? 0
+    return {
+      id: t.videoId,
+      title: t.title,
+      artist: t.artist,
+      duration: '',
+      // Prefer the locally-cached thumbnail when we have one — that
+      // makes the row independent of the YT CDN, same as the per-track
+      // thumbnailFor() helper in the renderer.
+      thumbnail: t.hasThumb ? `media://thumb/${t.videoId}` : t.thumbnail,
+      sizeBytes: t.sizeBytes ?? 0
+    }
+  })
+  // Cover comes from whichever track was downloaded most recently —
+  // gives the virtual playlist a real-looking thumbnail without having
+  // to ship a generic placeholder.
+  const cover = sorted[0]?.hasThumb
+    ? `media://thumb/${sorted[0].videoId}`
+    : sorted[0]?.thumbnail ?? ''
+  return {
+    // Title + subtitle filled by the renderer (locale-bound).
+    title: '',
+    subtitle: '',
+    thumbnail: cover,
+    totalBytes,
+    tracks
+  }
+}
+
 // Aggregate disk usage of the cache directory (audio + thumbnails) so
 // Settings can render "Cache: 1.4 GB · 73 tracks" without the renderer
 // having to walk anything itself.
@@ -411,24 +466,51 @@ export interface TrackInfo {
   thumbnail: string
 }
 
-// Downloads one track to <cache>/<videoId>.<ext> via yt-dlp. The
+// Maps the user-picked AudioQuality preset to a yt-dlp `-f` format
+// selector. The selector reaches into YouTube's own format ladder —
+// every option here is a stream YouTube already encodes server-side, so
+// there's never any local re-encoding (ffmpeg-free, CPU-cheap).
+//
+//   best:   bestaudio                  → Format 251, Opus ~160 kbps  (Premium ceiling)
+//   medium: bestaudio[abr<=128]/...    → Format 140, AAC ~128 kbps   (Premium tier)
+//   low:    bestaudio[abr<=80]/...     → Format 250, Opus ~70 kbps   (general)
+//
+// The trailing `/bestaudio` fallback in medium/low covers tracks that
+// don't expose the constrained tier (very short, rare formats, etc.).
+function formatSelectorFor(q: AudioQuality): string {
+  switch (q) {
+    case 'medium':
+      return 'bestaudio[abr<=128]/bestaudio'
+    case 'low':
+      return 'bestaudio[abr<=80]/bestaudio'
+    case 'best':
+    default:
+      return 'bestaudio'
+  }
+}
+
+// Downloads one track to <offline>/<videoId>.<ext> via yt-dlp. The
 // resulting extension depends on yt-dlp's format choice (typically
-// .webm Opus for Premium accounts, .m4a otherwise). Returns the
-// DownloadedTrack entry that was added to the manifest.
+// .webm Opus for Premium "best", .m4a AAC for "medium", .webm Opus for
+// "low"). Returns the DownloadedTrack entry added to the manifest.
 export async function downloadOne(info: TrackInfo, browser: string): Promise<DownloadedTrack> {
   const cacheDir = getCacheDir()
-  // Already downloaded? short-circuit.
+  // Already downloaded? short-circuit — we don't re-download to a higher
+  // quality if the user bumps the preset later. They can delete + redownload
+  // a specific track if they want.
   const existing = getCachedFilePath(info.videoId)
   if (existing) {
     return loadManifest().tracks[info.videoId]
   }
 
+  const quality = await getAudioQuality()
+  const formatSelector = formatSelectorFor(quality)
   const outTemplate = join(cacheDir, `${info.videoId}.%(ext)s`)
   await run(
     ytdlpPath,
     [
       '-f',
-      'bestaudio',
+      formatSelector,
       '--no-playlist',
       '--no-warnings',
       '--no-progress',

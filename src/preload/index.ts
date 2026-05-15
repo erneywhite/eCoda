@@ -38,6 +38,7 @@ const api = {
     delete: (videoId: string) => ipcRenderer.invoke('downloads:delete', videoId),
     clearAll: () => ipcRenderer.invoke('downloads:clearAll'),
     verify: () => ipcRenderer.invoke('downloads:verify'),
+    asPlaylist: () => ipcRenderer.invoke('downloads:asPlaylist'),
     // The renderer subscribes once at mount; the unsubscribe function is
     // returned so $effect-style teardown can remove the listener cleanly.
     onProgress: (
@@ -91,7 +92,10 @@ const api = {
     getTheme: () => ipcRenderer.invoke('settings:getTheme'),
     setTheme: (theme: string) => ipcRenderer.invoke('settings:setTheme', theme),
     getLang: () => ipcRenderer.invoke('settings:getLang'),
-    setLang: (lang: 'ru' | 'en') => ipcRenderer.invoke('settings:setLang', lang)
+    setLang: (lang: 'ru' | 'en') => ipcRenderer.invoke('settings:setLang', lang),
+    getAudioQuality: () => ipcRenderer.invoke('settings:getAudioQuality'),
+    setAudioQuality: (q: 'best' | 'medium' | 'low') =>
+      ipcRenderer.invoke('settings:setAudioQuality', q)
   },
   // Last-playing track + queue + position. Resume-on-launch is wired
   // around these three IPCs.

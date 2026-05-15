@@ -161,6 +161,14 @@ export function ytdlpBrowserArg(id: string): string | null {
 
 export type DefaultTab = 'home' | 'search' | 'library'
 export type Lang = 'ru' | 'en'
+// Audio quality preset for new downloads. Maps to a yt-dlp `-f` format
+// selector at download time — the picker reaches into YouTube's own
+// format ladder, never local re-encoding. Existing downloads aren't
+// retroactively re-fetched when the preset changes.
+//   - 'best'   → bestaudio                (~160 kbps Opus, ~5 MB / 4 min)
+//   - 'medium' → bestaudio[abr<=128]      (~128 kbps AAC,  ~3.8 MB / 4 min)
+//   - 'low'    → bestaudio[abr<=80]       (~70 kbps Opus,  ~2 MB / 4 min)
+export type AudioQuality = 'best' | 'medium' | 'low'
 export type Theme =
   | 'purple'
   | 'cyan'
@@ -217,6 +225,7 @@ interface Config {
   defaultTab?: DefaultTab
   theme?: Theme
   lang?: Lang
+  audioQuality?: AudioQuality
   pinnedPlaylists?: PinnedPlaylist[]
   windowState?: WindowState
   lastSession?: LastSession
@@ -284,6 +293,17 @@ export async function getLang(): Promise<Lang> {
 
 export async function setLang(lang: Lang): Promise<void> {
   await writeConfig({ ...(await readConfig()), lang })
+}
+
+// Audio quality preset for new downloads. Default 'best' so we ship
+// Premium-quality audio out of the box; users on tight disks can opt
+// down. Doesn't affect already-downloaded files.
+export async function getAudioQuality(): Promise<AudioQuality> {
+  return (await readConfig()).audioQuality ?? 'best'
+}
+
+export async function setAudioQuality(q: AudioQuality): Promise<void> {
+  await writeConfig({ ...(await readConfig()), audioQuality: q })
 }
 
 // InnerTube locale tuple derived from the user's UI language. Used by

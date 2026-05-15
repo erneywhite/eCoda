@@ -18,11 +18,14 @@ import {
   setTheme,
   getLang,
   setLang,
+  getAudioQuality,
+  setAudioQuality,
   getWindowState,
   setWindowState,
   getLastSession,
   setLastSession,
   clearLastSession,
+  type AudioQuality,
   type DefaultTab,
   type Lang,
   type LastSession,
@@ -49,6 +52,7 @@ import {
   clearAllDownloads,
   getDownloadedStatus,
   listDownloadedTracks,
+  getDownloadsAsPlaylist,
   verifyCache,
   type TrackInfo
 } from './downloads'
@@ -436,6 +440,11 @@ app.whenReady().then(async () => {
   // disk, and report what was patched up. Surfaced from Settings →
   // Diagnostics so the user can recover from a flaky restart by hand.
   ipcMain.handle('downloads:verify', () => verifyCache())
+  // Materialises the offline cache as a synthetic playlist (sorted
+  // newest-first, with cover taken from the latest download). Renderer
+  // shows it under the "Downloaded" sidebar entry as a normal playlist
+  // view, so play/delete UX is identical to any other list.
+  ipcMain.handle('downloads:asPlaylist', () => getDownloadsAsPlaylist())
 
   // App-level info for Settings. logPath lets us surface "Open log file"
   // so the user can ship us the file when investigating bugs.
@@ -472,6 +481,10 @@ app.whenReady().then(async () => {
     // the new hl/gl, not the cached one from the previous language.
     resetInnertube()
   })
+  // Audio quality preset for new downloads — see formatSelectorFor() in
+  // downloads.ts. Doesn't retroactively re-download anything.
+  ipcMain.handle('settings:getAudioQuality', () => getAudioQuality())
+  ipcMain.handle('settings:setAudioQuality', (_event, q: AudioQuality) => setAudioQuality(q))
 
   // Last-playing track + queue + position. Renderer pushes a snapshot on
   // every track change / pause / throttled timeupdate; we restore it on

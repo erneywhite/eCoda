@@ -55,6 +55,8 @@ export type UpdaterEvent =
 
 export type Lang = 'ru' | 'en'
 
+export type AudioQuality = 'best' | 'medium' | 'low'
+
 export type Theme =
   | 'purple'
   | 'cyan'
@@ -120,6 +122,21 @@ export interface DownloadManySummary {
   failed: Array<{ videoId: string; title: string; reason: string }>
 }
 
+export interface DownloadsPlaylistView {
+  title: string
+  subtitle: string
+  thumbnail: string
+  totalBytes: number
+  tracks: Array<{
+    id: string
+    title: string
+    artist: string
+    duration: string
+    thumbnail: string
+    sizeBytes: number
+  }>
+}
+
 export interface EcodaApi {
   resolveAudio: (input: string) => Promise<ResolvedAudio>
   prefetchAudio: (ids: string[]) => Promise<boolean>
@@ -149,6 +166,7 @@ export interface EcodaApi {
     delete: (videoId: string) => Promise<boolean>
     clearAll: () => Promise<number>
     verify: () => Promise<CacheVerifyResult>
+    asPlaylist: () => Promise<DownloadsPlaylistView>
     onProgress: (cb: (p: DownloadProgress) => void) => () => void
   }
   app: {
@@ -177,6 +195,8 @@ export interface EcodaApi {
     setTheme: (theme: Theme) => Promise<void>
     getLang: () => Promise<Lang>
     setLang: (lang: Lang) => Promise<void>
+    getAudioQuality: () => Promise<AudioQuality>
+    setAudioQuality: (q: AudioQuality) => Promise<void>
   }
   session: {
     get: () => Promise<LastSession | null>
