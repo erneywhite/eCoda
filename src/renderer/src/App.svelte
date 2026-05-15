@@ -585,9 +585,6 @@
           ›
         </button>
       </div>
-      <button class="ghost" onclick={disconnect}>
-        Отключить · {browserName(connectedBrowser)}
-      </button>
     {/if}
   </header>
 
