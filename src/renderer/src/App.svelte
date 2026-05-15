@@ -1694,7 +1694,11 @@
           {/if}
           {#if playlistView && playlistView.tracks.length > 0}
             <ul class="track-list">
-              {#each playlistView.tracks as r (r.id)}
+              <!-- Key by index+id rather than r.id alone — a playlist
+                   can legitimately contain the same videoId twice (user
+                   added a track to the playlist twice), and Svelte 5
+                   throws on duplicate keys. -->
+              {#each playlistView.tracks as r, idx (`${idx}-${r.id}`)}
                 <li class="track-li">
                   <button
                     class="track-row"

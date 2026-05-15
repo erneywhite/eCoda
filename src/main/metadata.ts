@@ -2,32 +2,9 @@
 // kept as type-only (erased at compile time), and the module is loaded via
 // dynamic import() at runtime — Node handles the ESM/CJS boundary cleanly.
 import type { Innertube } from 'youtubei.js'
-import { app } from 'electron'
-import { existsSync, readFileSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { existsSync, readFileSync } from 'node:fs'
 import { getCookiesFilePath, getLocale } from './auth'
 import { harvestTokens, innertubeFetch } from './token-harvest'
-
-// Diagnostic: when we hit the unexplained "count differs from card"
-// bug for a specific playlist, dropping the raw /browse responses to
-// disk lets us inspect what YT actually returned. Saves up to four
-// pages per playlist (page1.json … page4.json) the FIRST time the
-// playlist is opened — subsequent opens skip the dump.
-function debugDumpPlaylistPage(playlistId: string, page: number, data: unknown): void {
-  try {
-    const safeId = playlistId.replace(/[^\w-]/g, '_')
-    const path = join(
-      app.getPath('userData'),
-      `debug-playlist-${safeId}-p${page}.json`
-    )
-    if (existsSync(path)) return
-    if (page > 4) return
-    writeFileSync(path, JSON.stringify(data, null, 2), 'utf8')
-    console.log(`[debug] dumped playlist response to ${path}`)
-  } catch (err) {
-    console.warn('[debug] dump failed:', err)
-  }
-}
 
 let innertube: Innertube | null = null
 
@@ -465,8 +442,11 @@ function findPlaylistContinuationToken(data: unknown): string | null {
 }
 
 // Walks a response subtree, pulls every track row out, and appends them
-// to `out` (deduped via the shared `seen` set). Used for both the initial
-// /browse VL<id> response AND every continuation page that follows.
+// to `out` (deduped via the shared `seen` set, keyed by playlistSetVideoId
+// when present so the same videoId added twice to a playlist shows up
+// twice — YT lets users add duplicates and counts them as separate rows
+// in the library card subtitle). Used for both the initial /browse
+// VL<id> response AND every continuation page that follows.
 //
 // Scopes the search to the playlist shelf when possible — otherwise a
 // global `findAll('musicResponsiveListItemRenderer')` also picks up
@@ -478,16 +458,21 @@ function parseTrackRowsInto(
   out: SearchResult[]
 ): void {
   // Initial /browse VL<id> response: tracks live under
-  // musicPlaylistShelfRenderer. Continuation pages: under
-  // musicPlaylistShelfContinuation. Some responses use the older
-  // musicShelfRenderer container instead. Collect whichever we find.
-  const shelves: Record<string, unknown>[] = []
+  // musicPlaylistShelfRenderer. Continuation pages (modern shape):
+  // appendContinuationItemsAction.continuationItems — an ARRAY field, not
+  // a renderer object, but findAll yields objects-of-the-key so it works.
+  // Older shape: musicPlaylistShelfContinuation, or musicShelfRenderer.
+  const shelves: unknown[] = []
   let pickedFrom = 'fallback-whole-tree'
   for (const c of findAll(data, 'musicPlaylistShelfRenderer')) shelves.push(c)
   if (shelves.length > 0) pickedFrom = `musicPlaylistShelfRenderer×${shelves.length}`
   if (shelves.length === 0) {
     for (const c of findAll(data, 'musicPlaylistShelfContinuation')) shelves.push(c)
     if (shelves.length > 0) pickedFrom = `musicPlaylistShelfContinuation×${shelves.length}`
+  }
+  if (shelves.length === 0) {
+    for (const c of findAll(data, 'continuationItems')) shelves.push(c)
+    if (shelves.length > 0) pickedFrom = `continuationItems×${shelves.length}`
   }
   if (shelves.length === 0) {
     for (const c of findAll(data, 'musicShelfRenderer')) shelves.push(c)
@@ -498,6 +483,7 @@ function parseTrackRowsInto(
   const searchRoot: unknown = shelves.length > 0 ? shelves : data
   console.log(`[parseTrackRowsInto] container=${pickedFrom}`)
 
+  let index = 0
   for (const item of findAll(searchRoot, 'musicResponsiveListItemRenderer')) {
     const flexCols = item.flexColumns as Array<Record<string, unknown>> | undefined
     const firstCol = flexCols?.[0]
@@ -511,8 +497,20 @@ function parseTrackRowsInto(
     const watch = navEndpoint?.watchEndpoint as Record<string, unknown> | undefined
     const videoId = typeof watch?.videoId === 'string' ? watch.videoId : ''
     if (!videoId || !/^[\w-]{11}$/.test(videoId)) continue
-    if (seen.has(videoId)) continue
-    seen.add(videoId)
+
+    // playlistSetVideoId is YT's unique row-id within a playlist (a hex
+    // string like "31A22D0994588080"). Using it for dedup lets a user
+    // who added the same track twice see both rows — YT's library card
+    // counts those as 2.  Fall back to "videoId@index" so two dupes that
+    // somehow don't carry setVideoId still survive.
+    const itemData = item.playlistItemData as Record<string, unknown> | undefined
+    const setVideoId = typeof itemData?.playlistSetVideoId === 'string'
+      ? itemData.playlistSetVideoId
+      : ''
+    const dedupKey = setVideoId || `${videoId}@${index}`
+    index++
+    if (seen.has(dedupKey)) continue
+    seen.add(dedupKey)
 
     const trackTitle = flexColText(item, 0)
     if (!trackTitle) continue
@@ -537,7 +535,6 @@ export async function getPlaylistTracks(id: string): Promise<{
   // which works as-is.
   const browseId = id.startsWith('VL') || id.startsWith('MPRE') ? id : `VL${id}`
   const data = await innertubeFetch('/browse', { browseId })
-  debugDumpPlaylistPage(id, 1, data)
 
   // Header may live as musicDetailHeaderRenderer (old) or
   // musicResponsiveHeaderRenderer (newer). Find whichever shows up.
@@ -590,7 +587,6 @@ export async function getPlaylistTracks(id: string): Promise<{
     const before = tracks.length
     try {
       const next = await innertubeFetch('/browse', { continuation: nextToken })
-      debugDumpPlaylistPage(id, page + 1, next)
       parseTrackRowsInto(next, seenTrackIds, tracks)
       const added = tracks.length - before
       const newToken = findPlaylistContinuationToken(next)
