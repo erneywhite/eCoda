@@ -1547,13 +1547,17 @@
                           : t('player.play')}
                       >
                         {#if isPlayingFromOpenPlaylist && isPlaying}
-                          <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor">
+                          <svg viewBox="0 0 24 24" width="28" height="28" fill="currentColor">
                             <path d="M6 5h4v14H6z" />
                             <path d="M14 5h4v14h-4z" />
                           </svg>
                         {:else}
-                          <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor">
-                            <path d="M8 5v14l11-7z" />
+                          <!-- Play triangle nudged 2px right to centre it
+                               optically in the circle (the geometric
+                               centroid of a rightward triangle sits left
+                               of the bounding box centre). -->
+                          <svg viewBox="0 0 24 24" width="28" height="28" fill="currentColor">
+                            <path d="M9 5v14l11-7z" />
                           </svg>
                         {/if}
                       </button>
@@ -2123,6 +2127,50 @@
             <span class="time-inline">
               {fmtTime(currentTime)} / {fmtTime(duration)}
             </span>
+            <!-- Download chip for the currently-playing track. Same UX as
+                 the per-row chip in the playlist view: idle → downloads,
+                 done → deletes (no confirm). A spinner replaces the icon
+                 while the download is in flight. Hidden when nothing is
+                 actively playing (no track to act on). -->
+            {#if playing && playing.streamUrl}
+              <button
+                class="ctrl small dl"
+                class:done={downloadedIds.has(playing.id)}
+                onclick={() =>
+                  toggleTrackDownload({
+                    id: playing!.id,
+                    title: playing!.title,
+                    artist: playing!.artist,
+                    duration: '',
+                    thumbnail: playing!.thumbnail
+                  })}
+                disabled={downloadingIds.has(playing.id)}
+                aria-label={downloadedIds.has(playing.id)
+                  ? t('track.dl.done')
+                  : downloadingIds.has(playing.id)
+                    ? t('track.dl.busy')
+                    : t('track.dl.idle')}
+                title={downloadedIds.has(playing.id)
+                  ? t('track.dl.done')
+                  : downloadingIds.has(playing.id)
+                    ? t('track.dl.busy')
+                    : t('track.dl.idle')}
+              >
+                {#if downloadingIds.has(playing.id)}
+                  <span class="spinner spinner-inline"></span>
+                {:else if downloadedIds.has(playing.id)}
+                  <!-- ✓ filled checkmark -->
+                  <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
+                    <path d="M9 16.17 4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z" />
+                  </svg>
+                {:else}
+                  <!-- ↓ download arrow -->
+                  <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
+                    <path d="M5 20h14v-2H5v2zM19 9h-4V3H9v6H5l7 7 7-7z" />
+                  </svg>
+                {/if}
+              </button>
+            {/if}
           </div>
 
           <div class="volume">
@@ -2516,10 +2564,13 @@
   /* Hover-Play chip at the right edge of a pinned playlist row. Stays
      hidden until the user hovers the row, then fades in. Clicking it
      navigates to the playlist AND starts playing it from track 0
-     without an extra step (matches YT Music's sidebar UX). */
+     without an extra step (matches YT Music's sidebar UX).
+     The hidden state collapses to width: 0 (not opacity: 0) so the
+     title can use the full row width — otherwise the truncation
+     happens even when the chip isn't visible, which looks wrong. */
   .pin-play {
     flex: 0 0 auto;
-    width: 22px;
+    width: 0;
     height: 22px;
     display: inline-flex;
     align-items: center;
@@ -2529,13 +2580,22 @@
     color: #ffffff;
     cursor: pointer;
     opacity: 0;
-    transition: opacity 0.12s ease, transform 0.12s ease, filter 0.12s ease;
+    overflow: hidden;
     padding: 0;
+    margin-left: 0;
     border: none;
     box-shadow: 0 4px 12px rgba(var(--accent-rgb), 0.4);
+    transition:
+      width 0.12s ease,
+      opacity 0.12s ease,
+      margin-left 0.12s ease,
+      transform 0.12s ease,
+      filter 0.12s ease;
   }
   .pin-row:hover .pin-play,
   .pin-play:focus-visible {
+    width: 22px;
+    margin-left: 0.3rem;
     opacity: 1;
   }
   .pin-play:hover {
@@ -3512,6 +3572,26 @@
   .ctrl.small {
     width: 30px;
     height: 30px;
+  }
+
+  /* Download chip in the player bar — uses .ctrl.small as the base
+     (compact round icon button) and only overrides what's distinctive:
+     a softer hover and the green "✓ already downloaded" state so the
+     user can tell at a glance whether the current track is on disk. */
+  .ctrl.small.dl {
+    margin-left: 0.25rem;
+    color: #b9acd6;
+  }
+  .ctrl.small.dl.done {
+    color: #9eef9e;
+  }
+  .ctrl.small.dl.done:hover {
+    background: rgba(255, 60, 120, 0.18);
+    color: #ff8db5;
+  }
+  .ctrl.small.dl:disabled {
+    cursor: default;
+    opacity: 0.6;
   }
 
   .ctrl.play {
