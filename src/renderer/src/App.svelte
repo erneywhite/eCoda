@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte'
-  import logo from './assets/logo.png'
+  import wordmark from './assets/wordmark.png'
   import type {
     DownloadProgress,
     HomeItem,
@@ -576,11 +576,8 @@
 
 <main>
   <header>
-    <img class="mark" src={logo} alt="eCoda" />
-    <div class="title-block">
-      <div class="logo">eCoda</div>
-      <div class="badge">Фаза 2 · native library + offline cache</div>
-    </div>
+    <img class="wordmark" src={wordmark} alt="eCoda" />
+    <div class="badge">Фаза 2 · native library + offline cache</div>
     {#if connectedBrowser}
       <div class="history-nav">
         <button
@@ -1113,26 +1110,14 @@
     flex-shrink: 0;
   }
 
-  .mark {
-    width: 56px;
-    height: 56px;
-    filter: drop-shadow(0 0 18px rgba(180, 60, 240, 0.45));
-  }
-
-  .title-block {
-    display: flex;
-    flex-direction: column;
-    gap: 0.3rem;
-  }
-
-  .logo {
-    font-size: 1.7rem;
-    font-weight: 800;
-    letter-spacing: -0.04em;
-    background: linear-gradient(135deg, #a22ff0, #e24dff);
-    -webkit-background-clip: text;
-    background-clip: text;
-    color: transparent;
+  /* Wordmark image is the eCoda lettering — no need for a separate text
+     "eCoda" alongside it. drop-shadow gives the same neon halo we used
+     to draw on the old raccoon avatar. */
+  .wordmark {
+    height: 64px;
+    width: auto;
+    display: block;
+    filter: drop-shadow(0 0 18px rgba(180, 60, 240, 0.35));
   }
 
   .badge {
