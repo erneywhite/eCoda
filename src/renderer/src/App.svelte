@@ -390,18 +390,30 @@
     openPlaylistId = id
     playlistLoading = true
     playlistError = ''
+    // Keep the fallback cover in a local so a successful load can still
+    // see it even after we clear the field. Big private playlists tend to
+    // come back without a header thumbnail in the InnerTube response, and
+    // the card-tile cover from the Library grid is a perfectly good
+    // substitute.
+    const fallbackTitle = playlistFallback?.title ?? ''
+    const fallbackThumb = playlistFallback?.thumbnail ?? ''
     playlistView = {
-      title: playlistFallback?.title ?? '',
+      title: fallbackTitle,
       subtitle: '',
-      thumbnail: playlistFallback?.thumbnail ?? '',
+      thumbnail: fallbackThumb,
       tracks: []
     }
     playlistFallback = null
     try {
-      playlistView = await window.api.metadata.playlist(id)
+      const data = await window.api.metadata.playlist(id)
+      playlistView = {
+        ...data,
+        title: data.title || fallbackTitle,
+        thumbnail: data.thumbnail || fallbackThumb
+      }
       // Once we have the track list, check which of them are already on
       // disk so the download badges render in the correct state.
-      if (playlistView) void refreshDownloadStatus(playlistView.tracks)
+      void refreshDownloadStatus(playlistView.tracks)
     } catch (e) {
       playlistError = e instanceof Error ? e.message : String(e)
     } finally {
