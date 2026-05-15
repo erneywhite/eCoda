@@ -1,13 +1,15 @@
 import { resolveAudio, type ResolvedAudio } from './ytdlp'
+import { extractStreamUrlViaPage } from './metadata'
 
-// Resolves audio stream URLs via yt-dlp, with two layers of optimisation:
+// Resolves audio stream URLs with a three-layer strategy:
 //   1. Per-track cache so a re-click is instant.
-//   2. Background prefetch queue — the renderer hands off "next N tracks"
-//      after canplay fires; this module quietly resolves them so the next
-//      click is also instant.
+//   2. Fast path: page-proxy /player call (~200-400ms, returns direct
+//      URL for logged-in Premium accounts).
+//   3. yt-dlp fallback (~4-5s) when the fast path doesn't return a URL
+//      we can use as-is (only signatureCipher, no streamingData, etc.).
 //
-// yt-dlp returns URLs with a short ~6h expiry; we use a conservative TTL
-// of a few minutes so the cache can never go stale within a session.
+// URLs expire after ~6h; we use a conservative TTL of a few minutes so
+// the cache can never go stale within a session.
 
 interface CacheEntry {
   result: ResolvedAudio
@@ -40,15 +42,29 @@ export async function resolveCached(videoId: string, browser: string): Promise<R
   }
 
   const t0 = Date.now()
-  const promise = resolveAudio(videoId, browser)
-    .then((result) => {
-      cache.set(videoId, { result, resolvedAt: Date.now() })
-      console.log(`[resolver] resolved ${videoId} in ${Date.now() - t0}ms`)
-      return result
-    })
-    .finally(() => {
-      inflight.delete(videoId)
-    })
+  const promise = (async () => {
+    // Try the page-proxy fast path first.
+    try {
+      const fast = await extractStreamUrlViaPage(videoId)
+      if (fast) {
+        cache.set(videoId, { result: fast, resolvedAt: Date.now() })
+        console.log(
+          `[resolver] FAST ${videoId} in ${Date.now() - t0}ms (${fast.format})`
+        )
+        return fast
+      }
+      console.log(`[resolver] fast path returned null for ${videoId}, falling back to yt-dlp`)
+    } catch (err) {
+      console.warn(`[resolver] fast path threw for ${videoId}:`, err)
+    }
+    // Fallback: yt-dlp.
+    const result = await resolveAudio(videoId, browser)
+    cache.set(videoId, { result, resolvedAt: Date.now() })
+    console.log(`[resolver] yt-dlp ${videoId} in ${Date.now() - t0}ms`)
+    return result
+  })().finally(() => {
+    inflight.delete(videoId)
+  })
   inflight.set(videoId, promise)
   return promise
 }

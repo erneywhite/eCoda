@@ -485,6 +485,59 @@ export async function getPlaylistTracks(id: string): Promise<{
   return { title, subtitle, thumbnail, tracks }
 }
 
+// ===========================================================================
+// STREAMING FAST PATH — /player through the page-proxy
+// ===========================================================================
+
+export interface ResolvedAudio {
+  title: string
+  format: string
+  streamUrl: string
+}
+
+// Calls /youtubei/v1/player through the authenticated page-proxy and pulls
+// the best audio-only adaptiveFormat. For logged-in Premium accounts the
+// server returns a direct `url` without signatureCipher, so we can just
+// return it — no decipher, no yt-dlp, no Deno. Resolves in ~200-400ms
+// once the proxy window is warm.
+//
+// Returns null when the response either has no streamingData or only
+// returns signatureCipher (would require player.js decipher) — caller
+// falls back to yt-dlp in that case.
+export async function extractStreamUrlViaPage(videoId: string): Promise<ResolvedAudio | null> {
+  const data = (await innertubeFetch('/player', { videoId })) as Record<string, unknown>
+  const streaming = data.streamingData as Record<string, unknown> | undefined
+  const details = data.videoDetails as Record<string, unknown> | undefined
+  if (!streaming) return null
+
+  type Fmt = {
+    itag?: number
+    mimeType?: string
+    bitrate?: number
+    audioQuality?: string
+    url?: string
+    signatureCipher?: string
+    cipher?: string
+  }
+  const adaptive = Array.isArray(streaming.adaptiveFormats)
+    ? (streaming.adaptiveFormats as Fmt[])
+    : []
+  const audio = adaptive.filter((f) => typeof f.mimeType === 'string' && f.mimeType.startsWith('audio/'))
+  if (audio.length === 0) return null
+
+  // Highest bitrate wins. Premium opens up the 256 kbps Opus tier (itag
+  // 251 / audioQuality AUDIO_QUALITY_HIGH); for non-Premium accounts the
+  // best is usually itag 140 (128 kbps AAC).
+  audio.sort((a, b) => (b.bitrate ?? 0) - (a.bitrate ?? 0))
+  const best = audio[0]
+  if (!best.url) return null
+
+  const mime = best.mimeType ?? ''
+  const ext = mime.split(';')[0].split('/')[1] || 'audio'
+  const title = typeof details?.title === 'string' ? details.title : ''
+  return { title, format: ext, streamUrl: best.url }
+}
+
 // NOTE: extracting playable stream URLs via youtubei.js does NOT work for
 // YouTube Music tracks in the current YouTube backend. Music tracks return
 // `streaming_data` as empty (0 audio formats) without a valid po_token
