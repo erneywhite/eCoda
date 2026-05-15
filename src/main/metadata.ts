@@ -2,9 +2,31 @@
 // kept as type-only (erased at compile time), and the module is loaded via
 // dynamic import() at runtime — Node handles the ESM/CJS boundary cleanly.
 import type { Innertube } from 'youtubei.js'
-import { existsSync, readFileSync } from 'node:fs'
+import { app } from 'electron'
+import { existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { getCookiesFilePath, getLocale } from './auth'
 import { harvestTokens, innertubeFetch } from './token-harvest'
+
+// One-shot diagnostic: dump up to 4 raw /browse pages per playlist to
+// disk so we can analyse mysterious count discrepancies. Files written
+// to <userData>/debug-playlist-<id>-pN.json, skipped on subsequent
+// opens. Removed once the bug is understood.
+function debugDumpPlaylistPage(playlistId: string, page: number, data: unknown): void {
+  try {
+    if (page > 4) return
+    const safeId = playlistId.replace(/[^\w-]/g, '_')
+    const path = join(
+      app.getPath('userData'),
+      `debug-playlist-${safeId}-p${page}.json`
+    )
+    if (existsSync(path)) return
+    writeFileSync(path, JSON.stringify(data, null, 2), 'utf8')
+    console.log(`[debug] dumped playlist response to ${path}`)
+  } catch (err) {
+    console.warn('[debug] dump failed:', err)
+  }
+}
 
 let innertube: Innertube | null = null
 
@@ -432,10 +454,19 @@ function findPlaylistContinuationToken(data: unknown): string | null {
     const t = findContinuationToken(shelf)
     if (t) return t
   }
-  // Continuation pages wrap their continued contents in
-  // musicPlaylistShelfContinuation; the next token lives there too.
+  // Older continuation response shape — contents wrapped in
+  // musicPlaylistShelfContinuation.
   for (const cont of findAll(data, 'musicPlaylistShelfContinuation')) {
     const t = findContinuationToken(cont)
+    if (t) return t
+  }
+  // Modern continuation response shape: the rows live in
+  // appendContinuationItemsAction.continuationItems, and the "load more"
+  // token sits as the LAST entry in that array (a continuationItemRenderer).
+  // We must look inside that array for the token, otherwise we stop
+  // after one continuation page and big playlists cap at ~200.
+  for (const arr of findAll(data, 'continuationItems')) {
+    const t = findContinuationToken(arr)
     if (t) return t
   }
   return null
@@ -535,6 +566,7 @@ export async function getPlaylistTracks(id: string): Promise<{
   // which works as-is.
   const browseId = id.startsWith('VL') || id.startsWith('MPRE') ? id : `VL${id}`
   const data = await innertubeFetch('/browse', { browseId })
+  debugDumpPlaylistPage(id, 1, data)
 
   // Header may live as musicDetailHeaderRenderer (old) or
   // musicResponsiveHeaderRenderer (newer). Find whichever shows up.
@@ -587,6 +619,7 @@ export async function getPlaylistTracks(id: string): Promise<{
     const before = tracks.length
     try {
       const next = await innertubeFetch('/browse', { continuation: nextToken })
+      debugDumpPlaylistPage(id, page + 1, next)
       parseTrackRowsInto(next, seenTrackIds, tracks)
       const added = tracks.length - before
       const newToken = findPlaylistContinuationToken(next)
