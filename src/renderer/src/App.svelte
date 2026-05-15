@@ -872,6 +872,20 @@
                 </button>
               {/if}
             </section>
+
+            <section class="settings-card">
+              <h4>Понравилась программа?</h4>
+              <p class="settings-hint">
+                eCoda полностью бесплатна и open-source. Если хочешь поддержать
+                разработку — можно угостить кофе.
+              </p>
+              <button
+                class="settings-btn donate"
+                onclick={() => window.open('https://dalink.to/toristarm', '_blank')}
+              >
+                ☕ Купить мне кофе
+              </button>
+            </section>
           </div>
         {:else if view === 'library'}
           <!-- Phase B native: page-proxy signs InnerTube calls so we get
@@ -1301,6 +1315,20 @@
     background: rgba(255, 60, 120, 0.12);
     border-color: rgba(255, 107, 157, 0.8);
     color: #ffffff;
+  }
+
+  /* "Buy me a coffee" — warm-yellow gradient so it stands out as a
+     thank-you button rather than a normal action. */
+  .settings-btn.donate {
+    border: none;
+    background: linear-gradient(135deg, #ffb347, #ffd33d);
+    color: #1a1208;
+    font-weight: 700;
+  }
+
+  .settings-btn.donate:hover:not(:disabled) {
+    background: linear-gradient(135deg, #ffc366, #ffdc55);
+    color: #1a1208;
   }
 
   .view-wrap {
