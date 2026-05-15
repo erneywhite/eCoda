@@ -401,17 +401,22 @@ app.whenReady().then(async () => {
   )
   ipcMain.handle('downloads:list', () => listDownloadedTracks())
   // Downloads a single track. Renderer passes the metadata it already has
-  // so we don't fetch it twice.
-  ipcMain.handle('downloads:track', async (_event, info: TrackInfo) => {
+  // so we don't fetch it twice. Live progress (0–100) is forwarded as
+  // downloads:track-progress events keyed by videoId, so the UI can show
+  // a real percentage ring instead of a generic spinner.
+  ipcMain.handle('downloads:track', async (event, info: TrackInfo) => {
     const browser = await getBrowser()
     if (!browser) throw new Error('No browser connected')
     const arg = ytdlpBrowserArg(browser)
     if (!arg) throw new Error('Cookies unavailable')
-    return downloadOne(info, arg)
+    return downloadOne(info, arg, (percent) => {
+      event.sender.send('downloads:track-progress', { videoId: info.videoId, percent })
+    })
   })
   // Downloads a whole playlist sequentially. Progress events are streamed
-  // back to the renderer so it can show "12 / 95". Returns a summary of
-  // what worked and what failed so the UI can offer Retry-failed.
+  // back to the renderer so it can show "12 / 95" AND a live percentage on
+  // the track that's currently being fetched. Returns a summary of what
+  // worked and what failed so the UI can offer Retry-failed.
   ipcMain.handle('downloads:playlist', async (event, tracks: TrackInfo[]) => {
     const browser = await getBrowser()
     if (!browser) throw new Error('No browser connected')
@@ -429,6 +434,9 @@ app.whenReady().then(async () => {
           errored,
           errorReason
         })
+      },
+      (videoId, percent) => {
+        event.sender.send('downloads:track-progress', { videoId, percent })
       }
     )
     return summary

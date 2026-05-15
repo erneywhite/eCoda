@@ -401,6 +401,59 @@ function fixedColText(item: Record<string, unknown>, idx: number): string {
   return runsText((inner as Record<string, unknown>).text)
 }
 
+// Walks a /browse response looking for the "next page" continuation token.
+// YouTube has two shapes for this — newer continuationItemRenderer and the
+// older nextContinuationData — and a single response can carry either.
+// Returns the token, or null when there are no more pages.
+function findContinuationToken(data: unknown): string | null {
+  for (const r of findAll(data, 'continuationItemRenderer')) {
+    const ep = r.continuationEndpoint as Record<string, unknown> | undefined
+    const cmd = ep?.continuationCommand as Record<string, unknown> | undefined
+    const token = cmd?.token
+    if (typeof token === 'string' && token) return token
+  }
+  for (const r of findAll(data, 'nextContinuationData')) {
+    const token = r.continuation
+    if (typeof token === 'string' && token) return token
+  }
+  return null
+}
+
+// Walks a response subtree, pulls every track row out, and appends them
+// to `out` (deduped via the shared `seen` set). Used for both the initial
+// /browse VL<id> response AND every continuation page that follows.
+function parseTrackRowsInto(
+  data: unknown,
+  seen: Set<string>,
+  out: SearchResult[]
+): void {
+  for (const item of findAll(data, 'musicResponsiveListItemRenderer')) {
+    const flexCols = item.flexColumns as Array<Record<string, unknown>> | undefined
+    const firstCol = flexCols?.[0]
+    const firstColRenderer = (firstCol as Record<string, unknown>)
+      ?.musicResponsiveListItemFlexColumnRenderer
+    const titleRuns = (firstColRenderer as Record<string, unknown>)?.text as
+      | Record<string, unknown>
+      | undefined
+    const navEndpoint = (titleRuns?.runs as Array<Record<string, unknown>> | undefined)?.[0]
+      ?.navigationEndpoint as Record<string, unknown> | undefined
+    const watch = navEndpoint?.watchEndpoint as Record<string, unknown> | undefined
+    const videoId = typeof watch?.videoId === 'string' ? watch.videoId : ''
+    if (!videoId || !/^[\w-]{11}$/.test(videoId)) continue
+    if (seen.has(videoId)) continue
+    seen.add(videoId)
+
+    const trackTitle = flexColText(item, 0)
+    if (!trackTitle) continue
+    const col1 = flexColText(item, 1)
+    const artist = col1.split(/\s*[•·]\s*/)[0]
+    const duration = fixedColText(item, 0) || flexColText(item, 2)
+    const thumb = findFirstThumbnail(item)
+
+    out.push({ id: videoId, title: trackTitle, artist, duration, thumbnail: thumb })
+  }
+}
+
 export async function getPlaylistTracks(id: string): Promise<{
   title: string
   subtitle: string
@@ -443,44 +496,33 @@ export async function getPlaylistTracks(id: string): Promise<{
 
   const tracks: SearchResult[] = []
   const seenTrackIds = new Set<string>()
-  for (const item of findAll(data, 'musicResponsiveListItemRenderer')) {
-    // Track item: has a navigationEndpoint with watchEndpoint.videoId.
-    // Filter out non-track rows (artists, related, etc.) by requiring
-    // a videoId.
-    const flexCols = item.flexColumns as Array<Record<string, unknown>> | undefined
-    const firstCol = flexCols?.[0]
-    const firstColRenderer = (firstCol as Record<string, unknown>)
-      ?.musicResponsiveListItemFlexColumnRenderer
-    const titleRuns = (firstColRenderer as Record<string, unknown>)?.text as
-      | Record<string, unknown>
-      | undefined
-    const navEndpoint = (titleRuns?.runs as Array<Record<string, unknown>> | undefined)?.[0]
-      ?.navigationEndpoint as Record<string, unknown> | undefined
-    const watch = navEndpoint?.watchEndpoint as Record<string, unknown> | undefined
-    const videoId = typeof watch?.videoId === 'string' ? watch.videoId : ''
-    if (!videoId || !/^[\w-]{11}$/.test(videoId)) continue
-    if (seenTrackIds.has(videoId)) continue
-    seenTrackIds.add(videoId)
+  parseTrackRowsInto(data, seenTrackIds, tracks)
 
-    const trackTitle = flexColText(item, 0)
-    if (!trackTitle) continue
-    // flex column 1 typically holds "Artist • Album" — take everything
-    // before the first bullet as the artist.
-    const col1 = flexColText(item, 1)
-    const artist = col1.split(/\s*[•·]\s*/)[0]
-    // duration in fixedColumns[0] (some shapes) or flexColumns[2] (others)
-    const duration = fixedColText(item, 0) || flexColText(item, 2)
-    // Thumbnail nesting varies per shelf type. Just walk the item subtree
-    // and use the first thumbnails[] we find.
-    const thumb = findFirstThumbnail(item)
-
-    tracks.push({
-      id: videoId,
-      title: trackTitle,
-      artist,
-      duration,
-      thumbnail: thumb
-    })
+  // YT's /browse returns at most ~100 tracks per page; the rest live behind
+  // continuation tokens. Follow them until we get a page with no further
+  // token. The MAX_PAGES cap is a safety net — most "long" playlists are
+  // under 1000 tracks, and 50 pages × 100 = 5000 is a generous ceiling.
+  const MAX_PAGES = 50
+  let nextToken = findContinuationToken(data)
+  let page = 0
+  while (nextToken && page < MAX_PAGES) {
+    page++
+    const before = tracks.length
+    try {
+      const next = await innertubeFetch('/browse', { continuation: nextToken })
+      parseTrackRowsInto(next, seenTrackIds, tracks)
+      const newToken = findContinuationToken(next)
+      // Belt-and-suspenders: if a page brings nothing new AND the token is
+      // unchanged, bail out so we don't loop forever on a malformed response.
+      if (tracks.length === before && newToken === nextToken) break
+      nextToken = newToken
+    } catch (err) {
+      console.warn(`[getPlaylistTracks] continuation page ${page} failed:`, err)
+      break
+    }
+  }
+  if (page > 0) {
+    console.log(`[getPlaylistTracks] ${id}: fetched ${tracks.length} tracks across ${page + 1} pages`)
   }
 
   // Public playlists from Home (RDCLAK… ids) sometimes come back through

@@ -423,6 +423,16 @@
   // Per-track error reasons captured during a bulk run so the playlist
   // rows can show a tooltip like "Sign in to confirm" next to the ✗ chip.
   let failedReasons = $state<Map<string, string>>(new Map())
+  // Live download percentage (0–100) keyed by videoId. Populated from the
+  // downloads:track-progress IPC stream; cleared once the track flips to
+  // downloaded or fails. Drives the ring on each download chip.
+  let downloadPercent = $state<Map<string, number>>(new Map())
+
+  function handleTrackProgress(p: { videoId: string; percent: number }): void {
+    const next = new Map(downloadPercent)
+    next.set(p.videoId, p.percent)
+    downloadPercent = next
+  }
 
   function addDownloaded(id: string): void {
     const s = new Set(downloadedIds)
@@ -543,7 +553,6 @@
   function handleDownloadProgress(p: DownloadProgress): void {
     if (!p.errored) {
       addDownloaded(p.videoId)
-      // Clear any stale failure for this id — it just succeeded.
       if (failedReasons.has(p.videoId)) {
         const next = new Map(failedReasons)
         next.delete(p.videoId)
@@ -553,6 +562,13 @@
       const next = new Map(failedReasons)
       next.set(p.videoId, p.errorReason)
       failedReasons = next
+    }
+    // Whichever way it ended, this track is no longer in flight — drop
+    // its live-percent entry so the ring goes away.
+    if (downloadPercent.has(p.videoId)) {
+      const next = new Map(downloadPercent)
+      next.delete(p.videoId)
+      downloadPercent = next
     }
     if (bulkProgress) bulkProgress = { done: p.done, total: p.total, currentTitle: p.title }
   }
@@ -796,6 +812,9 @@
     // Subscribe to per-track download progress; live updates for the bulk
     // progress UI + flipping each row's badge as it completes.
     const unsub = window.api.downloads.onProgress(handleDownloadProgress)
+    // Live per-track percentage stream — drives the filling ring on each
+    // download chip while bytes are being fetched.
+    const unsubPct = window.api.downloads.onTrackProgress(handleTrackProgress)
     // Auto-updater event stream — drives the "Обновления" Settings card.
     const unsubUpd = window.api.updater.onEvent(handleUpdaterEvent)
     // Silent reconnect just refreshed cookies in main — drop the
@@ -870,6 +889,7 @@
 
     return () => {
       unsub()
+      unsubPct()
       unsubUpd()
       unsubAuth()
       window.removeEventListener('mouseup', onMouse)
@@ -1711,7 +1731,32 @@
                     {#if downloadedIds.has(r.id)}
                       ✓
                     {:else if downloadingIds.has(r.id)}
-                      ⋯
+                      <!-- Filling progress ring driven by yt-dlp's live
+                           percent. Background arc + foreground arc using
+                           the stroke-dasharray-on-r≈15.9 trick (full
+                           circumference ≈ 100, so the dasharray value
+                           equals the percent). -->
+                      <svg class="dl-ring" viewBox="0 0 36 36" width="18" height="18">
+                        <circle
+                          cx="18"
+                          cy="18"
+                          r="15.9"
+                          fill="none"
+                          stroke="rgba(255,255,255,0.18)"
+                          stroke-width="3"
+                        />
+                        <circle
+                          cx="18"
+                          cy="18"
+                          r="15.9"
+                          fill="none"
+                          stroke="currentColor"
+                          stroke-width="3"
+                          stroke-dasharray="{downloadPercent.get(r.id) ?? 0}, 100"
+                          transform="rotate(-90 18 18)"
+                          stroke-linecap="round"
+                        />
+                      </svg>
                     {:else}
                       ↓
                     {/if}
@@ -2157,7 +2202,29 @@
                     : t('track.dl.idle')}
               >
                 {#if downloadingIds.has(playing.id)}
-                  <span class="spinner spinner-inline"></span>
+                  <!-- Same filling ring as the playlist row chip uses,
+                       driven by the live percent from downloads:track-progress. -->
+                  <svg class="dl-ring" viewBox="0 0 36 36" width="18" height="18">
+                    <circle
+                      cx="18"
+                      cy="18"
+                      r="15.9"
+                      fill="none"
+                      stroke="rgba(255,255,255,0.18)"
+                      stroke-width="3"
+                    />
+                    <circle
+                      cx="18"
+                      cy="18"
+                      r="15.9"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="3"
+                      stroke-dasharray="{downloadPercent.get(playing.id) ?? 0}, 100"
+                      transform="rotate(-90 18 18)"
+                      stroke-linecap="round"
+                    />
+                  </svg>
                 {:else if downloadedIds.has(playing.id)}
                   <!-- ✓ filled checkmark -->
                   <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
@@ -2314,7 +2381,10 @@
     display: flex;
     align-items: center;
     gap: 1rem;
-    padding: 1.2rem 2rem;
+    /* Asymmetric padding: match .layout — header should sit above the
+       sidebar with the same 1rem left gutter, while the right side keeps
+       the original 2rem so the back/forward chips don't hug the window. */
+    padding: 1.2rem 2rem 1.2rem 1rem;
     flex-shrink: 0;
   }
 
@@ -2421,11 +2491,16 @@
 
   .layout {
     display: grid;
-    grid-template-columns: 160px 1fr;
+    /* 200px wide enough to show "Понравившаяся музыка" without an
+       ellipsis and to keep pinned playlist names mostly readable.
+       Left page padding is reduced from 2rem → 1rem to give the
+       sidebar that extra space rather than leaving an empty gutter
+       between window edge and the card. */
+    grid-template-columns: 200px 1fr;
     flex: 1;
     min-height: 0;
     gap: 1rem;
-    padding: 0 2rem;
+    padding: 0 2rem 0 1rem;
   }
 
   .sidebar {
@@ -2615,10 +2690,14 @@
   }
 
   /* Big circular Play CTA — same gradient as the player bar's play
-     button so the visual language is consistent. */
+     button so the visual language is consistent. padding:0 overrides the
+     global `button { padding: ... }` that would otherwise inflate the
+     real box past the 52px we ask for and leave the SVG floating in a
+     huge transparent margin. */
   .play-big {
-    width: 52px;
-    height: 52px;
+    width: 56px;
+    height: 56px;
+    padding: 0;
     border-radius: 50%;
     border: none;
     background: linear-gradient(135deg, var(--accent), var(--accent-2));
@@ -2627,6 +2706,7 @@
     display: flex;
     align-items: center;
     justify-content: center;
+    flex: 0 0 auto;
     box-shadow: 0 8px 22px rgba(var(--accent-rgb), 0.35);
     transition: transform 0.12s ease, filter 0.12s ease, box-shadow 0.12s ease;
   }
@@ -3319,7 +3399,19 @@
 
   .dl-btn.busy {
     cursor: default;
-    opacity: 0.7;
+    color: var(--accent);
+    opacity: 1;
+  }
+
+  /* Filling progress ring shown inside the download chip while bytes are
+     in flight. `stroke-dasharray="N, 100"` with circumference ≈ 100 maps
+     the percentage directly into the dash length; the transition softens
+     the jumps yt-dlp emits (it prints whole percent ticks). */
+  .dl-ring {
+    display: block;
+  }
+  .dl-ring circle:nth-child(2) {
+    transition: stroke-dasharray 0.2s ease-out;
   }
 
   .dl-bulk {

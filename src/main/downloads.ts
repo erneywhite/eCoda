@@ -1,13 +1,66 @@
 import { app } from 'electron'
 import { join, dirname, delimiter } from 'node:path'
 import { existsSync, mkdirSync, readFileSync, writeFileSync, unlinkSync, readdirSync } from 'node:fs'
-import { execFile } from 'node:child_process'
-import { promisify } from 'node:util'
+import { spawn } from 'node:child_process'
 import ytdlpPath from '../../resources/yt-dlp.exe?asset'
 import denoPath from '../../resources/deno.exe?asset'
 import { getAudioQuality, type AudioQuality } from './auth'
 
-const run = promisify(execFile)
+// Wraps yt-dlp in a streaming spawn so the caller can react to live
+// progress lines. We add --newline so yt-dlp emits one progress update
+// per line (instead of \r-overwriting), which makes parsing trivial.
+// Resolves cleanly when the process exits 0; rejects with an Error
+// carrying stderr/stdout when it exits non-zero, matching the shape
+// summarizeDownloadError() expects.
+async function runYtdlp(
+  args: string[],
+  onProgress?: (percent: number) => void
+): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    const proc = spawn(ytdlpPath, args, { env: ytdlpEnv })
+    let stderr = ''
+    let stdout = ''
+    let lastPct = -1
+
+    proc.stdout.on('data', (chunk: Buffer) => {
+      const text = chunk.toString('utf8')
+      stdout += text
+      if (!onProgress) return
+      // yt-dlp prints e.g. `[download]  42.5% of  3.45MiB at 1.20MiB/s ETA 00:02`.
+      // Multiple progress lines can land in one chunk if the OS pipe
+      // buffered things together — pick the last percentage seen.
+      let m: RegExpExecArray | null
+      const re = /\[download\]\s+(\d+(?:\.\d+)?)%/g
+      let captured: number | null = null
+      while ((m = re.exec(text)) !== null) captured = parseFloat(m[1])
+      if (captured !== null && captured !== lastPct) {
+        lastPct = captured
+        try {
+          onProgress(captured)
+        } catch {
+          // ignore — progress reporting must not abort the download
+        }
+      }
+    })
+    proc.stderr.on('data', (chunk: Buffer) => {
+      stderr += chunk.toString('utf8')
+    })
+    proc.on('error', (err) => reject(err))
+    proc.on('close', (code) => {
+      if (code === 0) {
+        resolve()
+      } else {
+        const err = new Error(`yt-dlp exited with code ${code}`) as Error & {
+          stderr: string
+          stdout: string
+        }
+        err.stderr = stderr
+        err.stdout = stdout
+        reject(err)
+      }
+    })
+  })
+}
 
 // Cache layout:
 //   <userData>/offline/<videoId>.<ext>     — actual audio files
@@ -493,7 +546,16 @@ function formatSelectorFor(q: AudioQuality): string {
 // resulting extension depends on yt-dlp's format choice (typically
 // .webm Opus for Premium "best", .m4a AAC for "medium", .webm Opus for
 // "low"). Returns the DownloadedTrack entry added to the manifest.
-export async function downloadOne(info: TrackInfo, browser: string): Promise<DownloadedTrack> {
+//
+// onProgress, when supplied, is called every time yt-dlp prints a new
+// percentage line during the actual byte transfer (0–100). The caller
+// uses it to drive a progress ring in the UI; we never read the value
+// back, only forward it.
+export async function downloadOne(
+  info: TrackInfo,
+  browser: string,
+  onProgress?: (percent: number) => void
+): Promise<DownloadedTrack> {
   const cacheDir = getCacheDir()
   // Already downloaded? short-circuit — we don't re-download to a higher
   // quality if the user bumps the preset later. They can delete + redownload
@@ -506,21 +568,24 @@ export async function downloadOne(info: TrackInfo, browser: string): Promise<Dow
   const quality = await getAudioQuality()
   const formatSelector = formatSelectorFor(quality)
   const outTemplate = join(cacheDir, `${info.videoId}.%(ext)s`)
-  await run(
-    ytdlpPath,
+  await runYtdlp(
     [
       '-f',
       formatSelector,
       '--no-playlist',
       '--no-warnings',
-      '--no-progress',
+      // --newline ensures yt-dlp prints each progress update on its own
+      // line instead of \r-overwriting, so our line-oriented regex
+      // catches every percentage tick. --progress is the default, so no
+      // need to add it; we just removed the old --no-progress.
+      '--newline',
       '--cookies-from-browser',
       browser,
       '-o',
       outTemplate,
       `https://www.youtube.com/watch?v=${info.videoId}`
     ],
-    { maxBuffer: 50 * 1024 * 1024, env: ytdlpEnv }
+    onProgress
   )
 
   // yt-dlp picked the extension itself — find the file it wrote.
@@ -599,7 +664,8 @@ export async function downloadMany(
     current: TrackInfo,
     errored: boolean,
     errorReason?: string
-  ) => void
+  ) => void,
+  onTrackPercent?: (videoId: string, percent: number) => void
 ): Promise<DownloadManySummary> {
   const total = tracks.length
   let done = 0
@@ -610,7 +676,7 @@ export async function downloadMany(
     let errored = false
     let reason: string | undefined
     try {
-      await downloadOne(t, browser)
+      await downloadOne(t, browser, (pct) => onTrackPercent?.(t.videoId, pct))
       ok++
     } catch (err) {
       errored = true

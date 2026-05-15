@@ -64,6 +64,15 @@ const api = {
         )
       ipcRenderer.on('downloads:progress', wrapped)
       return () => ipcRenderer.removeListener('downloads:progress', wrapped)
+    },
+    // Live per-track progress (0–100) emitted as yt-dlp prints each
+    // percentage tick. UI uses it to render a filling ring on the
+    // track's download chip.
+    onTrackProgress: (cb: (p: { videoId: string; percent: number }) => void) => {
+      const wrapped = (_event: unknown, payload: unknown) =>
+        cb(payload as { videoId: string; percent: number })
+      ipcRenderer.on('downloads:track-progress', wrapped)
+      return () => ipcRenderer.removeListener('downloads:track-progress', wrapped)
     }
   },
   app: {

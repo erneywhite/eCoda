@@ -168,6 +168,7 @@ export interface EcodaApi {
     verify: () => Promise<CacheVerifyResult>
     asPlaylist: () => Promise<DownloadsPlaylistView>
     onProgress: (cb: (p: DownloadProgress) => void) => () => void
+    onTrackProgress: (cb: (p: { videoId: string; percent: number }) => void) => () => void
   }
   app: {
     info: () => Promise<{
