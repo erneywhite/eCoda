@@ -159,8 +159,11 @@ export function ytdlpBrowserArg(id: string): string | null {
   return profile ? `firefox:${profile}` : null
 }
 
+export type DefaultTab = 'home' | 'search' | 'library'
+
 interface Config {
   browser?: string
+  defaultTab?: DefaultTab
 }
 
 function configPath(): string {
@@ -198,4 +201,14 @@ export async function disconnect(): Promise<void> {
   const config = await readConfig()
   delete config.browser
   await writeConfig(config)
+}
+
+// Preference for which view eCoda opens on startup. 'home' by default
+// when nothing is set yet.
+export async function getDefaultTab(): Promise<DefaultTab> {
+  return (await readConfig()).defaultTab ?? 'home'
+}
+
+export async function setDefaultTab(tab: DefaultTab): Promise<void> {
+  await writeConfig({ ...(await readConfig()), defaultTab: tab })
 }

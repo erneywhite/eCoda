@@ -43,6 +43,11 @@ const api = {
   app: {
     info: () => ipcRenderer.invoke('app:info')
   },
+  settings: {
+    getDefaultTab: () => ipcRenderer.invoke('settings:getDefaultTab'),
+    setDefaultTab: (tab: 'home' | 'search' | 'library') =>
+      ipcRenderer.invoke('settings:setDefaultTab', tab)
+  },
   debug: {
     harvestTokens: () => ipcRenderer.invoke('debug:harvest-tokens'),
     browseViaPage: (browseId: string) => ipcRenderer.invoke('debug:browse-via-page', browseId),

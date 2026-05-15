@@ -107,10 +107,17 @@
   )
   let cacheStats = $state<{ tracks: number; bytes: number } | null>(null)
   let clearingCache = $state(false)
+  let defaultTab = $state<'home' | 'search' | 'library'>('home')
 
   async function loadSettings(): Promise<void> {
     appInfo = await window.api.app.info()
     cacheStats = await window.api.downloads.stats()
+    defaultTab = await window.api.settings.getDefaultTab()
+  }
+
+  async function changeDefaultTab(tab: 'home' | 'search' | 'library'): Promise<void> {
+    defaultTab = tab
+    await window.api.settings.setDefaultTab(tab)
   }
 
   function fmtBytes(n: number): string {
@@ -301,7 +308,17 @@
   onMount(async () => {
     browsers = await window.api.auth.browsers()
     connectedBrowser = await window.api.auth.status()
-    if (connectedBrowser) void loadHome()
+    if (connectedBrowser) {
+      // Honour the user's preferred startup tab.
+      const initial = await window.api.settings.getDefaultTab()
+      defaultTab = initial
+      // Reset history to start from the chosen view so back-button
+      // doesn't reveal a stale 'home' entry the user never visited.
+      historyStack = [{ kind: initial }]
+      historyIndex = 0
+      view = initial
+      applyEntry({ kind: initial })
+    }
     // Subscribe to per-track download progress; live updates for the bulk
     // progress UI + flipping each row's badge as it completes.
     const unsub = window.api.downloads.onProgress(handleDownloadProgress)
@@ -821,6 +838,38 @@
             </section>
 
             <section class="settings-card">
+              <h4>Поведение</h4>
+              <p class="settings-line">Открывать при запуске:</p>
+              <div class="seg">
+                <button
+                  class="seg-btn"
+                  class:active={defaultTab === 'home'}
+                  onclick={() => changeDefaultTab('home')}
+                >
+                  🏠 Главная
+                </button>
+                <button
+                  class="seg-btn"
+                  class:active={defaultTab === 'search'}
+                  onclick={() => changeDefaultTab('search')}
+                >
+                  🔍 Поиск
+                </button>
+                <button
+                  class="seg-btn"
+                  class:active={defaultTab === 'library'}
+                  onclick={() => changeDefaultTab('library')}
+                >
+                  📚 Библиотека
+                </button>
+              </div>
+              <p class="settings-hint">
+                Эта вкладка откроется сразу после подключения аккаунта при следующем
+                запуске.
+              </p>
+            </section>
+
+            <section class="settings-card">
               <h4>Оффлайн-кеш</h4>
               {#if cacheStats}
                 <p class="settings-line">
@@ -1187,7 +1236,7 @@
 
   .layout {
     display: grid;
-    grid-template-columns: 200px 1fr;
+    grid-template-columns: 160px 1fr;
     flex: 1;
     min-height: 0;
     gap: 1rem;
@@ -1316,6 +1365,38 @@
 
   /* "Buy me a coffee" — warm-yellow gradient so it stands out as a
      thank-you button rather than a normal action. */
+  /* Segmented control for "default tab" pref — three pill buttons that
+     read as one connected group. Active state borrows the same purple
+     glow we use for the active sidebar item. */
+  .seg {
+    display: flex;
+    gap: 0.3rem;
+    flex-wrap: wrap;
+  }
+
+  .seg-btn {
+    padding: 0.45rem 0.9rem;
+    border: 1px solid #34284e;
+    border-radius: 999px;
+    background: transparent;
+    color: #b9acd6;
+    font-size: 0.82rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+  }
+
+  .seg-btn:hover:not(.active) {
+    background: rgba(168, 85, 247, 0.1);
+    color: #ffffff;
+  }
+
+  .seg-btn.active {
+    background: rgba(168, 85, 247, 0.22);
+    border-color: rgba(168, 85, 247, 0.55);
+    color: #ffffff;
+  }
+
   .settings-btn.donate {
     border: none;
     background: linear-gradient(135deg, #ffb347, #ffd33d);

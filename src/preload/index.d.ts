@@ -96,6 +96,10 @@ export interface EcodaApi {
   app: {
     info: () => Promise<{ name: string; version: string; userData: string; repoUrl: string }>
   }
+  settings: {
+    getDefaultTab: () => Promise<'home' | 'search' | 'library'>
+    setDefaultTab: (tab: 'home' | 'search' | 'library') => Promise<void>
+  }
   debug: {
     harvestTokens: () => Promise<unknown>
     browseViaPage: (browseId: string) => Promise<unknown>

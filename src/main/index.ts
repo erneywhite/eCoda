@@ -3,7 +3,16 @@ import { join } from 'path'
 import { pathToFileURL } from 'node:url'
 import icon from '../../resources/icon.png?asset'
 import { verifyBrowserLogin } from './ytdlp'
-import { detectBrowsers, getBrowser, setBrowser, disconnect, ytdlpBrowserArg } from './auth'
+import {
+  detectBrowsers,
+  getBrowser,
+  setBrowser,
+  disconnect,
+  ytdlpBrowserArg,
+  getDefaultTab,
+  setDefaultTab,
+  type DefaultTab
+} from './auth'
 import {
   searchSongs,
   getHomeSections,
@@ -287,6 +296,8 @@ app.whenReady().then(() => {
     userData: app.getPath('userData'),
     repoUrl: 'https://github.com/erneywhite/eCoda'
   }))
+  ipcMain.handle('settings:getDefaultTab', () => getDefaultTab())
+  ipcMain.handle('settings:setDefaultTab', (_event, tab: DefaultTab) => setDefaultTab(tab))
 
   createWindow()
 
