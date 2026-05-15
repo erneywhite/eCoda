@@ -17,6 +17,7 @@ import {
   downloadMany,
   deleteDownloadedTrack,
   getCachedFilePath,
+  getCachedThumbPath,
   getDownloadedStatus,
   listDownloadedTracks,
   type TrackInfo
@@ -92,21 +93,26 @@ function createWindow(): void {
 }
 
 app.whenReady().then(() => {
-  // Wire up media:// — translates media://x/<videoId> to the file on disk
-  // and lets Electron's net module stream it (Range requests, content-type
-  // sniffing, the lot). HTML5 <audio> works against this URL identically
-  // to a regular https stream.
+  // Wire up media:// — translates media://<kind>/<videoId> to the file
+  // on disk and lets Electron's net module stream it (Range requests,
+  // content-type sniffing, the lot). HTML5 <audio>/<img>/background-image
+  // talk to it identically to a regular https stream.
   //
-  // Standard-scheme URLs lowercase their host (per URL spec), and YouTube
-  // video IDs are case-sensitive, so the id MUST live in the path (which
-  // preserves case), not the host. The host segment "x" is a throwaway
-  // placeholder.
+  //   media://audio/<videoId>  → cached audio file
+  //   media://thumb/<videoId>  → cached cover thumbnail
+  //
+  // Standard-scheme URLs lowercase their host (per URL spec). The kind
+  // labels are all-lowercase so that's fine; the videoId lives in the
+  // path which preserves case.
   protocol.handle('media', (request) => {
     const u = new URL(request.url)
+    const kind = u.hostname
     const videoId = u.pathname.replace(/^\//, '').trim()
-    const path = getCachedFilePath(videoId)
+    let path: string | null = null
+    if (kind === 'audio') path = getCachedFilePath(videoId)
+    else if (kind === 'thumb') path = getCachedThumbPath(videoId)
     if (!path) {
-      console.warn(`[media://] not found for ${JSON.stringify(videoId)} (url=${request.url})`)
+      console.warn(`[media://] not found ${kind}/${videoId} (url=${request.url})`)
       return new Response('not found', { status: 404 })
     }
     return net.fetch(pathToFileURL(path).toString())

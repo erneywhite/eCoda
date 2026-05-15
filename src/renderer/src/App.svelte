@@ -19,7 +19,66 @@
   let connectError = $state('')
 
   // ---- navigation -----------------------------------------------------------
+  // Browser-style back/forward over a history stack of HistoryEntry. The
+  // `view` variable is derived from the current entry but we keep it as
+  // a $state for the existing template to read.
+  type HistoryEntry =
+    | { kind: 'home' }
+    | { kind: 'search' }
+    | { kind: 'library' }
+    | { kind: 'playlist'; id: string }
+
   let view = $state<View>('home')
+  let historyStack = $state<HistoryEntry[]>([{ kind: 'home' }])
+  let historyIndex = $state(0)
+
+  const canBack = $derived(historyIndex > 0)
+  const canForward = $derived(historyIndex < historyStack.length - 1)
+
+  // Push a new entry. Discards any forward history (matching browser
+  // semantics — once you navigate from a back-stack point, the forward
+  // trail is gone). No-op if the entry is identical to the current one
+  // so re-clicking the active sidebar tab doesn't pile up dupes.
+  function navigate(entry: HistoryEntry): void {
+    const current = historyStack[historyIndex]
+    if (
+      current &&
+      current.kind === entry.kind &&
+      (entry.kind !== 'playlist' || current.kind === 'playlist' && current.id === entry.id)
+    ) {
+      applyEntry(entry)
+      return
+    }
+    historyStack = [...historyStack.slice(0, historyIndex + 1), entry]
+    historyIndex = historyStack.length - 1
+    applyEntry(entry)
+  }
+
+  function goBack(): void {
+    if (!canBack) return
+    historyIndex--
+    applyEntry(historyStack[historyIndex])
+  }
+
+  function goForward(): void {
+    if (!canForward) return
+    historyIndex++
+    applyEntry(historyStack[historyIndex])
+  }
+
+  function applyEntry(entry: HistoryEntry): void {
+    view = entry.kind
+    if (entry.kind === 'home') {
+      if (!homeSections && !homeLoading) void loadHome()
+    } else if (entry.kind === 'library') {
+      if (!libraryPlaylists && !libraryLoading) void loadLibraryData()
+    } else if (entry.kind === 'playlist') {
+      // If we're returning to a playlist we already loaded, the existing
+      // playlistView is what we want. Only re-fetch when navigating to a
+      // different id.
+      if (openPlaylistId !== entry.id) void loadPlaylistData(entry.id)
+    }
+  }
 
   // ---- home view ------------------------------------------------------------
   let homeSections = $state<HomeSection[] | null>(null)
@@ -70,6 +129,13 @@
     const s = new Set(downloadedIds)
     for (const id of got) s.add(id)
     downloadedIds = s
+  }
+
+  // For a downloaded track we prefer the locally cached thumbnail so the UI
+  // stops looking patchy when Google's CDN throttles us. For not-yet-
+  // downloaded tracks we fall back to the original URL from InnerTube.
+  function thumbnailFor(id: string, fallback: string): string {
+    return downloadedIds.has(id) ? `media://thumb/${id}` : fallback
   }
 
   async function toggleTrackDownload(track: SearchResult): Promise<void> {
@@ -230,11 +296,14 @@
     playStatus = 'idle'
     libraryPlaylists = null
     libraryError = ''
+    historyStack = [{ kind: 'home' }]
+    historyIndex = 0
     view = 'home'
   }
 
-  async function openLibrary(): Promise<void> {
-    view = 'library'
+  // Library: data load is separate from view switching so history nav can
+  // call it without re-pushing the entry.
+  async function loadLibraryData(): Promise<void> {
     if (libraryPlaylists || libraryLoading) return
     libraryError = ''
     libraryLoading = true
@@ -245,6 +314,10 @@
     } finally {
       libraryLoading = false
     }
+  }
+
+  function openLibrary(): void {
+    navigate({ kind: 'library' })
   }
 
   function browserName(id: string | null): string {
@@ -292,7 +365,7 @@
   async function doSearch(): Promise<void> {
     const q = query.trim()
     if (!q || searching) return
-    view = 'search'
+    navigate({ kind: 'search' })
     searching = true
     searchError = ''
     try {
@@ -308,21 +381,22 @@
 
   // ---- playlist -------------------------------------------------------------
 
-  async function openPlaylist(
-    id: string,
-    fallback?: { fallbackTitle?: string; fallbackThumbnail?: string }
-  ): Promise<void> {
-    view = 'playlist'
+  // Playlist data load (separated from view switching for history nav).
+  // The fallback is only used on the cold path — back/forward find the
+  // already-loaded playlistView in state if id matches.
+  let playlistFallback: { title?: string; thumbnail?: string } | null = null
+
+  async function loadPlaylistData(id: string): Promise<void> {
     openPlaylistId = id
     playlistLoading = true
     playlistError = ''
-    // Seed with fallback so the header doesn't flash empty
     playlistView = {
-      title: fallback?.fallbackTitle ?? '',
+      title: playlistFallback?.title ?? '',
       subtitle: '',
-      thumbnail: fallback?.fallbackThumbnail ?? '',
+      thumbnail: playlistFallback?.thumbnail ?? '',
       tracks: []
     }
+    playlistFallback = null
     try {
       playlistView = await window.api.metadata.playlist(id)
       // Once we have the track list, check which of them are already on
@@ -333,6 +407,16 @@
     } finally {
       playlistLoading = false
     }
+  }
+
+  async function openPlaylist(
+    id: string,
+    fallback?: { fallbackTitle?: string; fallbackThumbnail?: string }
+  ): Promise<void> {
+    playlistFallback = fallback
+      ? { title: fallback.fallbackTitle, thumbnail: fallback.fallbackThumbnail }
+      : null
+    navigate({ kind: 'playlist', id })
   }
 
   // ---- player ---------------------------------------------------------------
@@ -408,9 +492,29 @@
     <img class="mark" src={logo} alt="eCoda" />
     <div class="title-block">
       <div class="logo">eCoda</div>
-      <div class="badge">Фаза 1 · home + search + playlists</div>
+      <div class="badge">Фаза 2 · native library + offline cache</div>
     </div>
     {#if connectedBrowser}
+      <div class="history-nav">
+        <button
+          class="hist"
+          onclick={goBack}
+          disabled={!canBack}
+          aria-label="Назад"
+          title="Назад"
+        >
+          ‹
+        </button>
+        <button
+          class="hist"
+          onclick={goForward}
+          disabled={!canForward}
+          aria-label="Вперёд"
+          title="Вперёд"
+        >
+          ›
+        </button>
+      </div>
       <button class="ghost" onclick={disconnect}>
         Отключить · {browserName(connectedBrowser)}
       </button>
@@ -449,17 +553,14 @@
         <button
           class="nav"
           class:active={view === 'home'}
-          onclick={() => {
-            view = 'home'
-            if (!homeSections && !homeLoading) void loadHome()
-          }}
+          onclick={() => navigate({ kind: 'home' })}
         >
           🏠 Главная
         </button>
         <button
           class="nav"
           class:active={view === 'search'}
-          onclick={() => (view = 'search')}
+          onclick={() => navigate({ kind: 'search' })}
         >
           🔍 Поиск
         </button>
@@ -596,7 +697,7 @@
                   >
                     <div
                       class="thumb"
-                      style:background-image={r.thumbnail ? `url("${r.thumbnail}")` : 'none'}
+                      style:background-image={`url("${thumbnailFor(r.id, r.thumbnail)}")`}
                     ></div>
                     <div class="meta">
                       <div class="title">{r.title}</div>
@@ -693,9 +794,7 @@
           <div class="now-playing">
             <div
               class="np-cover"
-              style:background-image={playing.thumbnail
-                ? `url("${playing.thumbnail}")`
-                : 'none'}
+              style:background-image={`url("${thumbnailFor(playing.id, playing.thumbnail)}")`}
             ></div>
             <div class="np-meta">
               <div class="np-title" title={playing.title}>{playing.title}</div>
@@ -843,7 +942,6 @@
   }
 
   .ghost {
-    margin-left: auto;
     padding: 0.5rem 1rem;
     border: 1px solid #34284e;
     border-radius: 9px;
@@ -852,6 +950,39 @@
     font-size: 0.82rem;
     font-weight: 600;
     cursor: pointer;
+  }
+
+  /* History (back / forward) controls — sit next to the disconnect button
+     in the right side of the header. Disabled state reads dimmer. */
+  .history-nav {
+    margin-left: auto;
+    display: flex;
+    gap: 0.3rem;
+  }
+
+  .hist {
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    border: 1px solid #34284e;
+    border-radius: 50%;
+    background: transparent;
+    color: #b9acd6;
+    font-size: 1.2rem;
+    line-height: 1;
+    cursor: pointer;
+    transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+  }
+
+  .hist:hover:not(:disabled) {
+    background: rgba(168, 85, 247, 0.18);
+    border-color: rgba(168, 85, 247, 0.5);
+    color: #ffffff;
+  }
+
+  .hist:disabled {
+    opacity: 0.4;
+    cursor: default;
   }
 
   .ghost:disabled {

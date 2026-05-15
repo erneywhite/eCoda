@@ -25,6 +25,10 @@ export interface DownloadedTrack {
   ext: string
   sizeBytes: number
   downloadedAt: number
+  // True after we've also pulled the cover thumbnail down to disk. UI
+  // can then render it from media://thumb/<id> and stay independent of
+  // Google CDN throttling.
+  hasThumb?: boolean
 }
 
 interface Manifest {
@@ -56,6 +60,21 @@ function loadManifest(): Manifest {
 
 function saveManifest(m: Manifest): void {
   writeFileSync(getManifestPath(), JSON.stringify(m, null, 2), 'utf-8')
+}
+
+function getThumbsDir(): string {
+  const dir = join(getCacheDir(), 'thumbs')
+  if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
+  return dir
+}
+
+// File path of a cached thumbnail. Null if we don't have one. We pick a
+// `.jpg` extension regardless of the source content-type — every UI
+// place that displays it uses `background-image` so the browser sniffs
+// the real format.
+export function getCachedThumbPath(videoId: string): string | null {
+  const path = join(getThumbsDir(), `${videoId}.jpg`)
+  return existsSync(path) ? path : null
 }
 
 // File path of a cached track. Null if not downloaded.
@@ -109,6 +128,13 @@ export function deleteDownloadedTrack(videoId: string): boolean {
     if (existsSync(path)) unlinkSync(path)
   } catch (err) {
     console.warn(`[downloads] failed to delete ${path}:`, err)
+  }
+  // Drop the thumbnail too — they're cheap to re-download next time.
+  const thumbPath = join(getThumbsDir(), `${videoId}.jpg`)
+  try {
+    if (existsSync(thumbPath)) unlinkSync(thumbPath)
+  } catch {
+    // ignore
   }
   delete m.tracks[videoId]
   saveManifest(m)
@@ -167,6 +193,22 @@ export async function downloadOne(info: TrackInfo, browser: string): Promise<Dow
   const fullPath = join(cacheDir, written)
   const sizeBytes = readFileSync(fullPath).byteLength
 
+  // Pull the cover down to disk too so playback (and the playlist UI for
+  // already-downloaded tracks) is independent of Google CDN throttling.
+  let hasThumb = false
+  if (info.thumbnail) {
+    try {
+      const res = await fetch(info.thumbnail)
+      if (res.ok) {
+        const buf = Buffer.from(await res.arrayBuffer())
+        writeFileSync(join(getThumbsDir(), `${info.videoId}.jpg`), buf)
+        hasThumb = true
+      }
+    } catch (err) {
+      console.warn(`[downloads] failed to fetch thumbnail for ${info.videoId}:`, err)
+    }
+  }
+
   const entry: DownloadedTrack = {
     videoId: info.videoId,
     title: info.title,
@@ -174,7 +216,8 @@ export async function downloadOne(info: TrackInfo, browser: string): Promise<Dow
     thumbnail: info.thumbnail,
     ext,
     sizeBytes,
-    downloadedAt: Date.now()
+    downloadedAt: Date.now(),
+    hasThumb
   }
 
   const m = loadManifest()
