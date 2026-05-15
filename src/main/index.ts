@@ -5,6 +5,7 @@ import { verifyBrowserLogin } from './ytdlp'
 import { detectBrowsers, getBrowser, setBrowser, disconnect, ytdlpBrowserArg } from './auth'
 import { searchSongs, getHomeSections, getPlaylistTracks, resetInnertube } from './metadata'
 import { resolveCached, queuePrefetch, clearResolverCache } from './resolver'
+import { importCookiesToMusicSession, clearMusicSessionCookies } from './library-session'
 
 let mainWindow: BrowserWindow | null = null
 
@@ -21,7 +22,11 @@ function createWindow(): void {
     icon,
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
-      sandbox: false
+      sandbox: false,
+      // The Library tab uses <webview> to embed music.youtube.com with our
+      // cookies imported into a dedicated session partition. webviewTag is
+      // off by default in modern Electron; we need it on.
+      webviewTag: true
     }
   })
 
@@ -63,6 +68,11 @@ app.whenReady().then(() => {
       // The cookies file was just refreshed by verifyBrowserLogin; force
       // youtubei.js to pick them up on the next request.
       resetInnertube()
+      // Push the same cookies into the persist:music partition so the
+      // Library tab's <webview> sees a live YT Music session.
+      void importCookiesToMusicSession().catch((err) =>
+        console.warn('[auth:connect] importCookiesToMusicSession failed:', err)
+      )
     }
     return ok
   })
@@ -70,6 +80,7 @@ app.whenReady().then(() => {
     await disconnect()
     resetInnertube()
     clearResolverCache()
+    await clearMusicSessionCookies()
     return true
   })
   ipcMain.handle('auth:open-youtube', () => {
@@ -79,6 +90,16 @@ app.whenReady().then(() => {
   ipcMain.handle('metadata:search', (_event, query: string) => searchSongs(query))
   ipcMain.handle('metadata:home', () => getHomeSections())
   ipcMain.handle('metadata:playlist', (_event, id: string) => getPlaylistTracks(id))
+  // Ensures the persist:music partition has fresh YouTube cookies before
+  // the renderer mounts the Library <webview>. Idempotent.
+  ipcMain.handle('library:prepare', async () => {
+    try {
+      const n = await importCookiesToMusicSession()
+      return { ok: true, cookies: n }
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) }
+    }
+  })
   // Resolves a single track's stream URL. yt-dlp is the only working path —
   // youtubei.js can't get music streams without po_token (see metadata.ts).
   // Resolves go through resolver.ts so re-clicks and prefetched tracks come

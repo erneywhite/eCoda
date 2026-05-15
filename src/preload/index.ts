@@ -14,6 +14,9 @@ const api = {
     search: (query: string) => ipcRenderer.invoke('metadata:search', query),
     home: () => ipcRenderer.invoke('metadata:home'),
     playlist: (id: string) => ipcRenderer.invoke('metadata:playlist', id)
+  },
+  library: {
+    prepare: () => ipcRenderer.invoke('library:prepare')
   }
 }
 

@@ -54,6 +54,9 @@ export interface EcodaApi {
     home: () => Promise<HomeSection[]>
     playlist: (id: string) => Promise<PlaylistView>
   }
+  library: {
+    prepare: () => Promise<{ ok: true; cookies: number } | { ok: false; error: string }>
+  }
 }
 
 declare global {

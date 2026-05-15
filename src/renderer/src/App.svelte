@@ -3,7 +3,7 @@
   import logo from './assets/logo.png'
   import type { HomeItem, HomeSection, PlaylistView, SearchResult } from '../../preload/index.d'
 
-  type View = 'home' | 'search' | 'playlist'
+  type View = 'home' | 'search' | 'playlist' | 'library'
   type PlayStatus = 'idle' | 'resolving' | 'playing' | 'error'
 
   // ---- auth state -----------------------------------------------------------
@@ -32,6 +32,15 @@
   let playlistView = $state<PlaylistView | null>(null)
   let playlistLoading = $state(false)
   let playlistError = $state('')
+
+  // ---- library view (webview-based for now) --------------------------------
+  // We mount the <webview> only after cookies have been imported into the
+  // persist:music partition — otherwise the embedded music.youtube.com would
+  // briefly show the anonymous "Sign in" UI before reloading. `libraryUrl`
+  // controls visibility *and* the address; flipping it triggers a navigation.
+  let libraryReady = $state(false)
+  let libraryError = $state('')
+  let libraryUrl = $state('https://music.youtube.com/library')
 
   // ---- player ---------------------------------------------------------------
   let playing = $state<{
@@ -127,7 +136,21 @@
     openPlaylistId = null
     playing = null
     playStatus = 'idle'
+    libraryReady = false
+    libraryError = ''
     view = 'home'
+  }
+
+  async function openLibrary(): Promise<void> {
+    view = 'library'
+    if (libraryReady) return
+    libraryError = ''
+    const r = await window.api.library.prepare()
+    if (r.ok) {
+      libraryReady = true
+    } else {
+      libraryError = r.error
+    }
   }
 
   function browserName(id: string | null): string {
@@ -340,7 +363,11 @@
         >
           🔍 Поиск
         </button>
-        <button class="nav" disabled title="Скоро — фикс парсера youtubei.js">
+        <button
+          class="nav"
+          class:active={view === 'library'}
+          onclick={openLibrary}
+        >
           📚 Библиотека
         </button>
       </aside>
@@ -466,6 +493,22 @@
                 </li>
               {/each}
             </ul>
+          {/if}
+        {:else if view === 'library'}
+          <!-- Phase A: embedded music.youtube.com with our cookies in
+               persist:music. Phase B will replace this with a native
+               youtubei.js implementation once we crack the auth tokens. -->
+          {#if libraryError}
+            <p class="status error">Не получилось подготовить библиотеку: {libraryError}</p>
+          {:else if libraryReady}
+            <webview
+              class="library-frame"
+              src={libraryUrl}
+              partition="persist:music"
+              allowpopups="true"
+            ></webview>
+          {:else}
+            <p class="status">Подключаюсь к твоей библиотеке…</p>
           {/if}
         {/if}
       </section>
@@ -925,6 +968,20 @@
   .playlist-count {
     color: #8c7da8;
     font-size: 0.82rem;
+  }
+
+  /* ---- library (embedded YT Music) --------------------------------------- */
+
+  /* The webview consumes the entire view-wrap so YT Music's own scroller is
+     the one in charge. .view-wrap has padding by default — we negate it so
+     the iframe-equivalent goes edge to edge inside the main column. */
+  .library-frame {
+    display: flex;
+    flex: 1;
+    width: 100%;
+    min-height: 0;
+    border: none;
+    margin: 0 0 -1.5rem 0;
   }
 
   /* ---- track list (shared between search + playlist) ---------------------- */
