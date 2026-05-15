@@ -16,7 +16,10 @@ import {
   updatePinSnapshot,
   getTheme,
   setTheme,
+  getLang,
+  setLang,
   type DefaultTab,
+  type Lang,
   type PinnedPlaylist,
   type Theme
 } from './auth'
@@ -327,6 +330,8 @@ app.whenReady().then(() => {
   )
   ipcMain.handle('settings:getTheme', () => getTheme())
   ipcMain.handle('settings:setTheme', (_event, theme: Theme) => setTheme(theme))
+  ipcMain.handle('settings:getLang', () => getLang())
+  ipcMain.handle('settings:setLang', (_event, lang: Lang) => setLang(lang))
 
   // Auto-update IPC. `update:event` flows back via webContents.send from
   // the updater module — renderer subscribes once and reacts to each

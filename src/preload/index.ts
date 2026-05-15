@@ -63,7 +63,9 @@ const api = {
     updatePinSnapshot: (item: { id: string; title: string; thumbnail: string }) =>
       ipcRenderer.invoke('settings:updatePinSnapshot', item),
     getTheme: () => ipcRenderer.invoke('settings:getTheme'),
-    setTheme: (theme: string) => ipcRenderer.invoke('settings:setTheme', theme)
+    setTheme: (theme: string) => ipcRenderer.invoke('settings:setTheme', theme),
+    getLang: () => ipcRenderer.invoke('settings:getLang'),
+    setLang: (lang: 'ru' | 'en') => ipcRenderer.invoke('settings:setLang', lang)
   },
   debug: {
     harvestTokens: () => ipcRenderer.invoke('debug:harvest-tokens'),

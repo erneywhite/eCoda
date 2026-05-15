@@ -160,6 +160,7 @@ export function ytdlpBrowserArg(id: string): string | null {
 }
 
 export type DefaultTab = 'home' | 'search' | 'library'
+export type Lang = 'ru' | 'en'
 export type Theme =
   | 'purple'
   | 'cyan'
@@ -183,6 +184,7 @@ interface Config {
   browser?: string
   defaultTab?: DefaultTab
   theme?: Theme
+  lang?: Lang
   pinnedPlaylists?: PinnedPlaylist[]
 }
 
@@ -240,6 +242,14 @@ export async function getTheme(): Promise<Theme> {
 
 export async function setTheme(theme: Theme): Promise<void> {
   await writeConfig({ ...(await readConfig()), theme })
+}
+
+export async function getLang(): Promise<Lang> {
+  return (await readConfig()).lang ?? 'ru'
+}
+
+export async function setLang(lang: Lang): Promise<void> {
+  await writeConfig({ ...(await readConfig()), lang })
 }
 
 // "Liked Music" — auto-pinned, always first. The pseudo-id "LM" is what

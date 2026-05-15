@@ -1,38 +1,38 @@
 # eCoda
 
-Desktop client for YouTube Music — built around **owning your music**: native library, Spotify-style offline cache, playlist sync, and audio-quality control, in a fast, native-feeling app.
+Desktop client for YouTube Music — your library, fast playback, Spotify-style offline cache, and a native UI you can theme. Talks to YouTube's InnerTube API directly: no embedded webview, no heavy web player.
 
-> **Status:** Phase 2 done. Functional daily-driver: search, native YT Music home, your real library (private playlists, Liked Music), per-track and per-playlist offline downloads with instant playback from disk. Still pre-1.0 — Windows-only build, no installer yet.
+> **Status:** Phase 4. All core flows work; auto-update wired; Windows NSIS installer ready to be cut. Public 1.0 release pending the final brand assets from the artist.
 
-## What works today
+## Features
 
-- **Authentication** via your browser's existing YouTube session — no password, no separate sign-in.
-- **Search** with track results, thumbnails, click-to-play.
-- **Home feed** with YT Music's own recommendations as a native grid of cards.
-- **Library tab** showing your real playlists — including private ones like *Liked Music* — rendered as native cards in eCoda's UI (not an embedded webview).
-- **Playlist view** with cover, track list, and per-track or whole-playlist download buttons.
-- **Player bar** in YouTube Music style — thumbnail, title/artist, prev/play/next, seek, volume, mute.
-- **Source-list-aware skip** — next/prev follow the list the current track was launched from (search results vs playlist).
+- **Authentication via your browser's existing YouTube session** — Firefox, Chrome, Edge, Brave, Opera, Vivaldi, Chromium, Whale, and Firefox forks (Waterfox, LibreWolf, Floorp, Zen). No password input; eCoda reads the cookies you already have signed in there.
+- **Native Home** with YouTube Music's own recommendation grid.
+- **Native Library** showing your real playlists — including private ones and Liked Music — rendered as our own grid of cards.
+- **Native playlist view** with cover, track list, per-track and per-playlist download buttons.
+- **Pinned playlists in the sidebar** — Liked Music always pinned at the top, plus any playlist you pin (from the playlist header *or* from the Library card's hover overlay).
+- **Search** with thumbnails and click-to-play.
+- **Custom player bar** — YT-Music-style: aurora-glass background, thin top progress strip flush to the player's rounded top edge, prev / play / next + inline time, volume slider, mute toggle.
+- **Source-list-aware next/prev** — skipping follows whichever list you launched the track from (search results vs playlist).
 - **Background prefetch** — while one track plays, the next few in the active list are resolved in the background, so the next click is instant.
-- **Offline cache** — Spotify-style. Download a single track (↓ button) or a whole playlist (📥 in the header), then play them instantly from disk on any future launch, including without internet. Files live under `<userData>/cache/`; deletions go through the in-app ✓ button.
-- **Browser-style back / forward** in the header.
-- **Premium-quality audio** — if your account has YouTube Premium, eCoda pulls 256 kbps Opus.
-
-## Why
-
-Web-wrapper YouTube Music desktop apps can't offer real offline caching, can't pick audio quality, and inherit the heavy web player. eCoda is a native client: it talks to YouTube's InnerTube API directly, runs its own player, and renders its own UI.
+- **Spotify-style offline cache** — download a single track (↓ button) or a whole playlist (📥 in the header), then play them instantly from disk on any future launch, fully offline. Audio + cover thumbnails are persisted; manifest in `<userData>/cache/manifest.json`.
+- **Mouse-side-button navigation** + back/forward chips in the header.
+- **Eight colour themes** (Purple, Cyber Cyan, Sunset, Forest, Crimson, Mono, Ocean, Neon Pink) — palette switches the accent colour, glow, player gradient and aurora in one shot.
+- **Language switch** — Russian / English UI, persisted per-user.
+- **Default tab on launch** — pick Home, Search or Library.
+- **Auto-update** via `electron-updater` against GitHub Releases. Silent check on startup, manual "Check for updates" button in Settings, one-click "Restart and install" once the new release is downloaded.
+- **Premium-quality audio** when the connected account is YouTube Premium — pulls 256 kbps Opus.
 
 ## How it works
 
-- **Electron + Vite + TypeScript + Svelte** — app shell and renderer.
-- **[yt-dlp](https://github.com/yt-dlp/yt-dlp)** — audio stream extraction and offline downloads.
-- **Deno** — the JS runtime yt-dlp uses to solve YouTube's signature challenges.
-- **[youtubei.js](https://github.com/LuanRT/YouTube.js)** — InnerTube wrapper for public metadata (search, home).
-- **Hidden Electron BrowserWindow + page-proxy** — a music.youtube.com window kept alive in the background signs authenticated InnerTube calls (SAPISIDHASH, X-Goog-Visitor-Id, full Chrome session) for everything that needs the user's account: private playlists, library, Liked Music.
-- **`media://` custom Electron protocol** — serves the offline-cached audio and thumbnails to the renderer without bumping into webSecurity / CSP rules that block bare `file://` URLs.
-- **Cookies** — read from any browser you're already signed in to: Firefox / Chrome / Edge / Brave / Opera / Vivaldi / Chromium / Whale, plus Firefox forks (Waterfox / LibreWolf / Floorp / Zen).
-
-`yt-dlp` and `Deno` are downloaded automatically on `npm install` — they aren't committed to the repo.
+- **Electron + Vite + TypeScript + Svelte 5** for the app shell, build pipeline, and renderer.
+- **[yt-dlp](https://github.com/yt-dlp/yt-dlp)** drives stream extraction and offline downloads (audio and thumbnails).
+- **Deno** is the JS runtime yt-dlp uses for YouTube's signature challenges. Both binaries are downloaded automatically by `npm install` and shipped via `asarUnpack`.
+- **[youtubei.js](https://github.com/LuanRT/YouTube.js)** for public InnerTube metadata (search, Home feed, public playlist tracks fallback).
+- **Hidden Electron BrowserWindow + page-proxy** — a `music.youtube.com` window kept alive in the background. Every authenticated InnerTube call (Library landing, private playlist contents, Liked Music) is `fetch`'d inside that page context, with a manually-computed `Authorization: SAPISIDHASH …` header so the server treats us as logged in. This is what unlocks the native library experience.
+- **`media://` custom Electron protocol** — serves offline-cached audio and thumbnails to the renderer without bumping into webSecurity / CSP rules that block bare `file://` URLs from a non-file: origin.
+- **Cookies pipeline** — read once via `yt-dlp --cookies-from-browser`, normalised (`#HttpOnly_` rows preserved, `__Host-*` host-only rules respected, synthetic `SOCS` + `CONSENT` injected to bypass the GDPR gate), then loaded into both the InnerTube session and the `persist:music` partition the hidden window uses.
+- **Themes & language** persist in `<userData>/config.json` along with the connected browser, default tab, and pinned playlists.
 
 ## Development
 
@@ -41,7 +41,7 @@ npm install
 npm run dev
 ```
 
-In dev DevTools auto-open in a detached window. Press `Ctrl+R` in the eCoda window to reload the renderer.
+DevTools auto-open in a detached window in dev. `Ctrl+R` in the eCoda window reloads the renderer; the main process is hot-reloaded by `electron-vite`.
 
 ## Building a Windows installer
 
@@ -51,35 +51,58 @@ Local build (no publish):
 npm run build:win
 ```
 
-Produces `dist/eCoda-Setup-<version>.exe` (NSIS, x64, per-user install, desktop + start menu shortcuts).
+Produces `dist/eCoda-Setup-<version>.exe` — NSIS, x64, per-user install, configurable directory, desktop + Start-Menu shortcuts.
+
+> **First build on Windows requires Administrator rights** (electron-builder unpacks `winCodeSign` which contains macOS dylib symlinks — Windows blocks symlink creation without admin or Developer Mode + the `SeCreateSymbolicLinkPrivilege` group policy). Run PowerShell as Administrator the first time; subsequent builds reuse the cache and don't need elevation.
 
 Cut a release that auto-updaters can see:
 
-1. Bump `package.json` `"version"` (or `npm version patch`).
-2. `git tag v<version> && git push --tags`.
-3. `set GH_TOKEN=ghp_...` (a personal access token with `public_repo` scope).
-4. `npm run release` — builds, publishes to GitHub Releases and uploads `latest.yml` + the installer.
+1. Bump version: `npm version patch` (or edit `package.json`).
+2. `git push --follow-tags`.
+3. `set GH_TOKEN=ghp_…` — personal access token with `public_repo` scope.
+4. `npm run release` — rebuilds, then `electron-builder --win --publish always` uploads the installer + `latest.yml` to GitHub Releases.
 
-Installed copies will see the new release via the in-app "Проверить обновления" button (Settings → Обновления) and via a silent check 3 seconds after every launch.
+Installed copies see the new release via the in-app **Settings → Обновления → Проверить обновления** button and via a silent check three seconds after every launch.
+
+## Project layout
+
+```
+src/
+  main/                  Electron main process
+    auth.ts              browser detection + config storage
+    metadata.ts          search / home / playlist parsers (youtubei.js + page-proxy)
+    token-harvest.ts     hidden BrowserWindow + innertubeFetch (SAPISIDHASH-signed)
+    library-session.ts   cookie import into persist:music partition
+    ytdlp.ts             stream resolve + login verification
+    resolver.ts          three-layer track resolve: offline → memory cache → yt-dlp
+    downloads.ts         per-track / per-playlist downloads + thumbnail caching
+    updater.ts           electron-updater wrapper, lifecycle events to renderer
+    index.ts             window setup + IPC handlers + media:// protocol
+  preload/               IPC API exposed as window.api.*
+  renderer/
+    src/App.svelte       single-file UI: header, sidebar, views, player bar
+    src/i18n.ts          ru/en string tables
+    src/assets/          wordmark, etc.
+branding/                source brand assets (wordmark.png, icon.png)
+build/                   electron-builder resources (icon, etc.)
+resources/               bundled binaries (yt-dlp.exe, deno.exe — auto-fetched)
+scripts/                 fetch-ytdlp / fetch-deno postinstall + diagnostic probes
+mockups/                 standalone HTML mockups (A/B/C) used during UI redesign
+```
 
 ## Roadmap
 
 - **Phase 0 — project skeleton** — done
-- **Phase 1 — streaming MVP** — done
-  - Audio extraction + playback at Premium quality
-  - Browser-cookie authentication
-  - Search, Home, native playlist navigation
-  - YT-Music-style player bar with seek and volume
-- **Phase 2 — offline** — done
-  - Per-track and per-playlist download with live progress
-  - Persistent on-disk cache (`media://` scheme for renderer playback)
-  - Thumbnails cached alongside audio
-- **Phase 3 — daily-use polish** — mini-player, tray icon, global media keys, lyrics, more library tabs (Songs / Albums / Artists / History)
-- **Phase 4 — distribution** — `electron-builder` NSIS installer for Windows, auto-update, macOS port
+- **Phase 1 — streaming MVP** — done (search, home, playlist navigation, custom player UI)
+- **Phase 2 — offline** — done (per-track + per-playlist downloads, persistent cache, instant disk playback via `media://`)
+- **Phase 3 — polish** — sidebar pinned playlists, eight colour themes, language switch, mouse-side-button navigation, settings tab with cache/about/updates/donate
+- **Phase 4 — distribution** — `electron-builder` NSIS installer, `electron-updater` against GitHub Releases (this stage)
+- **Phase 5 (planned)** — shuffle, queue management, right-click context menus, "radio by track" via `getUpNext`, like/dislike, artist + album views, mini-player, system tray, global media keys, lyrics
+- **macOS port** — same codebase, `.dmg` target, needs Mac/CI + Apple notarisation
 
 ## Disclaimer
 
-eCoda is an unofficial client and is not affiliated with, endorsed by, or sponsored by YouTube or Google. It is intended for personal use only. Respect YouTube's Terms of Service and your local laws.
+eCoda is an unofficial client and is not affiliated with, endorsed by, or sponsored by YouTube or Google. It is intended for personal use. Respect YouTube's Terms of Service and your local laws.
 
 ## License
 

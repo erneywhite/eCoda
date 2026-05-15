@@ -53,6 +53,8 @@ export type UpdaterEvent =
   | { kind: 'downloaded'; version: string }
   | { kind: 'error'; message: string }
 
+export type Lang = 'ru' | 'en'
+
 export type Theme =
   | 'purple'
   | 'cyan'
@@ -134,6 +136,8 @@ export interface EcodaApi {
     updatePinSnapshot: (item: PinnedPlaylist) => Promise<void>
     getTheme: () => Promise<Theme>
     setTheme: (theme: Theme) => Promise<void>
+    getLang: () => Promise<Lang>
+    setLang: (lang: Lang) => Promise<void>
   }
   debug: {
     harvestTokens: () => Promise<unknown>

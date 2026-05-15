@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte'
   import wordmark from './assets/wordmark.png'
+  import { translate, LANG_LABELS, type Lang } from './i18n'
   import type {
     DownloadProgress,
     HomeItem,
@@ -220,6 +221,19 @@
     await window.api.settings.setTheme(name)
   }
 
+  // ---- i18n (UI language) --------------------------------------------------
+  // The translate helper is parameterised by `lang`; calling t() inside
+  // the template re-evaluates whenever lang changes, so flipping the
+  // switcher updates every visible string instantly.
+  let lang = $state<Lang>('ru')
+  function t(key: string, vars?: Record<string, string | number>): string {
+    return translate(lang, key, vars)
+  }
+  async function changeLang(next: Lang): Promise<void> {
+    lang = next
+    await window.api.settings.setLang(next)
+  }
+
   // ---- updater state -------------------------------------------------------
   // updaterStatus drives the "Обновления" Settings card. Stays at 'idle'
   // until either silentCheckOnStartup or a user click pushes an event.
@@ -323,12 +337,7 @@
 
   async function clearCache(): Promise<void> {
     if (clearingCache) return
-    if (
-      !confirm(
-        'Очистить весь оффлайн-кеш? Все скачанные треки будут удалены с диска. Действие нельзя отменить.'
-      )
-    )
-      return
+    if (!confirm(t('settings.cache.clearConfirm'))) return
     clearingCache = true
     try {
       await window.api.downloads.clearAll()
@@ -504,6 +513,9 @@
     // doesn't see purple flash before their preferred palette kicks in.
     theme = await window.api.settings.getTheme()
     applyTheme(theme)
+    // Load saved language so labels render in the right locale on first
+    // paint. Fallback is 'ru' (handled by the IPC default).
+    lang = await window.api.settings.getLang()
     browsers = await window.api.auth.browsers()
     connectedBrowser = await window.api.auth.status()
     if (connectedBrowser) {
@@ -810,15 +822,15 @@
 <main>
   <header>
     <img class="wordmark" src={wordmark} alt="eCoda" />
-    <div class="badge">Фаза 2 · native library + offline cache</div>
+    <div class="badge">{t('badge.phase')}</div>
     {#if connectedBrowser}
       <div class="history-nav">
         <button
           class="hist"
           onclick={goBack}
           disabled={!canBack}
-          aria-label="Назад"
-          title="Назад"
+          aria-label={t('nav.back')}
+          title={t('nav.back')}
         >
           ‹
         </button>
@@ -826,8 +838,8 @@
           class="hist"
           onclick={goForward}
           disabled={!canForward}
-          aria-label="Вперёд"
-          title="Вперёд"
+          aria-label={t('nav.forward')}
+          title={t('nav.forward')}
         >
           ›
         </button>
@@ -872,7 +884,7 @@
           <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
             <path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z" />
           </svg>
-          Главная
+          {t('nav.home')}
         </button>
         <button
           class="nav"
@@ -884,7 +896,7 @@
               d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"
             />
           </svg>
-          Поиск
+          {t('nav.search')}
         </button>
         <button
           class="nav"
@@ -896,7 +908,7 @@
               d="M4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6zm16-4H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-1 9H9V9h10v2zm-4 4H9v-2h6v2zm4-8H9V5h10v2z"
             />
           </svg>
-          Библиотека
+          {t('nav.library')}
         </button>
 
         {#if pinnedPlaylists.length > 0}
@@ -936,7 +948,7 @@
               d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58a.49.49 0 0 0 .12-.61l-1.92-3.32a.488.488 0 0 0-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.488.488 0 0 0-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58a.49.49 0 0 0-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6A3.6 3.6 0 0 1 8.4 12 3.6 3.6 0 0 1 12 8.4a3.6 3.6 0 0 1 3.6 3.6 3.6 3.6 0 0 1-3.6 3.6z"
             />
           </svg>
-          Настройки
+          {t('nav.settings')}
         </button>
       </aside>
 
@@ -1120,26 +1132,38 @@
           {/if}
         {:else if view === 'settings'}
           <div class="settings-page">
-            <h3>Настройки</h3>
+            <h3>{t('settings.title')}</h3>
 
             <section class="settings-card">
-              <h4>Аккаунт</h4>
+              <h4>{t('settings.account.title')}</h4>
               <p class="settings-line">
-                Подключён браузер: <strong>{browserName(connectedBrowser)}</strong>
+                {t('settings.account.connected')} <strong>{browserName(connectedBrowser)}</strong>
               </p>
-              <p class="settings-hint">
-                eCoda берёт твою сессию YouTube из этого браузера. Если ты сменишь
-                аккаунт там — переподключи здесь.
-              </p>
-              <button class="settings-btn" onclick={disconnect}>Отключить</button>
+              <p class="settings-hint">{t('settings.account.hint')}</p>
+              <button class="settings-btn" onclick={disconnect}>
+                {t('settings.account.disconnect')}
+              </button>
             </section>
 
             <section class="settings-card">
-              <h4>Цветовая палитра</h4>
-              <p class="settings-hint">
-                Переключает акцентный цвет, фоновое свечение и кнопки
-                плеера. Применяется мгновенно.
-              </p>
+              <h4>{t('settings.lang.title')}</h4>
+              <p class="settings-hint">{t('settings.lang.hint')}</p>
+              <div class="seg">
+                {#each Object.entries(LANG_LABELS) as [code, label] (code)}
+                  <button
+                    class="seg-btn"
+                    class:active={lang === code}
+                    onclick={() => changeLang(code as Lang)}
+                  >
+                    {label}
+                  </button>
+                {/each}
+              </div>
+            </section>
+
+            <section class="settings-card">
+              <h4>{t('settings.theme.title')}</h4>
+              <p class="settings-hint">{t('settings.theme.hint')}</p>
               <div class="theme-grid">
                 {#each Object.entries(THEMES) as [key, def] (key)}
                   <button
@@ -1158,96 +1182,93 @@
             </section>
 
             <section class="settings-card">
-              <h4>Поведение</h4>
-              <p class="settings-line">Открывать при запуске:</p>
+              <h4>{t('settings.behaviour.title')}</h4>
+              <p class="settings-line">{t('settings.behaviour.defaultTab')}</p>
               <div class="seg">
                 <button
                   class="seg-btn"
                   class:active={defaultTab === 'home'}
                   onclick={() => changeDefaultTab('home')}
                 >
-                  🏠 Главная
+                  🏠 {t('nav.home')}
                 </button>
                 <button
                   class="seg-btn"
                   class:active={defaultTab === 'search'}
                   onclick={() => changeDefaultTab('search')}
                 >
-                  🔍 Поиск
+                  🔍 {t('nav.search')}
                 </button>
                 <button
                   class="seg-btn"
                   class:active={defaultTab === 'library'}
                   onclick={() => changeDefaultTab('library')}
                 >
-                  📚 Библиотека
+                  📚 {t('nav.library')}
                 </button>
               </div>
-              <p class="settings-hint">
-                Эта вкладка откроется сразу после подключения аккаунта при следующем
-                запуске.
-              </p>
+              <p class="settings-hint">{t('settings.behaviour.hint')}</p>
             </section>
 
             <section class="settings-card">
-              <h4>Оффлайн-кеш</h4>
+              <h4>{t('settings.cache.title')}</h4>
               {#if cacheStats}
                 <p class="settings-line">
-                  {cacheStats.tracks} треков · {fmtBytes(cacheStats.bytes)}
+                  {t('settings.cache.stats', {
+                    tracks: cacheStats.tracks,
+                    size: fmtBytes(cacheStats.bytes)
+                  })}
                 </p>
               {:else}
-                <p class="settings-line">Загружаю…</p>
+                <p class="settings-line">{t('settings.cache.loading')}</p>
               {/if}
-              <p class="settings-hint">
-                Скачанные треки играют мгновенно с диска, даже без интернета.
-                Управлять отдельными треками можно из плейлистов.
-              </p>
+              <p class="settings-hint">{t('settings.cache.hint')}</p>
               <button
                 class="settings-btn danger"
                 onclick={clearCache}
                 disabled={clearingCache || !cacheStats || cacheStats.tracks === 0}
               >
-                {clearingCache ? 'Чищу…' : 'Очистить весь кеш'}
+                {clearingCache ? t('settings.cache.clearing') : t('settings.cache.clear')}
               </button>
             </section>
 
             <section class="settings-card">
-              <h4>Обновления</h4>
-              <p class="settings-line">Текущая версия: <strong>{appInfo?.version ?? '…'}</strong></p>
+              <h4>{t('settings.updates.title')}</h4>
+              <p class="settings-line">
+                {t('settings.updates.current')} <strong>{appInfo?.version ?? '…'}</strong>
+              </p>
               {#if updaterStatus.kind === 'checking'}
-                <p class="settings-hint">Проверяю наличие обновлений…</p>
+                <p class="settings-hint">{t('settings.updates.checking')}</p>
               {:else if updaterStatus.kind === 'available'}
                 <p class="settings-hint">
-                  Доступна новая версия <strong>{updaterStatus.version}</strong>.
+                  {t('settings.updates.available', { version: updaterStatus.version })}
                 </p>
               {:else if updaterStatus.kind === 'downloading'}
-                <p class="settings-hint">Скачиваю обновление: {updaterStatus.percent}%</p>
+                <p class="settings-hint">
+                  {t('settings.updates.downloading', { percent: updaterStatus.percent })}
+                </p>
                 <div class="upd-progress">
                   <div class="upd-progress-fill" style:width="{updaterStatus.percent}%"></div>
                 </div>
               {:else if updaterStatus.kind === 'downloaded'}
                 <p class="settings-hint">
-                  Версия <strong>{updaterStatus.version}</strong> скачана.
-                  Перезапусти eCoda, чтобы установить.
+                  {t('settings.updates.downloaded', { version: updaterStatus.version })}
                 </p>
               {:else if updaterStatus.kind === 'not-available'}
-                <p class="settings-hint">Установлена последняя версия.</p>
+                <p class="settings-hint">{t('settings.updates.upToDate')}</p>
               {:else if updaterStatus.kind === 'error'}
                 <p class="settings-hint" style:color="#ff8db5">{updaterStatus.message}</p>
               {:else}
-                <p class="settings-hint">
-                  Нажми «Проверить обновления», чтобы узнать, не появилась ли
-                  новая версия в GitHub Releases.
-                </p>
+                <p class="settings-hint">{t('settings.updates.idleHint')}</p>
               {/if}
               <div class="upd-actions">
                 {#if updaterStatus.kind === 'available'}
                   <button class="settings-btn donate" onclick={downloadUpdate}>
-                    Скачать обновление
+                    {t('settings.updates.downloadBtn')}
                   </button>
                 {:else if updaterStatus.kind === 'downloaded'}
                   <button class="settings-btn donate" onclick={installUpdate}>
-                    Перезапустить и установить
+                    {t('settings.updates.installBtn')}
                   </button>
                 {:else}
                   <button
@@ -1257,40 +1278,35 @@
                       updaterStatus.kind === 'downloading'}
                   >
                     {updaterStatus.kind === 'checking'
-                      ? 'Проверяю…'
-                      : 'Проверить обновления'}
+                      ? t('settings.updates.checkingBtn')
+                      : t('settings.updates.checkBtn')}
                   </button>
                 {/if}
               </div>
             </section>
 
             <section class="settings-card">
-              <h4>О приложении</h4>
+              <h4>{t('settings.about.title')}</h4>
               <p class="settings-line">{appInfo?.name ?? 'eCoda'}</p>
-              <p class="settings-hint">
-                Личный десктоп-клиент YouTube Music. Открытый код.
-              </p>
+              <p class="settings-hint">{t('settings.about.hint')}</p>
               {#if appInfo?.repoUrl}
                 <button
                   class="settings-btn"
                   onclick={() => window.open(appInfo!.repoUrl, '_blank')}
                 >
-                  Открыть на GitHub
+                  {t('settings.about.openGitHub')}
                 </button>
               {/if}
             </section>
 
             <section class="settings-card">
-              <h4>Понравилась программа?</h4>
-              <p class="settings-hint">
-                eCoda полностью бесплатна и open-source. Если хочешь поддержать
-                разработку — можно угостить кофе.
-              </p>
+              <h4>{t('settings.donate.title')}</h4>
+              <p class="settings-hint">{t('settings.donate.hint')}</p>
               <button
                 class="settings-btn donate"
                 onclick={() => window.open('https://dalink.to/toristarm', '_blank')}
               >
-                ☕ Купить мне кофе
+                {t('settings.donate.button')}
               </button>
             </section>
 
