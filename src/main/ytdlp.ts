@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { dirname, delimiter } from 'node:path'
-import { existsSync, writeFileSync } from 'node:fs'
+import { writeFileSync } from 'node:fs'
 import ytdlpPath from '../../resources/yt-dlp.exe?asset'
 import denoPath from '../../resources/deno.exe?asset'
 import { getCookiesFilePath } from './auth'
@@ -66,12 +66,16 @@ export async function resolveAudio(input: string, browser: string): Promise<Reso
 // Side effect: also dumps the cookies to disk for youtubei.js to use later.
 export async function verifyBrowserLogin(browser: string): Promise<boolean> {
   const cookieFile = getCookiesFilePath()
-  if (!existsSync(cookieFile)) {
-    try {
-      writeFileSync(cookieFile, '# Netscape HTTP Cookie File\n', 'utf-8')
-    } catch {
-      // yt-dlp will create it itself if needed
-    }
+  // ALWAYS reset the cookies file before yt-dlp runs. With --cookies <file>
+  // present, yt-dlp merges its contents with --cookies-from-browser; if the
+  // file still holds last session's cookies (which YouTube has since
+  // rotated/invalidated), the merged jar fails auth even though the live
+  // browser cookies on their own would have worked. Truncating gives
+  // yt-dlp a clean slate to dump into.
+  try {
+    writeFileSync(cookieFile, '# Netscape HTTP Cookie File\n', 'utf-8')
+  } catch (err) {
+    console.warn('[verifyBrowserLogin] could not reset cookies file:', err)
   }
   try {
     await run(
@@ -91,7 +95,19 @@ export async function verifyBrowserLogin(browser: string): Promise<boolean> {
       { maxBuffer: 10 * 1024 * 1024, env: ytdlpEnv }
     )
     return true
-  } catch {
+  } catch (err) {
+    // Surface the actual yt-dlp stderr so we can tell whether the failure
+    // is "Firefox profile is locked, close the browser", "no YouTube login
+    // in this browser", or something else. Otherwise the user just sees a
+    // generic "not signed in" UI message and has nothing to act on.
+    const e = err as { stderr?: string; stdout?: string; message?: string }
+    const detail = (e.stderr ?? e.stdout ?? e.message ?? '')
+      .toString()
+      .split(/\r?\n/)
+      .filter((l) => l.trim())
+      .slice(-5)
+      .join('\n')
+    console.warn(`[verifyBrowserLogin] yt-dlp failed for browser=${browser}:\n${detail}`)
     return false
   }
 }

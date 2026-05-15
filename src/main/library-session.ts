@@ -101,6 +101,22 @@ export async function importCookiesToMusicSession(): Promise<number> {
   await ensureConsentCookies(ses)
 
   console.log(`[library-session] imported ${imported} cookies into ${MUSIC_PARTITION}`)
+
+  // Verification log — what does Electron actually have for youtube.com
+  // now? Tells us at a glance whether the most critical auth cookies are
+  // present, in case something we set silently got dropped during persist.
+  try {
+    const stored = await ses.cookies.get({ domain: '.youtube.com' })
+    const names = new Set(stored.map((c) => c.name))
+    const wanted = ['SAPISID', '__Secure-3PSID', 'LOGIN_INFO', 'SID', '__Secure-1PSID']
+    const present = wanted.filter((n) => names.has(n))
+    const missing = wanted.filter((n) => !names.has(n))
+    console.log(`[library-session] stored .youtube.com cookies: ${stored.length} total`)
+    console.log(`[library-session] critical auth present: ${present.join(', ') || '(none)'}`)
+    if (missing.length) console.log(`[library-session] critical auth MISSING: ${missing.join(', ')}`)
+  } catch (err) {
+    console.warn('[library-session] failed to verify stored cookies:', err)
+  }
   return imported
 }
 
