@@ -1113,6 +1113,34 @@
 </main>
 
 <style>
+  /* Custom scrollbars everywhere — the default Windows ones are grey
+     chunks that don't match the glass aesthetic. Thin, mostly transparent,
+     lights up on hover. Firefox gets equivalent values via scrollbar-*. */
+  :global(*) {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255, 255, 255, 0.18) transparent;
+  }
+  :global(::-webkit-scrollbar) {
+    width: 10px;
+    height: 10px;
+  }
+  :global(::-webkit-scrollbar-track) {
+    background: transparent;
+  }
+  :global(::-webkit-scrollbar-thumb) {
+    background: rgba(255, 255, 255, 0.14);
+    border-radius: 999px;
+    border: 2px solid transparent;
+    background-clip: padding-box;
+  }
+  :global(::-webkit-scrollbar-thumb:hover) {
+    background: rgba(201, 125, 246, 0.45);
+    background-clip: padding-box;
+  }
+  :global(::-webkit-scrollbar-corner) {
+    background: transparent;
+  }
+
   /* Mockup B: aurora gradient mesh behind everything. Three coloured
      radial blurs scattered, with the deep purple base showing through
      the gaps. Pinned to viewport so it doesn't scroll with content. */
@@ -1824,16 +1852,17 @@
     overflow: hidden;
   }
 
-  /* The seek bar sits flush against the top of the player bar and visually
-     replaces the top border. 12px tall input = generous click target, but
-     the actual coloured track inside is only 3px (5px on hover). */
+  /* The seek bar sits at the top of the floating player card. Player has
+     border-radius + overflow:hidden, so a fully-flush input would have
+     its left/right ends clipped by the rounded corners — we give it a
+     horizontal inset so the visible track lives inside the curve. */
   .seek {
     -webkit-appearance: none;
     appearance: none;
     display: block;
-    width: 100%;
+    width: calc(100% - 24px);
     height: 12px;
-    margin: 0;
+    margin: 6px 12px 0;
     padding: 0;
     background: transparent;
     cursor: pointer;
@@ -1968,15 +1997,13 @@
 
   .seek::-webkit-slider-runnable-track {
     height: 3px;
-    /* anchor visible track to the top edge of the 12px-tall input */
-    margin-top: 0;
-    border-radius: 0;
+    border-radius: 999px;
     background: linear-gradient(
       to right,
       #c97df6 0%,
       #ff6dc8 var(--p, 0%),
-      rgba(255, 255, 255, 0.08) var(--p, 0%),
-      rgba(255, 255, 255, 0.08) 100%
+      rgba(255, 255, 255, 0.1) var(--p, 0%),
+      rgba(255, 255, 255, 0.1) 100%
     );
     transition: height 0.12s ease;
   }
