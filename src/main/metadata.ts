@@ -3,7 +3,7 @@
 // dynamic import() at runtime — Node handles the ESM/CJS boundary cleanly.
 import type { Innertube } from 'youtubei.js'
 import { existsSync, readFileSync } from 'node:fs'
-import { getCookiesFilePath } from './auth'
+import { getCookiesFilePath, getLocale } from './auth'
 import { harvestTokens, innertubeFetch } from './token-harvest'
 
 let innertube: Innertube | null = null
@@ -56,11 +56,12 @@ async function getInnertube(): Promise<Innertube> {
       return null
     })
     const mod = await import('youtubei.js')
-    const opts: Record<string, unknown> = { lang: 'ru', location: 'RU' }
+    const { hl, gl } = await getLocale()
+    const opts: Record<string, unknown> = { lang: hl, location: gl }
     if (cookie) opts.cookie = cookie
     if (tokens?.visitorData) opts.visitor_data = tokens.visitorData
     console.log(
-      `[metadata] creating Innertube cookie=${!!cookie} visitor_data=${!!tokens?.visitorData} lang=ru gl=RU`
+      `[metadata] creating Innertube cookie=${!!cookie} visitor_data=${!!tokens?.visitorData} lang=${hl} gl=${gl}`
     )
     innertube = await mod.Innertube.create(opts)
   }

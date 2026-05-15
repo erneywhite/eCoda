@@ -252,6 +252,16 @@ export async function setLang(lang: Lang): Promise<void> {
   await writeConfig({ ...(await readConfig()), lang })
 }
 
+// InnerTube locale tuple derived from the user's UI language. Used by
+// metadata.ts when building Innertube + by token-harvest.ts when
+// signing /browse / /player calls — so section titles / "N tracks" /
+// auto-playlist names come back in the language the user sees.
+export async function getLocale(): Promise<{ hl: string; gl: string }> {
+  const lang = await getLang()
+  if (lang === 'en') return { hl: 'en', gl: 'US' }
+  return { hl: 'ru', gl: 'RU' }
+}
+
 // "Liked Music" — auto-pinned, always first. The pseudo-id "LM" is what
 // YT Music uses for the user's Likes auto-playlist; metadata layer
 // prepends "VL" before sending to /browse.

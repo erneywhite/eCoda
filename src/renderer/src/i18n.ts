@@ -45,6 +45,11 @@ const RU: Strings = {
   'home.empty': 'Главная пуста.',
   'library.loading': 'Загружаю библиотеку…',
   'library.empty': 'В библиотеке пока пусто.',
+  'library.myPlaylists': 'Мои плейлисты',
+  // Liked Music is an auto-playlist — name comes from YT in YT's locale,
+  // but we override for the sidebar pin so it follows the UI language.
+  'liked.music': 'Понравившаяся музыка',
+  'liked.music.subtitle': 'Авто-плейлист',
 
   // Playlist view
   'playlist.untitled': 'Без названия',
@@ -159,6 +164,9 @@ const EN: Strings = {
   'home.empty': 'Home is empty.',
   'library.loading': 'Loading library…',
   'library.empty': 'Library is empty.',
+  'library.myPlaylists': 'My playlists',
+  'liked.music': 'Liked Music',
+  'liked.music.subtitle': 'Auto playlist',
 
   'playlist.untitled': 'Untitled',
   'playlist.loading': 'Loading playlist…',

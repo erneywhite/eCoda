@@ -232,6 +232,17 @@
   async function changeLang(next: Lang): Promise<void> {
     lang = next
     await window.api.settings.setLang(next)
+    // Drop the locale-bound caches so the next visit to Home / Library /
+    // a playlist re-fetches with the new hl/gl. Pinned snapshots stay
+    // because they were saved by the user explicitly and might be in
+    // either language.
+    homeSections = null
+    libraryPlaylists = null
+    playlistView = null
+    openPlaylistId = null
+    // If the user is currently looking at any of those views, reload now.
+    if (view === 'home') void loadHome()
+    else if (view === 'library') void loadLibraryData()
   }
 
   // ---- updater state -------------------------------------------------------
@@ -931,7 +942,9 @@
                     </svg>
                   {/if}
                 </div>
-                <span class="pin-title">{p.title}</span>
+                <span class="pin-title">
+                  {isLikedMusicId(p.id) ? t('liked.music') : p.title}
+                </span>
               </button>
             {/each}
           </div>
@@ -1034,7 +1047,11 @@
                   : 'none'}
               ></div>
               <div class="playlist-info">
-                <div class="playlist-title">{playlistView.title || 'Без названия'}</div>
+                <div class="playlist-title">
+                  {isLikedMusicId(openPlaylistId)
+                    ? t('liked.music')
+                    : playlistView.title || t('playlist.untitled')}
+                </div>
                 <div class="playlist-subtitle">{playlistView.subtitle}</div>
                 {#if !playlistLoading}
                   <div class="playlist-count">
@@ -1334,7 +1351,7 @@
             <button onclick={openLibrary}>Попробовать ещё раз</button>
           {:else if libraryPlaylists && libraryPlaylists.items.length > 0}
             <div class="section">
-              <h3>{libraryPlaylists.title}</h3>
+              <h3>{t('library.myPlaylists')}</h3>
               <div class="grid">
                 {#each libraryPlaylists.items as item (item.id)}
                   <button class="card-tile" onclick={() => openCard(item)}>
@@ -1375,8 +1392,12 @@
                         {/if}
                       </span>
                     {/if}
-                    <div class="tile-title">{item.title}</div>
-                    <div class="tile-subtitle">{item.subtitle}</div>
+                    <div class="tile-title">
+                      {isLikedMusicId(item.id) ? t('liked.music') : item.title}
+                    </div>
+                    <div class="tile-subtitle">
+                      {isLikedMusicId(item.id) ? t('liked.music.subtitle') : item.subtitle}
+                    </div>
                   </button>
                 {/each}
               </div>

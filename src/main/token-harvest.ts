@@ -1,5 +1,6 @@
 import { BrowserWindow } from 'electron'
 import { MUSIC_PARTITION, importCookiesToMusicSession } from './library-session'
+import { getLocale } from './auth'
 
 // In-page client config that the real YT Music web app uses for every
 // InnerTube call. Once we have these we can mint our own InnerTube
@@ -170,13 +171,15 @@ export async function innertubeFetch(
   const win = await getProxyWindow()
   const bodyJson = JSON.stringify(body)
   const overrideJson = JSON.stringify(clientOverride ?? null)
+  const locale = await getLocale()
+  const localeJson = JSON.stringify(locale)
   // SAPISIDHASH-signed POST runs in the page context, so cookies are
   // attached natively and we synthesise the auth header from
   // document.cookie + crypto.subtle. clientBody is merged with the page's
   // own ytcfg context so we don't have to maintain client_name /
   // client_version separately.
   const json = await win.webContents.executeJavaScript(
-    `(async (endpoint, bodyJson, overrideJson) => {
+    `(async (endpoint, bodyJson, overrideJson, localeJson) => {
       const cfg = (window).ytcfg.data_;
       const ctx = cfg.INNERTUBE_CONTEXT;
       const override = JSON.parse(overrideJson);
@@ -212,15 +215,12 @@ export async function innertubeFetch(
         'SAPISIDHASH ' + ts + '_' + hashHex +
         ' SAPISID1PHASH ' + ts + '_' + hashHex +
         ' SAPISID3PHASH ' + ts + '_' + hashHex;
-      // Force Russian UI for any text the API returns — section titles,
-      // playlist metadata, autoplaylist names, etc. The hidden window
-      // loads with the locale of music.youtube.com (often en-US) and that
-      // bleeds into every InnerTube response we get back. Locale override
-      // wins regardless of any clientOverride.
-      contextForBody.client = Object.assign({}, contextForBody.client, {
-        hl: 'ru',
-        gl: 'RU'
-      });
+      // Force the locale the user picked in Settings so InnerTube text
+      // (section titles, playlist metadata, auto-playlist names, "N
+      // tracks") comes back in the language they expect, instead of
+      // whatever the embedded music.youtube.com page loaded with.
+      const locale = JSON.parse(localeJson);
+      contextForBody.client = Object.assign({}, contextForBody.client, locale);
       const callerBody = JSON.parse(bodyJson);
       const finalBody = Object.assign({}, callerBody, { context: contextForBody });
       const r = await fetch('/youtubei/v1' + endpoint + '?prettyPrint=false', {
@@ -238,7 +238,7 @@ export async function innertubeFetch(
         body: JSON.stringify(finalBody)
       });
       return await r.text();
-    })(${JSON.stringify(endpoint)}, ${JSON.stringify(bodyJson)}, ${JSON.stringify(overrideJson)})`
+    })(${JSON.stringify(endpoint)}, ${JSON.stringify(bodyJson)}, ${JSON.stringify(overrideJson)}, ${JSON.stringify(localeJson)})`
   )
   return JSON.parse(json)
 }
