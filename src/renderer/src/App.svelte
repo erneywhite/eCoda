@@ -177,6 +177,26 @@
       aurora2: 'rgba(150, 150, 150, 0.10)',
       aurora3: 'rgba(100, 100, 100, 0.08)',
       swatch: 'linear-gradient(135deg, #e5e5e5, #a3a3a3)'
+    },
+    ocean: {
+      label: 'Океан',
+      accent: '#4ea8de',
+      accent2: '#1bb1ff',
+      accentRgb: '78, 168, 222',
+      aurora1: 'rgba(78, 168, 222, 0.28)',
+      aurora2: 'rgba(27, 177, 255, 0.18)',
+      aurora3: 'rgba(50, 100, 200, 0.14)',
+      swatch: 'linear-gradient(135deg, #4ea8de, #1bb1ff)'
+    },
+    neon: {
+      label: 'Розовый неон',
+      accent: '#ff3d96',
+      accent2: '#ff80b5',
+      accentRgb: '255, 61, 150',
+      aurora1: 'rgba(255, 61, 150, 0.30)',
+      aurora2: 'rgba(255, 128, 181, 0.18)',
+      aurora3: 'rgba(200, 50, 130, 0.14)',
+      swatch: 'linear-gradient(135deg, #ff3d96, #ff80b5)'
     }
   }
 

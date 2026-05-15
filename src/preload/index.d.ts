@@ -45,7 +45,15 @@ export interface PinnedPlaylist {
   thumbnail: string
 }
 
-export type Theme = 'purple' | 'cyan' | 'sunset' | 'forest' | 'crimson' | 'mono'
+export type Theme =
+  | 'purple'
+  | 'cyan'
+  | 'sunset'
+  | 'forest'
+  | 'crimson'
+  | 'mono'
+  | 'ocean'
+  | 'neon'
 
 export interface DownloadInfo {
   videoId: string

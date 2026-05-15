@@ -160,7 +160,15 @@ export function ytdlpBrowserArg(id: string): string | null {
 }
 
 export type DefaultTab = 'home' | 'search' | 'library'
-export type Theme = 'purple' | 'cyan' | 'sunset' | 'forest' | 'crimson' | 'mono'
+export type Theme =
+  | 'purple'
+  | 'cyan'
+  | 'sunset'
+  | 'forest'
+  | 'crimson'
+  | 'mono'
+  | 'ocean'
+  | 'neon'
 
 // One pinned playlist as it lives in the user's sidebar shortcut list.
 // We snapshot the title + thumbnail at pin time so the sidebar can render
