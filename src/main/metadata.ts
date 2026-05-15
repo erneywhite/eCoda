@@ -339,12 +339,17 @@ function parseTwoRowItem(r: Record<string, unknown>): HomeItem | null {
 export async function getLibraryPlaylists(): Promise<HomeSection> {
   const data = await innertubeFetch('/browse', { browseId: 'FEmusic_liked_playlists' })
   const items: HomeItem[] = []
-  // Library content lives inside a gridRenderer or a musicShelfRenderer
-  // depending on the tab. We don't care which — just find every
-  // musicTwoRowItemRenderer in the tree.
+  // The "Liked Music" / Auto-Playlist tile renders as a SECOND copy of an
+  // existing playlist in some libraries — and big libraries surface the
+  // same item under multiple shelves. Dedupe by id so Svelte's keyed each
+  // doesn't see the same key twice.
+  const seen = new Set<string>()
   for (const renderer of findAll(data, 'musicTwoRowItemRenderer')) {
     const item = parseTwoRowItem(renderer)
-    if (item) items.push(item)
+    if (item && !seen.has(item.id)) {
+      seen.add(item.id)
+      items.push(item)
+    }
   }
   return { title: 'Мои плейлисты', items }
 }
@@ -353,54 +358,106 @@ export async function getLibraryPlaylists(): Promise<HomeSection> {
 // PLAYLIST — open a playlist (or album) and return its tracks as SearchResults
 // ===========================================================================
 
+// Pulls a flex-column's text out of a musicResponsiveListItemRenderer.
+function flexColText(item: Record<string, unknown>, idx: number): string {
+  const cols = item.flexColumns as Array<Record<string, unknown>> | undefined
+  if (!Array.isArray(cols) || !cols[idx]) return ''
+  const inner = (cols[idx] as Record<string, unknown>).musicResponsiveListItemFlexColumnRenderer
+  if (!inner || typeof inner !== 'object') return ''
+  return runsText((inner as Record<string, unknown>).text)
+}
+
+function fixedColText(item: Record<string, unknown>, idx: number): string {
+  const cols = item.fixedColumns as Array<Record<string, unknown>> | undefined
+  if (!Array.isArray(cols) || !cols[idx]) return ''
+  const inner = (cols[idx] as Record<string, unknown>).musicResponsiveListItemFixedColumnRenderer
+  if (!inner || typeof inner !== 'object') return ''
+  return runsText((inner as Record<string, unknown>).text)
+}
+
 export async function getPlaylistTracks(id: string): Promise<{
   title: string
   subtitle: string
   thumbnail: string
   tracks: SearchResult[]
 }> {
-  const yt = await getInnertube()
-  const pl = (await yt.music.getPlaylist(id)) as unknown
-  const obj = pl as Record<string, unknown>
-  const header = (obj.header ?? {}) as Record<string, unknown>
-  const rawItems = Array.isArray(obj.items)
-    ? obj.items
-    : Array.isArray(obj.contents)
-      ? obj.contents
-      : []
+  // Playlist browse IDs need a "VL" prefix when fed through /browse —
+  // YouTube treats VL<id> as "view this playlist as a page". Our Home /
+  // Library cards already give us VL... for library; albums use MPRE...
+  // which works as-is.
+  const browseId = id.startsWith('VL') || id.startsWith('MPRE') ? id : `VL${id}`
+  const data = await innertubeFetch('/browse', { browseId })
+
+  // Header may live as musicDetailHeaderRenderer (old) or
+  // musicResponsiveHeaderRenderer (newer). Find whichever shows up.
+  let title = ''
+  let subtitle = ''
+  let thumbnail = ''
+  for (const h of findAll(data, 'musicDetailHeaderRenderer')) {
+    title = runsText(h.title)
+    subtitle = runsText(h.subtitle)
+    thumbnail = thumbnailUrl(
+      ((h.thumbnail as Record<string, unknown>)?.croppedSquareThumbnailRenderer as Record<string, unknown>)
+        ?.thumbnail ??
+        (h.thumbnail as Record<string, unknown>)?.musicThumbnailRenderer ??
+        h.thumbnail
+    )
+    if (title) break
+  }
+  if (!title) {
+    for (const h of findAll(data, 'musicResponsiveHeaderRenderer')) {
+      title = runsText(h.title)
+      subtitle = runsText((h.subtitle as unknown) ?? (h.straplineTextOne as unknown))
+      thumbnail = thumbnailUrl(
+        (h.thumbnail as Record<string, unknown>)?.musicThumbnailRenderer ?? h.thumbnail
+      )
+      if (title) break
+    }
+  }
 
   const tracks: SearchResult[] = []
-  for (const it of rawItems) {
-    if (!it || typeof it !== 'object') continue
-    const item = it as Record<string, unknown>
-    const videoId =
-      typeof item.id === 'string'
-        ? item.id
-        : typeof item.video_id === 'string'
-          ? item.video_id
-          : ''
+  const seenTrackIds = new Set<string>()
+  for (const item of findAll(data, 'musicResponsiveListItemRenderer')) {
+    // Track item: has a navigationEndpoint with watchEndpoint.videoId.
+    // Filter out non-track rows (artists, related, etc.) by requiring
+    // a videoId.
+    const flexCols = item.flexColumns as Array<Record<string, unknown>> | undefined
+    const firstCol = flexCols?.[0]
+    const firstColRenderer = (firstCol as Record<string, unknown>)
+      ?.musicResponsiveListItemFlexColumnRenderer
+    const titleRuns = (firstColRenderer as Record<string, unknown>)?.text as
+      | Record<string, unknown>
+      | undefined
+    const navEndpoint = (titleRuns?.runs as Array<Record<string, unknown>> | undefined)?.[0]
+      ?.navigationEndpoint as Record<string, unknown> | undefined
+    const watch = navEndpoint?.watchEndpoint as Record<string, unknown> | undefined
+    const videoId = typeof watch?.videoId === 'string' ? watch.videoId : ''
     if (!videoId || !/^[\w-]{11}$/.test(videoId)) continue
-    const trackTitle = asText(item.title) || asText(item.name)
+    if (seenTrackIds.has(videoId)) continue
+    seenTrackIds.add(videoId)
+
+    const trackTitle = flexColText(item, 0)
     if (!trackTitle) continue
-    const duration =
-      item.duration && typeof item.duration === 'object'
-        ? fmtDuration((item.duration as Record<string, unknown>).seconds)
-        : ''
+    // flex column 1 typically holds "Artist • Album" — take everything
+    // before the first bullet as the artist.
+    const col1 = flexColText(item, 1)
+    const artist = col1.split(/\s*[•·]\s*/)[0]
+    // duration in fixedColumns[0] (some shapes) or flexColumns[2] (others)
+    const duration = fixedColText(item, 0) || flexColText(item, 2)
+    const thumb = thumbnailUrl(
+      (item.thumbnail as Record<string, unknown>)?.musicThumbnailRenderer ?? item.thumbnail
+    )
+
     tracks.push({
       id: videoId,
       title: trackTitle,
-      artist: pickArtist(item),
+      artist,
       duration,
-      thumbnail: pickThumbnail(item)
+      thumbnail: thumb
     })
   }
 
-  return {
-    title: asText(header.title) || '',
-    subtitle: asText(header.subtitle) || asText(header.description) || '',
-    thumbnail: pickThumbnail(header),
-    tracks
-  }
+  return { title, subtitle, thumbnail, tracks }
 }
 
 // NOTE: extracting playable stream URLs via youtubei.js does NOT work for
