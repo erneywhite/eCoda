@@ -3,10 +3,16 @@ import { join } from 'path'
 import icon from '../../resources/icon.png?asset'
 import { verifyBrowserLogin } from './ytdlp'
 import { detectBrowsers, getBrowser, setBrowser, disconnect, ytdlpBrowserArg } from './auth'
-import { searchSongs, getHomeSections, getPlaylistTracks, resetInnertube } from './metadata'
+import {
+  searchSongs,
+  getHomeSections,
+  getPlaylistTracks,
+  getLibraryPlaylists,
+  resetInnertube
+} from './metadata'
 import { resolveCached, queuePrefetch, clearResolverCache } from './resolver'
 import { importCookiesToMusicSession, clearMusicSessionCookies } from './library-session'
-import { harvestTokens, resetHarvest } from './token-harvest'
+import { harvestTokens, resetHarvest, browseViaPage } from './token-harvest'
 
 let mainWindow: BrowserWindow | null = null
 
@@ -94,6 +100,9 @@ app.whenReady().then(() => {
   ipcMain.handle('metadata:search', (_event, query: string) => searchSongs(query))
   ipcMain.handle('metadata:home', () => getHomeSections())
   ipcMain.handle('metadata:playlist', (_event, id: string) => getPlaylistTracks(id))
+  // Native library (Phase B) — single section of the user's playlists,
+  // fetched via the page-proxy so the server treats us as logged-in.
+  ipcMain.handle('metadata:library-playlists', () => getLibraryPlaylists())
   // Ensures the persist:music partition has fresh YouTube cookies before
   // the renderer mounts the Library <webview>. Idempotent.
   ipcMain.handle('library:prepare', async () => {
@@ -110,6 +119,33 @@ app.whenReady().then(() => {
   ipcMain.handle('debug:harvest-tokens', async () => {
     const t = await harvestTokens()
     return t
+  })
+  // Diagnostic — proxies a /browse call through the hidden window so the
+  // request gets signed by the real browser engine. Use to verify whether
+  // logged_in flips to 1 this way (it should — the page itself shows
+  // logged_in=true).
+  ipcMain.handle('debug:browse-via-page', async (_event, browseId: string) => {
+    const t0 = Date.now()
+    try {
+      const data = await browseViaPage(browseId)
+      const ms = Date.now() - t0
+      const d = data as Record<string, unknown>
+      const responseContext = (d.responseContext ?? {}) as Record<string, unknown>
+      const params = (responseContext.serviceTrackingParams ?? []) as Array<{
+        service: string
+        params?: Array<{ key: string; value: string }>
+      }>
+      const flat: Record<string, string> = {}
+      for (const grp of params) {
+        for (const p of grp.params ?? []) flat[`${grp.service}.${p.key}`] = p.value
+      }
+      console.log(
+        `[browseViaPage] ${browseId} (${ms}ms) logged_in=${flat['GFEEDBACK.logged_in']} yt_li=${flat['CSI.yt_li']}`
+      )
+      return { ok: true, ms, loggedIn: flat['GFEEDBACK.logged_in'] === '1', topKeys: Object.keys(d) }
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) }
+    }
   })
   // Resolves a single track's stream URL. yt-dlp is the only working path —
   // youtubei.js can't get music streams without po_token (see metadata.ts).

@@ -4,6 +4,7 @@
 import type { Innertube } from 'youtubei.js'
 import { existsSync, readFileSync } from 'node:fs'
 import { getCookiesFilePath } from './auth'
+import { harvestTokens, innertubeFetch } from './token-harvest'
 
 let innertube: Innertube | null = null
 
@@ -46,8 +47,22 @@ function readCookieHeader(): string {
 async function getInnertube(): Promise<Innertube> {
   if (!innertube) {
     const cookie = readCookieHeader()
+    // Phase B: harvest visitor_data + client info from a hidden
+    // music.youtube.com window. Passing visitor_data into Innertube.create
+    // is what flips InnerTube responses from anonymous (logged_in=0,
+    // streaming_data empty for music) to authenticated.
+    const tokens = await harvestTokens().catch((err) => {
+      console.warn('[metadata] token harvest failed:', err)
+      return null
+    })
     const mod = await import('youtubei.js')
-    innertube = await mod.Innertube.create(cookie ? { cookie } : {})
+    const opts: Record<string, unknown> = {}
+    if (cookie) opts.cookie = cookie
+    if (tokens?.visitorData) opts.visitor_data = tokens.visitorData
+    console.log(
+      `[metadata] creating Innertube cookie=${!!cookie} visitor_data=${!!tokens?.visitorData}`
+    )
+    innertube = await mod.Innertube.create(opts)
   }
   return innertube
 }
@@ -224,6 +239,114 @@ export async function getHomeSections(): Promise<HomeSection[]> {
     if (items.length > 0) out.push({ title, items })
   }
   return out
+}
+
+// ===========================================================================
+// LIBRARY — user's own playlists / songs / etc., via the page proxy so
+// the server treats us as logged-in.
+// ===========================================================================
+
+// Walks an arbitrary YouTube response shape and yields every nested object
+// that has the named key. Tiny tree-walker, used to find the renderer we
+// care about regardless of how deeply YouTube wraps it.
+function* findAll(node: unknown, key: string): Generator<Record<string, unknown>> {
+  if (!node || typeof node !== 'object') return
+  if (Array.isArray(node)) {
+    for (const child of node) yield* findAll(child, key)
+    return
+  }
+  const obj = node as Record<string, unknown>
+  if (key in obj && obj[key] && typeof obj[key] === 'object') {
+    yield obj[key] as Record<string, unknown>
+  }
+  for (const v of Object.values(obj)) yield* findAll(v, key)
+}
+
+// Extracts the run text out of a Text { runs: [...] } shape (raw YT
+// response uses this for every styled string).
+function runsText(t: unknown): string {
+  if (!t || typeof t !== 'object') return ''
+  const obj = t as Record<string, unknown>
+  if (typeof obj.simpleText === 'string') return obj.simpleText
+  const runs = obj.runs
+  if (Array.isArray(runs)) {
+    return runs
+      .map((r) => {
+        const rr = r as Record<string, unknown>
+        return typeof rr.text === 'string' ? rr.text : ''
+      })
+      .join('')
+  }
+  return ''
+}
+
+function thumbnailUrl(t: unknown): string {
+  if (!t || typeof t !== 'object') return ''
+  const obj = t as Record<string, unknown>
+  const thumbs = (obj.thumbnails as Array<{ url?: unknown }>) ?? []
+  // Take the last (= largest) thumbnail; YT lists them small → big.
+  const last = thumbs[thumbs.length - 1]
+  return typeof last?.url === 'string' ? last.url : ''
+}
+
+// Parses a musicTwoRowItemRenderer (the playlist/album/artist card shape
+// used in HomeFeed AND library landing) into our HomeItem.
+function parseTwoRowItem(r: Record<string, unknown>): HomeItem | null {
+  const title = runsText(r.title)
+  const subtitle = runsText(r.subtitle)
+  const thumbnail = thumbnailUrl(
+    (r.thumbnailRenderer as Record<string, unknown>)?.musicThumbnailRenderer
+      ? ((r.thumbnailRenderer as Record<string, unknown>).musicThumbnailRenderer as Record<string, unknown>).thumbnail
+      : (r.thumbnail as Record<string, unknown>)?.musicThumbnailRenderer
+        ? ((r.thumbnail as Record<string, unknown>).musicThumbnailRenderer as Record<string, unknown>).thumbnail
+        : r.thumbnail
+  )
+
+  // The navigationEndpoint tells us what to do on tap AND which id to use.
+  // browseEndpoint → playlist/album/artist; watchEndpoint → song/video.
+  const nav = r.navigationEndpoint as Record<string, unknown> | undefined
+  const browse = nav?.browseEndpoint as Record<string, unknown> | undefined
+  const watch = nav?.watchEndpoint as Record<string, unknown> | undefined
+
+  if (browse) {
+    const browseId = typeof browse.browseId === 'string' ? browse.browseId : ''
+    // pageType tells us playlist vs album vs artist
+    const pageType =
+      (
+        (browse.browseEndpointContextSupportedConfigs as Record<string, unknown>)
+          ?.browseEndpointContextMusicConfig as Record<string, unknown>
+      )?.pageType ?? ''
+    let type: HomeItemType = 'playlist'
+    if (typeof pageType === 'string') {
+      if (pageType.includes('ALBUM')) type = 'album'
+      else if (pageType.includes('ARTIST')) type = 'artist'
+      else if (pageType.includes('PLAYLIST')) type = 'playlist'
+    }
+    if (!browseId || !title) return null
+    return { id: browseId, type, title, subtitle, thumbnail }
+  }
+  if (watch) {
+    const videoId = typeof watch.videoId === 'string' ? watch.videoId : ''
+    if (!videoId || !title) return null
+    return { id: videoId, type: 'song', title, subtitle, thumbnail }
+  }
+  return null
+}
+
+// Pulls the user's playlists tab from FEmusic_liked_playlists (the
+// browseId YT Music uses for "My library → Playlists"). Returns a single
+// HomeSection so the renderer can re-use the home grid layout.
+export async function getLibraryPlaylists(): Promise<HomeSection> {
+  const data = await innertubeFetch('/browse', { browseId: 'FEmusic_liked_playlists' })
+  const items: HomeItem[] = []
+  // Library content lives inside a gridRenderer or a musicShelfRenderer
+  // depending on the tab. We don't care which — just find every
+  // musicTwoRowItemRenderer in the tree.
+  for (const renderer of findAll(data, 'musicTwoRowItemRenderer')) {
+    const item = parseTwoRowItem(renderer)
+    if (item) items.push(item)
+  }
+  return { title: 'Мои плейлисты', items }
 }
 
 // ===========================================================================

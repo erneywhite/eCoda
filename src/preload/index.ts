@@ -13,10 +13,15 @@ const api = {
   metadata: {
     search: (query: string) => ipcRenderer.invoke('metadata:search', query),
     home: () => ipcRenderer.invoke('metadata:home'),
-    playlist: (id: string) => ipcRenderer.invoke('metadata:playlist', id)
+    playlist: (id: string) => ipcRenderer.invoke('metadata:playlist', id),
+    libraryPlaylists: () => ipcRenderer.invoke('metadata:library-playlists')
   },
   library: {
     prepare: () => ipcRenderer.invoke('library:prepare')
+  },
+  debug: {
+    harvestTokens: () => ipcRenderer.invoke('debug:harvest-tokens'),
+    browseViaPage: (browseId: string) => ipcRenderer.invoke('debug:browse-via-page', browseId)
   }
 }
 

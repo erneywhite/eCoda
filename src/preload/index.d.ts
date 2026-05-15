@@ -53,9 +53,14 @@ export interface EcodaApi {
     search: (query: string) => Promise<SearchResult[]>
     home: () => Promise<HomeSection[]>
     playlist: (id: string) => Promise<PlaylistView>
+    libraryPlaylists: () => Promise<HomeSection>
   }
   library: {
     prepare: () => Promise<{ ok: true; cookies: number } | { ok: false; error: string }>
+  }
+  debug: {
+    harvestTokens: () => Promise<unknown>
+    browseViaPage: (browseId: string) => Promise<unknown>
   }
 }
 

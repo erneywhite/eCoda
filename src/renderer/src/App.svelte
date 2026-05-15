@@ -33,16 +33,13 @@
   let playlistLoading = $state(false)
   let playlistError = $state('')
 
-  // ---- library view (webview-based for now) --------------------------------
-  // We mount the <webview> only after cookies have been imported into the
-  // persist:music partition — otherwise the embedded music.youtube.com would
-  // briefly show the anonymous "Sign in" UI before reloading. The reload
-  // key forces Svelte to re-mount the webview after every fresh cookie
-  // import so any cached "logged out" navigation is thrown away.
-  let libraryReady = $state(false)
+  // ---- library view (Phase B: native via page-proxy) -----------------------
+  // Single section "Мои плейлисты" for now. Tracks/Albums/Artists tabs go
+  // here later. The page-proxy under the hood signs every InnerTube call
+  // with SAPISIDHASH so the response is authenticated.
+  let libraryPlaylists = $state<HomeSection | null>(null)
+  let libraryLoading = $state(false)
   let libraryError = $state('')
-  let libraryUrl = $state('https://music.youtube.com/library')
-  let libraryReloadKey = $state(0)
 
   // ---- player ---------------------------------------------------------------
   let playing = $state<{
@@ -138,22 +135,22 @@
     openPlaylistId = null
     playing = null
     playStatus = 'idle'
-    libraryReady = false
+    libraryPlaylists = null
     libraryError = ''
     view = 'home'
   }
 
   async function openLibrary(): Promise<void> {
     view = 'library'
+    if (libraryPlaylists || libraryLoading) return
     libraryError = ''
-    // Always re-import cookies on open — cheap, and it guarantees we don't
-    // serve a stale "anonymous" cached navigation from the last visit.
-    const r = await window.api.library.prepare()
-    if (r.ok) {
-      libraryReloadKey++
-      libraryReady = true
-    } else {
-      libraryError = r.error
+    libraryLoading = true
+    try {
+      libraryPlaylists = await window.api.metadata.libraryPlaylists()
+    } catch (e) {
+      libraryError = e instanceof Error ? e.message : String(e)
+    } finally {
+      libraryLoading = false
     }
   }
 
@@ -499,22 +496,34 @@
             </ul>
           {/if}
         {:else if view === 'library'}
-          <!-- Phase A: embedded music.youtube.com with our cookies in
-               persist:music. Phase B will replace this with a native
-               youtubei.js implementation once we crack the auth tokens. -->
-          {#if libraryError}
-            <p class="status error">Не получилось подготовить библиотеку: {libraryError}</p>
-          {:else if libraryReady}
-            {#key libraryReloadKey}
-              <webview
-                class="library-frame"
-                src={libraryUrl}
-                partition="persist:music"
-                allowpopups="true"
-              ></webview>
-            {/key}
-          {:else}
-            <p class="status">Подключаюсь к твоей библиотеке…</p>
+          <!-- Phase B native: page-proxy signs InnerTube calls so we get
+               the real authenticated library response, then we render the
+               cards ourselves with the same grid as Home. -->
+          {#if libraryLoading}
+            <p class="status">Загружаю библиотеку…</p>
+          {:else if libraryError}
+            <p class="status error">Не получилось: {libraryError}</p>
+            <button onclick={openLibrary}>Попробовать ещё раз</button>
+          {:else if libraryPlaylists && libraryPlaylists.items.length > 0}
+            <div class="section">
+              <h3>{libraryPlaylists.title}</h3>
+              <div class="grid">
+                {#each libraryPlaylists.items as item (item.id)}
+                  <button class="card-tile" onclick={() => openCard(item)}>
+                    <div
+                      class="tile-thumb"
+                      style:background-image={item.thumbnail
+                        ? `url("${item.thumbnail}")`
+                        : 'none'}
+                    ></div>
+                    <div class="tile-title">{item.title}</div>
+                    <div class="tile-subtitle">{item.subtitle}</div>
+                  </button>
+                {/each}
+              </div>
+            </div>
+          {:else if libraryPlaylists}
+            <p class="status">В библиотеке пока пусто.</p>
           {/if}
         {/if}
       </section>
