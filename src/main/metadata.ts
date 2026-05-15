@@ -495,17 +495,31 @@ export interface ResolvedAudio {
   streamUrl: string
 }
 
-// Calls /youtubei/v1/player through the authenticated page-proxy and pulls
-// the best audio-only adaptiveFormat. For logged-in Premium accounts the
-// server returns a direct `url` without signatureCipher, so we can just
-// return it — no decipher, no yt-dlp, no Deno. Resolves in ~200-400ms
-// once the proxy window is warm.
+// Calls /youtubei/v1/player through the authenticated page-proxy with the
+// ANDROID_MUSIC client spliced into the request body. The WEB_REMIX client
+// always returns signatureCipher (Web can run JS to decipher), but
+// ANDROID_MUSIC returns plain `url` strings because Android can't —
+// Google strips the cipher for it.
 //
-// Returns null when the response either has no streamingData or only
-// returns signatureCipher (would require player.js decipher) — caller
-// falls back to yt-dlp in that case.
+// Authentication still comes from the page session (cookies + SAPISIDHASH
+// + visitor_data), so for our Premium account this gets us 256 kbps Opus
+// directly. Resolves in ~200-400ms once the proxy window is warm.
+//
+// Returns null when something doesn't line up (response shape change, no
+// streamingData, no direct url even from ANDROID_MUSIC) — caller falls
+// back to yt-dlp.
 export async function extractStreamUrlViaPage(videoId: string): Promise<ResolvedAudio | null> {
-  const data = (await innertubeFetch('/player', { videoId })) as Record<string, unknown>
+  const data = (await innertubeFetch(
+    '/player',
+    { videoId },
+    {
+      clientName: 'ANDROID_MUSIC',
+      clientVersion: '7.27.52',
+      androidSdkVersion: 34,
+      osName: 'Android',
+      osVersion: '14'
+    }
+  )) as Record<string, unknown>
   const streaming = data.streamingData as Record<string, unknown> | undefined
   const details = data.videoDetails as Record<string, unknown> | undefined
   if (!streaming) return null

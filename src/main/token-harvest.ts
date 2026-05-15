@@ -148,18 +148,49 @@ function destroyProxyWindow(): void {
 // context. The page computes SAPISIDHASH from document.cookie and attaches
 // all the X-Goog-* / X-YouTube-* headers Google expects; Chrome adds the
 // cookies for free. Server treats the call as logged_in.
-export async function innertubeFetch(endpoint: string, body: object): Promise<unknown> {
+//
+// clientOverride lets the caller swap context.client for the request — used
+// by the streaming fast path to ask /player on the ANDROID_MUSIC client,
+// which returns direct stream URLs without signatureCipher (Android can't
+// run JS decipher anyway).
+export interface ClientOverride {
+  clientName: string
+  clientVersion: string
+  clientNameId?: number
+  androidSdkVersion?: number
+  osName?: string
+  osVersion?: string
+}
+
+export async function innertubeFetch(
+  endpoint: string,
+  body: object,
+  clientOverride?: ClientOverride
+): Promise<unknown> {
   const win = await getProxyWindow()
   const bodyJson = JSON.stringify(body)
+  const overrideJson = JSON.stringify(clientOverride ?? null)
   // SAPISIDHASH-signed POST runs in the page context, so cookies are
   // attached natively and we synthesise the auth header from
   // document.cookie + crypto.subtle. clientBody is merged with the page's
   // own ytcfg context so we don't have to maintain client_name /
   // client_version separately.
   const json = await win.webContents.executeJavaScript(
-    `(async (endpoint, bodyJson) => {
+    `(async (endpoint, bodyJson, overrideJson) => {
       const cfg = (window).ytcfg.data_;
       const ctx = cfg.INNERTUBE_CONTEXT;
+      const override = JSON.parse(overrideJson);
+      // When called for the streaming fast path with an ANDROID_MUSIC
+      // override, we splice that client into context.client. Visitor data
+      // / experiments still come from the page's own ctx.client so the
+      // request looks like a normal authenticated session.
+      const clientForBody = override
+        ? Object.assign({}, ctx.client, override)
+        : ctx.client;
+      const contextForBody = Object.assign({}, ctx, { client: clientForBody });
+      // Header values use ctx.client (web), not the override — Google
+      // tolerates the body claiming a different client than the request
+      // headers, and matching headers to override breaks SAPISIDHASH.
       const visitorData = cfg.VISITOR_DATA || (ctx.client && ctx.client.visitorData);
       const clientName = cfg.INNERTUBE_CONTEXT_CLIENT_NAME || '67';
       const clientVersion = cfg.INNERTUBE_CONTEXT_CLIENT_VERSION || (ctx.client && ctx.client.clientVersion);
@@ -181,10 +212,8 @@ export async function innertubeFetch(endpoint: string, body: object): Promise<un
         'SAPISIDHASH ' + ts + '_' + hashHex +
         ' SAPISID1PHASH ' + ts + '_' + hashHex +
         ' SAPISID3PHASH ' + ts + '_' + hashHex;
-      // Merge caller body with ytcfg's own context — context.client carries
-      // visitor_data + experiments + locale and is required for every call.
       const callerBody = JSON.parse(bodyJson);
-      const finalBody = Object.assign({}, callerBody, { context: ctx });
+      const finalBody = Object.assign({}, callerBody, { context: contextForBody });
       const r = await fetch('/youtubei/v1' + endpoint + '?prettyPrint=false', {
         method: 'POST',
         credentials: 'include',
@@ -200,7 +229,7 @@ export async function innertubeFetch(endpoint: string, body: object): Promise<un
         body: JSON.stringify(finalBody)
       });
       return await r.text();
-    })(${JSON.stringify(endpoint)}, ${JSON.stringify(bodyJson)})`
+    })(${JSON.stringify(endpoint)}, ${JSON.stringify(bodyJson)}, ${JSON.stringify(overrideJson)})`
   )
   return JSON.parse(json)
 }
