@@ -101,12 +101,15 @@ export interface DetectedBrowser {
   name: string
 }
 
-// The supported browsers actually installed on this machine.
+// The supported browsers actually installed on this machine. For Firefox
+// forks we additionally require a profile that has a cookies.sqlite — an
+// empty "Profiles" directory left over from a past install should not count.
 export function detectBrowsers(): DetectedBrowser[] {
-  return BROWSERS.filter((b) => b.profileRoot && existsSync(b.profileRoot)).map(({ id, name }) => ({
-    id,
-    name
-  }))
+  return BROWSERS.filter((b) => {
+    if (!b.profileRoot || !existsSync(b.profileRoot)) return false
+    if (b.kind === 'firefox-fork') return resolveFirefoxProfile(b.profileRoot) !== null
+    return true
+  }).map(({ id, name }) => ({ id, name }))
 }
 
 // Inside a Firefox-family Profiles directory, picks the profile whose
