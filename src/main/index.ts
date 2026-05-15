@@ -90,7 +90,11 @@ function createWindow(): void {
       // The Library tab uses <webview> to embed music.youtube.com with our
       // cookies imported into a dedicated session partition. webviewTag is
       // off by default in modern Electron; we need it on.
-      webviewTag: true
+      webviewTag: true,
+      // DevTools available in dev only — installed users shouldn't be
+      // staring at a debugger by default, and disabling them here also
+      // blocks Ctrl+Shift+I + the View → Developer Tools menu item.
+      devTools: !app.isPackaged
     }
   })
 

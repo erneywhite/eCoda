@@ -84,6 +84,14 @@ const RU: Strings = {
   'settings.theme.title': 'Цветовая палитра',
   'settings.theme.hint':
     'Переключает акцентный цвет, фоновое свечение и кнопки плеера. Применяется мгновенно.',
+  'theme.purple': 'Фиолетовая',
+  'theme.cyan': 'Кибер-циан',
+  'theme.sunset': 'Закат',
+  'theme.forest': 'Лесная',
+  'theme.crimson': 'Кровавая',
+  'theme.mono': 'Монохром',
+  'theme.ocean': 'Океан',
+  'theme.neon': 'Розовый неон',
   'settings.behaviour.title': 'Поведение',
   'settings.behaviour.defaultTab': 'Открывать при запуске:',
   'settings.behaviour.hint':
@@ -186,6 +194,14 @@ const EN: Strings = {
   'settings.theme.title': 'Colour theme',
   'settings.theme.hint':
     'Switches the accent colour, background glow and player buttons. Applies instantly.',
+  'theme.purple': 'Purple',
+  'theme.cyan': 'Cyber Cyan',
+  'theme.sunset': 'Sunset',
+  'theme.forest': 'Forest',
+  'theme.crimson': 'Crimson',
+  'theme.mono': 'Mono',
+  'theme.ocean': 'Ocean',
+  'theme.neon': 'Neon Pink',
   'settings.behaviour.title': 'Behaviour',
   'settings.behaviour.defaultTab': 'Open on startup:',
   'settings.behaviour.hint':

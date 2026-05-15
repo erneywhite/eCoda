@@ -1170,12 +1170,12 @@
                     class="theme-swatch"
                     class:active={theme === key}
                     style:--swatch={def.swatch}
-                    aria-label={def.label}
-                    title={def.label}
+                    aria-label={t('theme.' + key)}
+                    title={t('theme.' + key)}
                     onclick={() => changeTheme(key as Theme)}
                   >
                     <span class="theme-dot"></span>
-                    <span class="theme-label">{def.label}</span>
+                    <span class="theme-label">{t('theme.' + key)}</span>
                   </button>
                 {/each}
               </div>
