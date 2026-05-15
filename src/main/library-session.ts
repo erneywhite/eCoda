@@ -32,9 +32,20 @@ export async function importCookiesToMusicSession(): Promise<number> {
 
   let imported = 0
   for (const rawLine of readFileSync(path, 'utf-8').split(/\r?\n/)) {
-    const line = rawLine.trim()
-    if (!line || line.startsWith('#')) continue
-    const parts = rawLine.split('\t')
+    let line = rawLine
+    // yt-dlp marks HttpOnly cookies by prefixing the domain field with
+    // "#HttpOnly_" — that's exactly where every meaningful YouTube auth
+    // cookie lives (__Secure-3PSID, LOGIN_INFO, SAPISID, etc). A naive
+    // "lines starting with # are comments" filter would drop them all,
+    // which leaves us logged out.
+    let httpOnly = false
+    if (line.startsWith('#HttpOnly_')) {
+      httpOnly = true
+      line = line.slice('#HttpOnly_'.length)
+    } else if (line.trimStart().startsWith('#') || !line.trim()) {
+      continue
+    }
+    const parts = line.split('\t')
     if (parts.length < 7) continue
     const [domain, , cookiePath, secureFlag, expirationStr, name, value] = parts
     if (!domain.includes('youtube.com') && !domain.includes('google.com')) continue
@@ -46,6 +57,7 @@ export async function importCookiesToMusicSession(): Promise<number> {
     const bareDomain = domain.startsWith('.') ? domain.slice(1) : domain
     const url = `https://${bareDomain}${cookiePath || '/'}`
     const expirationDate = Number(expirationStr)
+    const secure = secureFlag === 'TRUE'
 
     try {
       await ses.cookies.set({
@@ -54,13 +66,14 @@ export async function importCookiesToMusicSession(): Promise<number> {
         value,
         domain,
         path: cookiePath || '/',
-        secure: secureFlag === 'TRUE',
-        httpOnly: false,
-        expirationDate: Number.isFinite(expirationDate) && expirationDate > 0 ? expirationDate : undefined,
-        // Most YouTube cookies are SameSite=None so they work across the
-        // accounts.google.com / .youtube.com boundary. unspecified is safer
-        // than guessing 'lax' here.
-        sameSite: 'no_restriction'
+        secure,
+        httpOnly,
+        expirationDate:
+          Number.isFinite(expirationDate) && expirationDate > 0 ? expirationDate : undefined,
+        // SameSite=None requires Secure per modern Chrome rules. For cookies
+        // that aren't secure we leave SameSite at the default (unspecified)
+        // so Chrome doesn't reject them outright.
+        ...(secure ? { sameSite: 'no_restriction' as const } : {})
       })
       imported++
     } catch (err) {

@@ -17,9 +17,17 @@ function readCookieHeader(): string {
     const cookies: string[] = []
     // Split on both \r\n and \n so a trailing \r from Windows line endings
     // doesn't end up inside cookie values and break HTTP header validation.
-    for (const line of readFileSync(path, 'utf-8').split(/\r?\n/)) {
-      const trimmed = line.trim()
-      if (!trimmed || trimmed.startsWith('#')) continue
+    for (const rawLine of readFileSync(path, 'utf-8').split(/\r?\n/)) {
+      // yt-dlp prefixes HttpOnly cookies with "#HttpOnly_" — and the
+      // important auth cookies (__Secure-3PSID, SAPISID, LOGIN_INFO) all
+      // come through that way. A blanket "lines starting with # are
+      // comments" rule drops them all, leaving Innertube anonymous.
+      let line = rawLine
+      if (line.startsWith('#HttpOnly_')) {
+        line = line.slice('#HttpOnly_'.length)
+      } else if (line.trimStart().startsWith('#') || !line.trim()) {
+        continue
+      }
       const parts = line.split('\t')
       if (parts.length < 7) continue
       const [domain, , , , , name, value] = parts
