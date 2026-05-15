@@ -83,8 +83,12 @@
     } else if (entry.kind === 'playlist') {
       // If we're returning to a playlist we already loaded, the existing
       // playlistView is what we want. Only re-fetch when navigating to a
-      // different id.
-      if (openPlaylistId !== entry.id) void loadPlaylistData(entry.id)
+      // different id. Downloaded is the exception — it's a synthetic
+      // virtual playlist whose contents may have changed between visits
+      // (user downloaded/deleted tracks elsewhere), so always refresh.
+      if (entry.id === DOWNLOADED_ID || openPlaylistId !== entry.id) {
+        void loadPlaylistData(entry.id)
+      }
     } else if (entry.kind === 'settings') {
       void loadSettings()
     }
@@ -103,6 +107,14 @@
   let searched = $state(false)
 
   // ---- playlist view --------------------------------------------------------
+  // Special id for the synthetic "Downloaded" virtual playlist. Anything
+  // that compares against this constant is doing the right thing — the
+  // value just needs to be unique vs every InnerTube playlist id.
+  const DOWNLOADED_ID = 'DOWNLOADED'
+  function isDownloadedId(id: string | null): boolean {
+    return id === DOWNLOADED_ID
+  }
+
   let openPlaylistId = $state<string | null>(null)
   let playlistView = $state<PlaylistView | null>(null)
   let playlistLoading = $state(false)
@@ -337,11 +349,20 @@
   // Diagnostics card state — Verify cache button + last result.
   let verifying = $state(false)
   let verifyResult = $state<CacheVerifyResult | null>(null)
+  // Audio quality preset for new downloads. Defaults to 'best' on a
+  // fresh install (handled by the IPC default).
+  let audioQuality = $state<'best' | 'medium' | 'low'>('best')
 
   async function loadSettings(): Promise<void> {
     appInfo = await window.api.app.info()
     cacheStats = await window.api.downloads.stats()
     defaultTab = await window.api.settings.getDefaultTab()
+    audioQuality = await window.api.settings.getAudioQuality()
+  }
+
+  async function changeAudioQuality(q: 'best' | 'medium' | 'low'): Promise<void> {
+    audioQuality = q
+    await window.api.settings.setAudioQuality(q)
   }
 
   async function verifyCacheAction(): Promise<void> {
@@ -441,7 +462,15 @@
     if (downloadedIds.has(track.id)) {
       // already downloaded → delete
       const ok = await window.api.downloads.delete(track.id)
-      if (ok) removeDownloaded(track.id)
+      if (ok) {
+        removeDownloaded(track.id)
+        // When the user is looking AT the Downloaded virtual playlist
+        // and removes a track from it, refresh the list so the row
+        // disappears (and the count + size in the subtitle update).
+        if (isDownloadedId(openPlaylistId)) {
+          void loadPlaylistData(DOWNLOADED_ID)
+        }
+      }
       return
     }
     setDownloading(track.id, true)
@@ -944,6 +973,40 @@
     openPlaylistId = id
     playlistLoading = true
     playlistError = ''
+    // Synthetic "Downloaded" virtual playlist: data comes from the local
+    // manifest, not InnerTube. Same UI as a normal playlist; the pin
+    // button + bulk download are hidden because they don't apply.
+    if (isDownloadedId(id)) {
+      playlistFallback = null
+      try {
+        const data = await window.api.downloads.asPlaylist()
+        playlistView = {
+          title: t('downloaded.title'),
+          subtitle: t('downloaded.summary', {
+            n: data.tracks.length,
+            size: fmtBytes(data.totalBytes)
+          }),
+          thumbnail: data.thumbnail,
+          tracks: data.tracks.map((tr) => ({
+            id: tr.id,
+            title: tr.title,
+            artist: tr.artist,
+            duration: tr.duration,
+            thumbnail: tr.thumbnail
+          }))
+        }
+        // Everything in this list is by definition downloaded.
+        const s = new Set(downloadedIds)
+        for (const tr of data.tracks) s.add(tr.id)
+        downloadedIds = s
+      } catch (e) {
+        playlistError = e instanceof Error ? e.message : String(e)
+        playlistView = null
+      } finally {
+        playlistLoading = false
+      }
+      return
+    }
     // Keep the fallback cover in a local so a successful load can still
     // see it even after we clear the field. Big private playlists tend to
     // come back without a header thumbnail in the InnerTube response, and
@@ -1098,7 +1161,6 @@
 <main>
   <header>
     <img class="wordmark" src={wordmark} alt="eCoda" />
-    <div class="badge">{t('badge.phase')}</div>
     {#if connectedBrowser}
       <div class="history-nav">
         <button
@@ -1181,6 +1243,17 @@
             />
           </svg>
           {t('nav.library')}
+        </button>
+        <button
+          class="nav"
+          class:active={view === 'playlist' && isDownloadedId(openPlaylistId)}
+          onclick={() => navigate({ kind: 'playlist', id: DOWNLOADED_ID })}
+        >
+          <!-- material download icon: down-arrow into a tray -->
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
+            <path d="M5 20h14v-2H5v2zM19 9h-4V3H9v6H5l7 7 7-7z" />
+          </svg>
+          {t('nav.downloaded')}
         </button>
 
         {#if pinnedPlaylists.length > 0}
@@ -1309,16 +1382,26 @@
               ></div>
               <div class="playlist-info">
                 <div class="playlist-title">
-                  {isLikedMusicId(openPlaylistId)
-                    ? t('liked.music')
-                    : playlistView.title || t('playlist.untitled')}
+                  {#if isDownloadedId(openPlaylistId)}
+                    {t('downloaded.title')}
+                  {:else if isLikedMusicId(openPlaylistId)}
+                    {t('liked.music')}
+                  {:else}
+                    {playlistView.title || t('playlist.untitled')}
+                  {/if}
                 </div>
-                <div class="playlist-subtitle">{playlistView.subtitle}</div>
+                <div class="playlist-subtitle">
+                  {#if isDownloadedId(openPlaylistId)}
+                    {t('downloaded.subtitle')}
+                  {:else}
+                    {playlistView.subtitle}
+                  {/if}
+                </div>
                 {#if !playlistLoading}
                   <div class="playlist-count">
                     {t('playlist.count', { n: playlistView.tracks.length })}
                   </div>
-                  {#if !isLikedMusicId(openPlaylistId)}
+                  {#if !isLikedMusicId(openPlaylistId) && !isDownloadedId(openPlaylistId)}
                     <button
                       class="pin-toggle"
                       class:pinned={isPinned(openPlaylistId)}
@@ -1340,7 +1423,11 @@
                       {/if}
                     </button>
                   {/if}
-                  {#if bulkProgress}
+                  {#if isDownloadedId(openPlaylistId)}
+                    <!-- "Downloaded" virtual playlist: no bulk-download
+                         affordance (everything here is already on disk),
+                         no Retry-failed banner. -->
+                  {:else if bulkProgress}
                     <div class="bulk-progress">
                       {t('playlist.download.progress', {
                         done: bulkProgress.done,
@@ -1390,6 +1477,9 @@
           {/if}
           {#if playlistError}
             <p class="status error">{t('home.error', { error: playlistError })}</p>
+          {/if}
+          {#if !playlistLoading && isDownloadedId(openPlaylistId) && playlistView && playlistView.tracks.length === 0}
+            <p class="status empty">{t('downloaded.empty')}</p>
           {/if}
           {#if playlistView && playlistView.tracks.length > 0}
             <ul class="track-list">
@@ -1517,6 +1607,23 @@
                 </button>
               </div>
               <p class="settings-hint">{t('settings.behaviour.hint')}</p>
+            </section>
+
+            <section class="settings-card">
+              <h4>{t('settings.quality.title')}</h4>
+              <div class="quality-row">
+                {#each ['best', 'medium', 'low'] as q (q)}
+                  <button
+                    class="quality-btn"
+                    class:active={audioQuality === q}
+                    onclick={() => changeAudioQuality(q as 'best' | 'medium' | 'low')}
+                  >
+                    <span class="quality-label">{t(`settings.quality.${q}`)}</span>
+                    <span class="quality-sub">{t(`settings.quality.${q}Sub`)}</span>
+                  </button>
+                {/each}
+              </div>
+              <p class="settings-hint">{t('settings.quality.hint')}</p>
             </section>
 
             <section class="settings-card">
@@ -1984,16 +2091,6 @@
     width: auto;
     display: block;
     filter: drop-shadow(0 0 18px rgba(180, 60, 240, 0.35));
-  }
-
-  .badge {
-    width: fit-content;
-    padding: 0.25rem 0.7rem;
-    border: 1px solid #3a2d52;
-    border-radius: 999px;
-    background: rgba(var(--accent-rgb), 0.08);
-    color: #a99bc9;
-    font-size: 0.72rem;
   }
 
   .ghost {
@@ -2518,6 +2615,51 @@
     color: #ffffff;
   }
 
+  /* Quality picker — three tiles with a bold label + a faint
+     "kbps · MB/track" subline so the user sees both the name and the
+     real impact before clicking. Layout collapses to a single column on
+     narrow Settings panes. */
+  .quality-row {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    margin: 0.3rem 0 0.5rem;
+  }
+  .quality-btn {
+    flex: 1 1 130px;
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+    padding: 0.7rem 0.85rem;
+    border: 1px solid #34284e;
+    border-radius: 10px;
+    background: transparent;
+    color: #b9acd6;
+    cursor: pointer;
+    transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+    text-align: left;
+  }
+  .quality-btn:hover:not(.active) {
+    background: rgba(var(--accent-rgb), 0.08);
+    color: #ffffff;
+  }
+  .quality-btn.active {
+    background: rgba(var(--accent-rgb), 0.18);
+    border-color: rgba(var(--accent-rgb), 0.55);
+    color: #ffffff;
+  }
+  .quality-label {
+    font-size: 0.92rem;
+    font-weight: 700;
+  }
+  .quality-sub {
+    font-size: 0.74rem;
+    color: #8c7da8;
+  }
+  .quality-btn.active .quality-sub {
+    color: #b9acd6;
+  }
+
   .settings-btn.donate {
     border: none;
     background: linear-gradient(135deg, #ffb347, #ffd33d);
@@ -2775,19 +2917,9 @@
     font-size: 0.82rem;
   }
 
-  /* ---- library (embedded YT Music) --------------------------------------- */
-
-  /* The webview consumes the entire view-wrap so YT Music's own scroller is
-     the one in charge. .view-wrap has padding by default — we negate it so
-     the iframe-equivalent goes edge to edge inside the main column. */
-  .library-frame {
-    display: flex;
-    flex: 1;
-    width: 100%;
-    min-height: 0;
-    border: none;
-    margin: 0 0 -1.5rem 0;
-  }
+  /* (.library-frame removed — Phase B replaced the embedded webview with
+     a native page-proxied playlist grid. The class wasn't referenced by
+     any HTML for a few releases.) */
 
   /* ---- offline download buttons (playlist view only) --------------------- */
 

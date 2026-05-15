@@ -12,13 +12,16 @@ export const LANG_LABELS: Record<Lang, string> = {
 type Strings = Record<string, string>
 
 const RU: Strings = {
-  'badge.phase': 'Фаза 2 · нативная библиотека + офлайн-кеш',
-
   // Sidebar nav
   'nav.home': 'Главная',
   'nav.search': 'Поиск',
   'nav.library': 'Библиотека',
+  'nav.downloaded': 'Скачанные',
   'nav.settings': 'Настройки',
+  'downloaded.title': 'Скачанные',
+  'downloaded.subtitle': 'Доступны оффлайн',
+  'downloaded.empty': 'Ничего ещё не скачано. Используй ↓ на треке или 📥 на плейлисте.',
+  'downloaded.summary': '{n} треков · {size}',
   'nav.back': 'Назад',
   'nav.forward': 'Вперёд',
 
@@ -112,6 +115,15 @@ const RU: Strings = {
   'settings.cache.clearing': 'Чищу…',
   'settings.cache.clearConfirm':
     'Очистить весь оффлайн-кеш? Все скачанные треки будут удалены с диска. Действие нельзя отменить.',
+  'settings.quality.title': 'Качество скачивания',
+  'settings.quality.hint':
+    'Применяется к новым загрузкам. Уже скачанные треки не перекодируются.',
+  'settings.quality.best': 'Лучшее',
+  'settings.quality.bestSub': '~160 kbps · 5 MB/4 мин',
+  'settings.quality.medium': 'Среднее',
+  'settings.quality.mediumSub': '~128 kbps · 3.8 MB/4 мин',
+  'settings.quality.low': 'Экономия',
+  'settings.quality.lowSub': '~70 kbps · 2 MB/4 мин',
   'settings.updates.title': 'Обновления',
   'settings.updates.current': 'Текущая версия:',
   'settings.updates.idleHint':
@@ -154,12 +166,15 @@ const RU: Strings = {
 }
 
 const EN: Strings = {
-  'badge.phase': 'Phase 2 · native library + offline cache',
-
   'nav.home': 'Home',
   'nav.search': 'Search',
   'nav.library': 'Library',
+  'nav.downloaded': 'Downloaded',
   'nav.settings': 'Settings',
+  'downloaded.title': 'Downloaded',
+  'downloaded.subtitle': 'Available offline',
+  'downloaded.empty': 'Nothing downloaded yet. Use ↓ on a track or 📥 on a playlist.',
+  'downloaded.summary': '{n} tracks · {size}',
   'nav.back': 'Back',
   'nav.forward': 'Forward',
 
@@ -245,6 +260,15 @@ const EN: Strings = {
   'settings.cache.clearing': 'Clearing…',
   'settings.cache.clearConfirm':
     'Clear the entire offline cache? All downloaded tracks will be deleted from disk. This can’t be undone.',
+  'settings.quality.title': 'Download quality',
+  'settings.quality.hint':
+    'Applies to new downloads. Already-downloaded tracks aren’t re-encoded.',
+  'settings.quality.best': 'Best',
+  'settings.quality.bestSub': '~160 kbps · 5 MB/4 min',
+  'settings.quality.medium': 'Medium',
+  'settings.quality.mediumSub': '~128 kbps · 3.8 MB/4 min',
+  'settings.quality.low': 'Saver',
+  'settings.quality.lowSub': '~70 kbps · 2 MB/4 min',
   'settings.updates.title': 'Updates',
   'settings.updates.current': 'Current version:',
   'settings.updates.idleHint':
