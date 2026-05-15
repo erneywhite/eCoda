@@ -9,7 +9,7 @@
     SearchResult
   } from '../../preload/index.d'
 
-  type View = 'home' | 'search' | 'playlist' | 'library'
+  type View = 'home' | 'search' | 'playlist' | 'library' | 'settings'
   type PlayStatus = 'idle' | 'resolving' | 'playing' | 'error'
 
   // ---- auth state -----------------------------------------------------------
@@ -27,6 +27,7 @@
     | { kind: 'search' }
     | { kind: 'library' }
     | { kind: 'playlist'; id: string }
+    | { kind: 'settings' }
 
   let view = $state<View>('home')
   let historyStack = $state<HistoryEntry[]>([{ kind: 'home' }])
@@ -77,6 +78,8 @@
       // playlistView is what we want. Only re-fetch when navigating to a
       // different id.
       if (openPlaylistId !== entry.id) void loadPlaylistData(entry.id)
+    } else if (entry.kind === 'settings') {
+      void loadSettings()
     }
   }
 
@@ -97,6 +100,43 @@
   let playlistView = $state<PlaylistView | null>(null)
   let playlistLoading = $state(false)
   let playlistError = $state('')
+
+  // ---- settings -----------------------------------------------------------
+  let appInfo = $state<{ name: string; version: string; userData: string; repoUrl: string } | null>(
+    null
+  )
+  let cacheStats = $state<{ tracks: number; bytes: number } | null>(null)
+  let clearingCache = $state(false)
+
+  async function loadSettings(): Promise<void> {
+    appInfo = await window.api.app.info()
+    cacheStats = await window.api.downloads.stats()
+  }
+
+  function fmtBytes(n: number): string {
+    if (n < 1024) return `${n} B`
+    if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`
+    if (n < 1024 * 1024 * 1024) return `${(n / (1024 * 1024)).toFixed(1)} MB`
+    return `${(n / (1024 * 1024 * 1024)).toFixed(2)} GB`
+  }
+
+  async function clearCache(): Promise<void> {
+    if (clearingCache) return
+    if (
+      !confirm(
+        'Очистить весь оффлайн-кеш? Все скачанные треки будут удалены с диска. Действие нельзя отменить.'
+      )
+    )
+      return
+    clearingCache = true
+    try {
+      await window.api.downloads.clearAll()
+      downloadedIds = new Set()
+      cacheStats = await window.api.downloads.stats()
+    } finally {
+      clearingCache = false
+    }
+  }
 
   // ---- downloads (Phase 2: offline cache) ----------------------------------
   // We use SvelteSet via $state<Set<...>> so the UI reacts when items move
@@ -601,6 +641,14 @@
         >
           📚 Библиотека
         </button>
+        <div class="nav-spacer"></div>
+        <button
+          class="nav"
+          class:active={view === 'settings'}
+          onclick={() => navigate({ kind: 'settings' })}
+        >
+          ⚙ Настройки
+        </button>
       </aside>
 
       <section class="view-wrap">
@@ -759,6 +807,72 @@
               {/each}
             </ul>
           {/if}
+        {:else if view === 'settings'}
+          <div class="settings-page">
+            <h3>Настройки</h3>
+
+            <section class="settings-card">
+              <h4>Аккаунт</h4>
+              <p class="settings-line">
+                Подключён браузер: <strong>{browserName(connectedBrowser)}</strong>
+              </p>
+              <p class="settings-hint">
+                eCoda берёт твою сессию YouTube из этого браузера. Если ты сменишь
+                аккаунт там — переподключи здесь.
+              </p>
+              <button class="settings-btn" onclick={disconnect}>Отключить</button>
+            </section>
+
+            <section class="settings-card">
+              <h4>Оффлайн-кеш</h4>
+              {#if cacheStats}
+                <p class="settings-line">
+                  {cacheStats.tracks} треков · {fmtBytes(cacheStats.bytes)}
+                </p>
+              {:else}
+                <p class="settings-line">Загружаю…</p>
+              {/if}
+              <p class="settings-hint">
+                Скачанные треки играют мгновенно с диска, даже без интернета.
+                Управлять отдельными треками можно из плейлистов.
+              </p>
+              <button
+                class="settings-btn danger"
+                onclick={clearCache}
+                disabled={clearingCache || !cacheStats || cacheStats.tracks === 0}
+              >
+                {clearingCache ? 'Чищу…' : 'Очистить весь кеш'}
+              </button>
+            </section>
+
+            <section class="settings-card">
+              <h4>Обновления</h4>
+              <p class="settings-line">Текущая версия: <strong>{appInfo?.version ?? '…'}</strong></p>
+              <p class="settings-hint">
+                Автообновление пока не подключено. Скоро: проверка новых релизов
+                на GitHub и установка в один клик.
+              </p>
+              <button class="settings-btn" disabled title="Скоро">
+                Проверить обновления
+              </button>
+            </section>
+
+            <section class="settings-card">
+              <h4>О приложении</h4>
+              <p class="settings-line">{appInfo?.name ?? 'eCoda'}</p>
+              <p class="settings-hint">
+                Личный десктоп-клиент YouTube Music. Открытый код.
+              </p>
+              {#if appInfo?.repoUrl}
+                <button
+                  class="settings-btn"
+                  onclick={() => window.open(appInfo!.repoUrl, '_blank')}
+                >
+                  Открыть на GitHub
+                </button>
+              {/if}
+            </section>
+          </div>
         {:else if view === 'library'}
           <!-- Phase B native: page-proxy signs InnerTube calls so we get
                the real authenticated library response, then we render the
@@ -1102,6 +1216,91 @@
   .nav:disabled {
     opacity: 0.4;
     cursor: default;
+  }
+
+  /* Pushes whatever follows it to the bottom of the sidebar (Settings). */
+  .nav-spacer {
+    flex: 1;
+  }
+
+  /* ---- settings ---------------------------------------------------------- */
+
+  .settings-page {
+    display: flex;
+    flex-direction: column;
+    gap: 1.2rem;
+    max-width: 720px;
+  }
+
+  .settings-card {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    padding: 1.1rem 1.3rem;
+    border: 1px solid #241a38;
+    border-radius: 12px;
+    background: #150f22;
+  }
+
+  .settings-card h4 {
+    margin: 0 0 0.3rem 0;
+    color: #ffffff;
+    font-size: 0.95rem;
+    font-weight: 700;
+  }
+
+  .settings-line {
+    margin: 0;
+    color: #d4c9e8;
+    font-size: 0.9rem;
+  }
+
+  .settings-line strong {
+    color: #ffffff;
+    font-weight: 600;
+  }
+
+  .settings-hint {
+    margin: 0;
+    color: #8c7da8;
+    font-size: 0.8rem;
+    line-height: 1.45;
+  }
+
+  .settings-btn {
+    align-self: flex-start;
+    margin-top: 0.3rem;
+    padding: 0.55rem 1.1rem;
+    border: 1px solid #34284e;
+    border-radius: 9px;
+    background: transparent;
+    color: #d4c9e8;
+    font-size: 0.85rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+  }
+
+  .settings-btn:hover:not(:disabled) {
+    background: rgba(168, 85, 247, 0.18);
+    border-color: rgba(168, 85, 247, 0.5);
+    color: #ffffff;
+  }
+
+  .settings-btn:disabled {
+    opacity: 0.45;
+    cursor: default;
+  }
+
+  .settings-btn.danger {
+    border-color: rgba(255, 107, 157, 0.4);
+    color: #ff8db5;
+  }
+
+  .settings-btn.danger:hover:not(:disabled) {
+    background: rgba(255, 60, 120, 0.12);
+    border-color: rgba(255, 107, 157, 0.8);
+    color: #ffffff;
   }
 
   .view-wrap {

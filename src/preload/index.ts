@@ -22,11 +22,13 @@ const api = {
   downloads: {
     status: (ids: string[]) => ipcRenderer.invoke('downloads:status', ids),
     list: () => ipcRenderer.invoke('downloads:list'),
+    stats: () => ipcRenderer.invoke('downloads:stats'),
     track: (info: { videoId: string; title: string; artist: string; thumbnail: string }) =>
       ipcRenderer.invoke('downloads:track', info),
     playlist: (tracks: Array<{ videoId: string; title: string; artist: string; thumbnail: string }>) =>
       ipcRenderer.invoke('downloads:playlist', tracks),
     delete: (videoId: string) => ipcRenderer.invoke('downloads:delete', videoId),
+    clearAll: () => ipcRenderer.invoke('downloads:clearAll'),
     // The renderer subscribes once at mount; the unsubscribe function is
     // returned so $effect-style teardown can remove the listener cleanly.
     onProgress: (
@@ -37,6 +39,9 @@ const api = {
       ipcRenderer.on('downloads:progress', wrapped)
       return () => ipcRenderer.removeListener('downloads:progress', wrapped)
     }
+  },
+  app: {
+    info: () => ipcRenderer.invoke('app:info')
   },
   debug: {
     harvestTokens: () => ipcRenderer.invoke('debug:harvest-tokens'),

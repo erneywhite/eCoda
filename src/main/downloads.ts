@@ -119,6 +119,26 @@ export function listDownloadedTracks(): DownloadedTrack[] {
   return Object.values(m.tracks).sort((a, b) => b.downloadedAt - a.downloadedAt)
 }
 
+// Aggregate disk usage of the cache directory (audio + thumbnails) so
+// Settings can render "Cache: 1.4 GB · 73 tracks" without the renderer
+// having to walk anything itself.
+export function getCacheStats(): { tracks: number; bytes: number } {
+  const m = loadManifest()
+  let bytes = 0
+  for (const t of Object.values(m.tracks)) bytes += t.sizeBytes ?? 0
+  return { tracks: Object.keys(m.tracks).length, bytes }
+}
+
+// Nukes the entire offline cache (audio files, thumbnails, manifest).
+// Used by the Settings "Clear cache" button when the user wants to
+// reclaim disk space.
+export function clearAllDownloads(): number {
+  const m = loadManifest()
+  const ids = Object.keys(m.tracks)
+  for (const id of ids) deleteDownloadedTrack(id)
+  return ids.length
+}
+
 export function deleteDownloadedTrack(videoId: string): boolean {
   const m = loadManifest()
   const entry = m.tracks[videoId]

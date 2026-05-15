@@ -18,6 +18,8 @@ import {
   deleteDownloadedTrack,
   getCachedFilePath,
   getCachedThumbPath,
+  getCacheStats,
+  clearAllDownloads,
   getDownloadedStatus,
   listDownloadedTracks,
   type TrackInfo
@@ -275,6 +277,16 @@ app.whenReady().then(() => {
     return true
   })
   ipcMain.handle('downloads:delete', (_event, videoId: string) => deleteDownloadedTrack(videoId))
+  ipcMain.handle('downloads:stats', () => getCacheStats())
+  ipcMain.handle('downloads:clearAll', () => clearAllDownloads())
+
+  // App-level info for Settings.
+  ipcMain.handle('app:info', () => ({
+    name: app.getName(),
+    version: app.getVersion(),
+    userData: app.getPath('userData'),
+    repoUrl: 'https://github.com/erneywhite/eCoda'
+  }))
 
   createWindow()
 

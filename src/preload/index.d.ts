@@ -86,10 +86,15 @@ export interface EcodaApi {
   downloads: {
     status: (ids: string[]) => Promise<string[]>
     list: () => Promise<DownloadedTrack[]>
+    stats: () => Promise<{ tracks: number; bytes: number }>
     track: (info: DownloadInfo) => Promise<DownloadedTrack>
     playlist: (tracks: DownloadInfo[]) => Promise<boolean>
     delete: (videoId: string) => Promise<boolean>
+    clearAll: () => Promise<number>
     onProgress: (cb: (p: DownloadProgress) => void) => () => void
+  }
+  app: {
+    info: () => Promise<{ name: string; version: string; userData: string; repoUrl: string }>
   }
   debug: {
     harvestTokens: () => Promise<unknown>
