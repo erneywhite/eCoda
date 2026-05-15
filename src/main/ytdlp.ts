@@ -11,9 +11,17 @@ const run = promisify(execFile)
 // yt-dlp solves YouTube's signature/nsig JS challenges with a JS runtime it
 // finds on PATH. We ship our own Deno and put it on PATH for the child
 // process, so extraction never depends on a system-wide install.
+//
+// PYTHONIOENCODING is critical on Windows: yt-dlp is a Python program,
+// and Python defaults to the active code page (cp1251 in RU locale) for
+// stdout. Track names with Cyrillic/CJK/emoji come back mojibake'd when
+// Node decodes those bytes as UTF-8. Forcing UTF-8 fixes the player bar
+// title and any other %(title)s output we read back.
 const ytdlpEnv = {
   ...process.env,
-  PATH: `${dirname(denoPath)}${delimiter}${process.env.PATH ?? ''}`
+  PATH: `${dirname(denoPath)}${delimiter}${process.env.PATH ?? ''}`,
+  PYTHONIOENCODING: 'utf-8',
+  PYTHONUTF8: '1'
 }
 
 export interface ResolvedAudio {

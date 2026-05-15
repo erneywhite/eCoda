@@ -444,9 +444,12 @@ export async function getPlaylistTracks(id: string): Promise<{
     const artist = col1.split(/\s*[•·]\s*/)[0]
     // duration in fixedColumns[0] (some shapes) or flexColumns[2] (others)
     const duration = fixedColText(item, 0) || flexColText(item, 2)
-    const thumb = thumbnailUrl(
-      (item.thumbnail as Record<string, unknown>)?.musicThumbnailRenderer ?? item.thumbnail
-    )
+    // Thumbnail structure: item.thumbnail.musicThumbnailRenderer.thumbnail.thumbnails[]
+    // — we need to drill TWO levels into the renderer, not one.
+    const tRenderer = (item.thumbnail as Record<string, unknown>)?.musicThumbnailRenderer as
+      | Record<string, unknown>
+      | undefined
+    const thumb = thumbnailUrl(tRenderer?.thumbnail ?? tRenderer ?? item.thumbnail)
 
     tracks.push({
       id: videoId,
