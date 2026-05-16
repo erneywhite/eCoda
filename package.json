@@ -1,7 +1,7 @@
 {
   "name": "ecoda",
   "version": "1.0.0",
-  "description": "Desktop YouTube Music client with offline caching — own your music",
+  "description": "Native desktop client for YouTube Music — your library, offline cache, mini-player, crossfade. Windows + macOS.",
   "author": "Erney White",
   "license": "MIT",
   "main": "./out/main/index.js",
