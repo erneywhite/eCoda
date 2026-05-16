@@ -2721,9 +2721,6 @@
                   draggable={true}
                   ondragstart={(e) => onRowDragStart(e, idx)}
                   ondragover={(e) => onRowDragOver(e, idx)}
-                  ondragleave={() => {
-                    if (dragOverIndex === idx) dragOverIndex = null
-                  }}
                   ondrop={(e) => onRowDrop(e, idx)}
                   ondragend={onRowDragEnd}
                   animate:flip={{ duration: 240, easing: quintOut }}
