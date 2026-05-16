@@ -19,4 +19,8 @@ resources/deno
 resources/python-mac/
 resources/python-win/
 .claude/
+# Per-machine Claude context file — moved to local-only after 1.0.0
+# (transferred between dev machines manually instead of via git so the
+# public repo doesn't carry dev-only notes).
+CLAUDE.md
 logs/
