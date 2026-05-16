@@ -1,5 +1,13 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte'
+  // Animation primitives. `flip` smooths track-list reorders (drag +
+  // reshuffle + reset all trigger a SubArray swap that flip animates
+  // from old → new positions). `fade` + `scale` polish view changes
+  // and the context-menu pop. quintOut is the easing used by YT and
+  // most modern UIs — fast tail, settles softly without overshoot.
+  import { flip } from 'svelte/animate'
+  import { fade, scale } from 'svelte/transition'
+  import { quintOut } from 'svelte/easing'
   import wordmark from './assets/wordmark.png'
   import { translate, LANG_LABELS, type Lang } from './i18n'
   import type {
@@ -2718,6 +2726,7 @@
                   }}
                   ondrop={(e) => onRowDrop(e, idx)}
                   ondragend={onRowDragEnd}
+                  animate:flip={{ duration: 240, easing: quintOut }}
                 >
                   <button
                     class="track-row"
@@ -3214,10 +3223,20 @@
 
         <div class="bottom-row">
           <div class="now-playing">
-            <div
-              class="np-cover"
-              style:background-image={`url("${thumbnailFor(playing.id, playing.thumbnail)}")`}
-            ></div>
+            <!-- Cover wrapper lets the previous + next cover overlap
+                 briefly while {#key playing.id} swaps them, so a track
+                 change reads as a soft crossfade rather than an
+                 instant pop. -->
+            <div class="np-cover-wrap">
+              {#key playing.id}
+                <div
+                  class="np-cover"
+                  style:background-image={`url("${thumbnailFor(playing.id, playing.thumbnail)}")`}
+                  in:fade={{ duration: 260, easing: quintOut }}
+                  out:fade={{ duration: 200 }}
+                ></div>
+              {/key}
+            </div>
             <div class="np-meta">
               <div class="np-title" title={playing.title}>{playing.title}</div>
               <div class="np-artist" title={playing.artist || playing.format}>
@@ -3474,6 +3493,7 @@
       role="menu"
       style:left="{ctxMenu.x}px"
       style:top="{ctxMenu.y}px"
+      transition:scale={{ duration: 130, start: 0.94, opacity: 0, easing: quintOut }}
     >
       {#each ctxMenu.items as item}
         <button
@@ -4513,8 +4533,11 @@
     color: #ffffff;
     text-align: left;
     cursor: pointer;
+    /* Longer transform with a snappy out-curve so the lift reads
+       deliberate rather than twitchy. The other props stay quick. */
     transition: background 0.18s ease, border-color 0.18s ease,
-      transform 0.18s ease, box-shadow 0.18s ease;
+      transform 0.28s cubic-bezier(0.2, 0.8, 0.2, 1),
+      box-shadow 0.28s cubic-bezier(0.2, 0.8, 0.2, 1);
   }
 
   /* Pin/unpin overlay shown in the top-right of a Library card. Hidden
@@ -4573,6 +4596,14 @@
     background-position: center;
     background-size: cover;
     background-repeat: no-repeat;
+    transition: transform 0.4s cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+  /* Subtle Spotify-style zoom on the cover when hovering the tile —
+     gives the static grid some life without making any one tile shout.
+     overflow:hidden on .card-tile keeps the scaled cover inside its
+     rounded corners. */
+  .card-tile:hover .tile-thumb {
+    transform: scale(1.04);
   }
 
   .tile-title {
@@ -4656,7 +4687,12 @@
     align-items: center;
     gap: 0.4rem;
     position: relative;
-    transition: opacity 0.12s ease, box-shadow 0.12s ease;
+    /* Drag pickup needs to smoothly fade in the shadow + grow the
+       scale; same eased values back when the row is dropped. background
+       is included so the .dragging tint also fades. */
+    transition: opacity 0.14s ease, box-shadow 0.18s ease,
+      transform 0.18s cubic-bezier(0.2, 0.8, 0.2, 1),
+      background 0.18s ease;
   }
   .track-li .track-row {
     flex: 1;
@@ -4703,13 +4739,20 @@
     cursor: not-allowed;
   }
   /* Drag-and-drop reorder visuals:
-     .dragging  — the row currently being dragged (faded so the user
-                  sees it's been picked up).
+     .dragging  — the row currently being dragged. Instead of fading
+                  it (which looks "broken"), keep it vibrant but lift
+                  it slightly with a soft accent-tinted shadow — reads
+                  like a card you've literally picked up off the page.
      .drag-over — the row currently under the cursor; a 2px accent line
                   on top serves as the drop indicator. Drop lands the
                   row ABOVE the indicator, matching the visual cue. */
   .track-li.dragging {
-    opacity: 0.45;
+    transform: scale(1.012);
+    box-shadow: 0 8px 22px rgba(var(--accent-rgb), 0.28),
+      0 2px 6px rgba(0, 0, 0, 0.35);
+    background: rgba(var(--accent-rgb), 0.06);
+    border-radius: 10px;
+    z-index: 2;
   }
   .track-li.drag-over::before {
     content: '';
@@ -4718,10 +4761,27 @@
     right: 0;
     top: -1px;
     height: 2px;
-    background: var(--accent);
+    background: linear-gradient(
+      90deg,
+      transparent 0%,
+      var(--accent) 20%,
+      var(--accent-2) 80%,
+      transparent 100%
+    );
     border-radius: 2px;
-    box-shadow: 0 0 8px rgba(var(--accent-rgb), 0.6);
+    box-shadow: 0 0 10px rgba(var(--accent-rgb), 0.7);
     pointer-events: none;
+    animation: drop-indicator-in 0.18s ease-out both;
+  }
+  @keyframes drop-indicator-in {
+    from {
+      transform: scaleX(0.55);
+      opacity: 0;
+    }
+    to {
+      transform: scaleX(1);
+      opacity: 1;
+    }
   }
   /* Pinned-row indicator: a small accent-tinted pin between the artist
      meta and the duration column. The whole row stays clickable; only
@@ -5100,10 +5160,17 @@
     min-width: 0;
   }
 
-  .np-cover {
+  /* Wrapper sized to the cover so absolute children can overlap during
+     the crossfade without disturbing the layout of the meta column. */
+  .np-cover-wrap {
     flex: 0 0 auto;
+    position: relative;
     width: 56px;
     height: 56px;
+  }
+  .np-cover {
+    position: absolute;
+    inset: 0;
     border-radius: 10px;
     background-color: #0e0a16;
     background-position: center;
@@ -5286,6 +5353,11 @@
     display: flex;
     flex-direction: column;
     gap: 0.1rem;
+    /* Scale-in transition uses the top-left corner as the origin so
+       the menu appears to grow OUT of the click point (where its
+       absolute-positioned top-left was placed), rather than ballooning
+       from its centre and looking detached from the cursor. */
+    transform-origin: top left;
   }
   .ctx-item {
     display: flex;
