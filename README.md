@@ -2,7 +2,7 @@
 
 Desktop client for YouTube Music — your library, fast playback, Spotify-style offline cache, and a native UI you can theme. Talks to YouTube's InnerTube API directly: no embedded webview, no heavy web player.
 
-> **Status:** Phases 0–5 done as of 0.0.34. Custom frameless titlebar added on top. Phase 6 (artist + album views, lyrics) and Phase 7 (tray + global media keys + mini-player) are next. Public 1.0 release still pending the artist's final brand assets.
+> **Status:** Phases 0–6 done as of 0.0.38. Custom frameless titlebar + motion polish on top. Lyrics intentionally cut from Phase 6 (not the right fit for a personal player). Phase 7 (tray + global media keys + mini-player) is next. Public 1.0 release still pending the artist's final brand assets.
 
 ## Features
 
@@ -27,6 +27,11 @@ Desktop client for YouTube Music — your library, fast playback, Spotify-style 
 - **Right-click context menu** on every track row (playlist + search): `▶ Play next`, `≡ Add to queue`, `📻 Start radio`, plus the streamer-bundle actions below. Material-style icons next to each label.
 - **Explicit queue** (separate from sourceList) — "Play next" prepends, "Add to queue" appends; the queue takes priority over normal sourceList traversal at end-of-track. Toast feedback on every queue action.
 - **Mid-resolve clicks switch tracks** — clicking a different row while one is resolving cancels the in-flight resolve (the spinner overlay jumps to the new row), so you're never stuck waiting on a decision you've already changed your mind about.
+
+### Artist & album views
+- **Artist page** — click any artist name in a track row (search / playlist / Downloaded / artist top-songs) or any artist card on Home / Library / artist-related-artists. Header has the circular cover, name, locale-aware subscriber line ("138 подписчиков" / "1.2M subscribers"), Play and Shuffle buttons. Below: Top Songs list (full row UI — heart, download, context menu, mid-resolve switching all work), then every YT carousel (Albums, Singles, Featured on, related artists) as a grid of card-tiles.
+- **Album header polish** — when the opened "playlist" is actually an album (browseId starts with MPRE / OLAK), the header reads "Альбом · {Artist link} · {Year}" instead of YT's generic "Playlist" subtitle. Artist link navigates straight to the artist page.
+- **Click any artist name** — the page-proxy parser extracts each row's primary artist channelId (`UC…`-prefix browseEndpoint in the subtitle column) and the renderer wraps the artist text in a focusable link span (Enter/Space keyboard activation, stopPropagation so the click doesn't fire the row's play handler).
 
 ### Likes & radio
 - **Inline heart on every row** — filled red = liked, outlined = not. One click toggles via the page-proxy `/like/like` + `/like/removelike` endpoints; optimistic UI flips the heart immediately and reverts on failure. The currently-playing track also has its own heart in the player bar.
@@ -134,7 +139,7 @@ mockups/                 standalone HTML mockups (A/B/C) used during UI redesign
 - **Phase 1 — streaming MVP** — ✅ done (search, home, playlist navigation, custom player UI)
 - **Phase 2 — offline** — ✅ done (per-track + per-playlist downloads, persistent cache, instant disk playback via `media://`)
 - **Phase 3 — polish** — ✅ done (sidebar pinned playlists, eight colour themes, language switch, mouse-side-button navigation, settings with cache/diagnostics/about/updates/donate, audio quality picker, Downloaded virtual playlist, live progress rings, total playlist duration, unavailable-row handling)
-- **Phase 4 — distribution** — ✅ done (`electron-builder` NSIS installer, `electron-updater` against GitHub Releases; current build cycle: 0.0.x, latest 0.0.34)
+- **Phase 4 — distribution** — ✅ done (`electron-builder` NSIS installer, `electron-updater` against GitHub Releases; current build cycle: 0.0.x, latest 0.0.38)
 - **Phase 5 — playback features** — ✅ done across 0.0.14 + 0.0.24–34:
   - ✅ shuffle + repeat modes (off / all / one), both persisted
   - ✅ queue management (separate from sourceList; Play next / Add to queue)
@@ -149,7 +154,12 @@ mockups/                 standalone HTML mockups (A/B/C) used during UI redesign
   - ✅ "Radio by track" via `yt.music.getUpNext` — opens as a synthesised playlist view, not just a hijacked queue
   - ✅ Mid-resolve clicks switch tracks instead of being blocked
 - **Custom frameless titlebar** — ✅ done in 0.0.33–34 (minimize / maximize-restore / close in our palette, drag region on the header, Aero snap kept intact)
-- **Phase 6 — deeper navigation (planned)** — artist + album views, lyrics panel via `yt.music.getLyrics`.
+- **Motion polish** — ✅ done in 0.0.35–36 (FLIP on track-list reorders, drag-pickup lift, drop-indicator animation, ctx-menu scale-in, player-bar cover crossfade, hover-lift + thumb zoom on cards)
+- **Phase 6 — deeper navigation** — ✅ done in 0.0.37–38:
+  - ✅ Artist page: header (photo + name + subscribers + Play/Shuffle), Top Songs, every YT carousel (Albums / Singles / Featured on / related artists)
+  - ✅ Album header polish: "Альбом · {Artist link} · {Year}" instead of generic "Playlist"
+  - ✅ Clickable artist names in every track row (parser extracts each row's channelId)
+  - ❌ Lyrics — intentionally cut (not the right fit for a personal player)
 - **Phase 7 — system integration (planned)** — system tray icon + minimal menu, global media keys (Play / Pause / Next / Prev that work when the app isn't focused), mini-player mode (slim always-on-top window).
 - **Brand swap** — when the artist delivers the final wordmark + icon, drop them into `branding/` and rebuild.
 - **macOS port** — same codebase, `.dmg` target, needs Mac/CI + Apple notarisation. The custom titlebar will need a macOS branch (traffic lights on the left).
