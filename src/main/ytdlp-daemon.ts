@@ -109,8 +109,11 @@ export class YtdlpDaemon {
   }
 
   // Issues a resolve request. Returns title/ext/url for the bestaudio
-  // format. Rejects if the daemon errors out or if the process exits
-  // before answering this request.
+  // format. Rejects if the daemon errors out, exits before answering,
+  // or doesn't respond within RESOLVE_TIMEOUT_MS (defensive — covers
+  // the case where the daemon hangs on a stuck network call OR where
+  // a malformed stdout line slips past our JSON parser and we never
+  // match the response back to the request).
   pendingCount(): number {
     return this.pending.size
   }
@@ -122,28 +125,39 @@ export class YtdlpDaemon {
     }
     const id = this.nextId++
     return new Promise<DaemonResolveResult>((resolve, reject) => {
-      this.pending.set(id, { resolve, reject })
+      // 60s timeout: typical resolve is 3-7s, anything over a minute
+      // means the daemon is hung. We reject the promise so the caller
+      // can fall back, and force-restart the daemon on the way out
+      // so the rest of the pool doesn't inherit the wedged process.
+      const timer = setTimeout(() => {
+        if (!this.pending.has(id)) return
+        this.pending.delete(id)
+        console.warn(`[yt-dlp-daemon] resolve id=${id} timed out after 60s — restarting`)
+        try {
+          this.proc?.kill()
+        } catch {
+          /* already dead */
+        }
+        reject(new Error('yt-dlp daemon resolve timed out'))
+      }, 60_000)
+      this.pending.set(id, {
+        resolve: (v) => {
+          clearTimeout(timer)
+          resolve(v)
+        },
+        reject: (e) => {
+          clearTimeout(timer)
+          reject(e)
+        }
+      })
       const payload = { id, cmd: 'resolve', videoId, browser, denoPath }
       try {
         this.proc!.stdin!.write(JSON.stringify(payload) + '\n')
       } catch (err) {
+        clearTimeout(timer)
         this.pending.delete(id)
         reject(err as Error)
       }
-    })
-  }
-
-  // Fire-and-forget warmup. Triggers YoutubeDL construction (extractor
-  // load + cookies extraction + visitor_data fetch) for the given
-  // (browser, denoPath) combo so the user's first real click pays only
-  // the network cost (~3s) rather than the construction cost (~5-7s).
-  // We do it by issuing a resolve against a known-public, lightweight
-  // video; the result is discarded.
-  warmup(browser: string, denoPath: string): void {
-    // Rick Astley's "Never Gonna Give You Up" — stable, always available,
-    // a sensible canary track.
-    this.resolve('dQw4w9WgXcQ', browser, denoPath).catch((err) => {
-      console.warn('[yt-dlp-daemon] warmup failed:', err.message)
     })
   }
 

@@ -2800,6 +2800,14 @@
             </button>
           {/each}
         </div>
+        <!-- Safari on macOS reads its cookies from the app sandbox, which
+             requires Full Disk Access for eCoda. Without that, yt-dlp
+             gets a permission error and the "no login found" message
+             would be misleading. Show a hint while Safari is in the
+             list so users know what to do BEFORE picking it. -->
+        {#if isMac && browsers.some((b) => b.id === 'safari')}
+          <p class="hint" style:margin-top="0.6rem">{t('connect.safariFda')}</p>
+        {/if}
       {:else}
         <p class="status">{t('connect.noBrowsers')}</p>
       {/if}

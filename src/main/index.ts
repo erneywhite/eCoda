@@ -787,7 +787,7 @@ async function silentReconnect(): Promise<void> {
     // cost (~5-7s) on one daemon; subsequent clicks land on the warm
     // daemon at ~3s. No-op on Windows/Linux.
     try {
-      startYtdlpDaemon(arg)
+      startYtdlpDaemon()
     } catch (err) {
       console.warn('[startup-reconnect] daemon start failed:', err)
     }

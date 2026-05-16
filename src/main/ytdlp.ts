@@ -100,7 +100,11 @@ function getYtdlpDaemonPool(): YtdlpDaemonPool | null {
 // The first user-click pays the YoutubeDL construction cost (~5-7s) on
 // one daemon while the other stays cold for background prefetches; the
 // second click typically lands on the warmed daemon at ~3s.
-export function startYtdlpDaemon(_browser: string): void {
+//
+// (Earlier signature took a `browser` arg for a planned warmup; we
+// dropped the warmup because it queued ahead of the user's first click
+// and hurt latency — so the param is gone too.)
+export function startYtdlpDaemon(): void {
   getYtdlpDaemonPool()
 }
 

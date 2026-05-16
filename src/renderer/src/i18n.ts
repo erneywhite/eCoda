@@ -41,6 +41,8 @@ const RU: Strings = {
   'connect.error': 'В {browser} не найден вход в YouTube. Войди в YouTube в этом браузере и попробуй снова.',
   'connect.openYouTube': 'Войти в YouTube в браузере',
   'connect.noBrowsers': 'Поддерживаемые браузеры на этом компьютере не найдены.',
+  'connect.safariFda':
+    'Для Safari нужен доступ к диску: Системные настройки → Конфиденциальность и безопасность → Полный доступ к диску → включи eCoda. Иначе чтение cookies не сработает.',
 
   // Search
   'search.placeholder': 'Поиск трека, артиста, альбома',
@@ -256,6 +258,8 @@ const EN: Strings = {
   'connect.error': 'No YouTube login found in {browser}. Sign into YouTube in that browser and try again.',
   'connect.openYouTube': 'Open YouTube in browser',
   'connect.noBrowsers': 'No supported browsers found on this machine.',
+  'connect.safariFda':
+    'Safari needs Full Disk Access: System Settings → Privacy & Security → Full Disk Access → enable eCoda. Otherwise reading cookies will fail.',
 
   'search.placeholder': 'Search for a track, artist, album',
   'search.button.idle': 'Search',
