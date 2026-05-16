@@ -782,6 +782,12 @@
   } | null>(null)
   let playStatus = $state<PlayStatus>('idle')
   let playError = $state('')
+  // The videoId we're currently resolving (during the ~500ms-4s gap
+  // between click and the audio element getting a streamUrl). The list
+  // shows a small ring overlaid on that row's thumbnail. NULL when not
+  // actively resolving — distinct from `playing.id` which still points
+  // at the previously-playing track during a resolve.
+  let resolvingId = $state<string | null>(null)
   let audioEl = $state<HTMLAudioElement>()
   // Mirror these from the <audio> element so the custom UI can render
   // controls. Bound via on:play/pause/timeupdate/etc.
@@ -1778,6 +1784,11 @@
     }
     playStatus = 'resolving'
     playError = ''
+    // The track we're about to resolve isn't `playing` yet — `playing`
+    // still points at whatever was previously playing. Surface the
+    // resolving state on the NEW row by stashing its id; the list
+    // overlays a tiny spinner on that row's thumbnail.
+    resolvingId = track.id
     try {
       const r = await window.api.resolveAudio(track.id)
       playing = {
@@ -1829,6 +1840,8 @@
     } catch (e) {
       playStatus = 'error'
       playError = e instanceof Error ? e.message : String(e)
+    } finally {
+      resolvingId = null
     }
   }
 
@@ -1974,6 +1987,30 @@
       ? 0
       : playlistView.tracks.reduce((sum, t) => sum + parseDuration(t.duration), 0)
   )
+
+  // Liked state of the currently-playing track, derived from whatever
+  // list it was launched from. setTrackLikedEverywhere keeps that list
+  // in sync after toggle, so this stays accurate without us having to
+  // store `liked` on `playing` itself.
+  const playingLiked = $derived(
+    playing == null
+      ? false
+      : !!playing.sourceList?.find((t) => t.id === playing!.id)?.liked
+  )
+
+  // Player-bar heart toggle. Synthesizes a minimal SearchResult so
+  // toggleTrackLike's optimistic update path can run against `playing`.
+  async function togglePlayingLikeFromBar(): Promise<void> {
+    if (!playing) return
+    await toggleTrackLike({
+      id: playing.id,
+      title: playing.title,
+      artist: playing.artist,
+      duration: '',
+      thumbnail: playing.thumbnail,
+      liked: playingLiked
+    })
+  }
 
   // Big Play button in the playlist header. If a track from THIS playlist
   // is currently playing → toggle pause/play (so the same button does
@@ -2336,8 +2373,13 @@
                   >
                     <div
                       class="thumb"
+                      class:resolving={resolvingId === r.id}
                       style:background-image={r.thumbnail ? `url("${r.thumbnail}")` : 'none'}
-                    ></div>
+                    >
+                      {#if resolvingId === r.id}
+                        <span class="thumb-spinner" aria-hidden="true"></span>
+                      {/if}
+                    </div>
                     <div class="meta">
                       <div class="title">{r.title}</div>
                       <div class="artist">{r.artist}</div>
@@ -2617,8 +2659,13 @@
                   >
                     <div
                       class="thumb"
+                      class:resolving={resolvingId === r.id}
                       style:background-image={`url("${thumbnailFor(r.id, r.thumbnail)}")`}
-                    ></div>
+                    >
+                      {#if resolvingId === r.id}
+                        <span class="thumb-spinner" aria-hidden="true"></span>
+                      {/if}
+                    </div>
                     <div class="meta">
                       <div class="title">{r.title}</div>
                       <div class="artist">
@@ -3044,11 +3091,11 @@
       </section>
     </div>
 
-    {#if playStatus === 'resolving'}
-      <div class="resolving-bar">
-        <span class="spinner spinner-inline"></span>
-      </div>
-    {/if}
+    <!-- Resolving feedback moved onto the playing track's thumbnail (see
+         .thumb.resolving in each row). The floating bar that used to
+         live here was visually disconnected from anything the user
+         clicked. Error stays as a banner since there's no row state to
+         overlay it on. -->
     {#if playStatus === 'error'}
       <div class="resolving-bar error">{t('player.error', { error: playError })}</div>
     {/if}
@@ -3186,12 +3233,23 @@
             <span class="time-inline">
               {fmtTime(currentTime)} / {fmtTime(duration)}
             </span>
-            <!-- Download chip for the currently-playing track. Same UX as
-                 the per-row chip in the playlist view: idle → downloads,
-                 done → deletes (no confirm). A spinner replaces the icon
-                 while the download is in flight. Hidden when nothing is
-                 actively playing (no track to act on). -->
+            <!-- Like + download chips for the currently-playing track.
+                 Both hidden when nothing is actively playing (no track
+                 to act on). The like state is derived from sourceList so
+                 it stays in sync with optimistic updates done from the
+                 inline row hearts. -->
             {#if playing && playing.streamUrl}
+              <button
+                class="ctrl small like-bar"
+                class:liked={playingLiked}
+                onclick={() => void togglePlayingLikeFromBar()}
+                aria-label={playingLiked ? t('like.remove') : t('like.add')}
+                title={playingLiked ? t('like.remove') : t('like.add')}
+              >
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
+                  <path d={playingLiked ? CTX_ICONS.like : CTX_ICONS.unlike} />
+                </svg>
+              </button>
               <button
                 class="ctrl small dl"
                 class:done={downloadedIds.has(playing.id)}
@@ -4758,6 +4816,33 @@
     background-position: center;
     background-size: cover;
     background-repeat: no-repeat;
+    position: relative;
+  }
+
+  /* The cover is dimmed while we're resolving its stream URL so the
+     centred spinner stays legible against any thumbnail colour. */
+  .thumb.resolving::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.55);
+    border-radius: 6px;
+  }
+  .thumb-spinner {
+    position: absolute;
+    inset: 0;
+    margin: auto;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    border: 2px solid rgba(255, 255, 255, 0.2);
+    border-top-color: var(--accent);
+    animation: thumb-spin 0.9s linear infinite;
+  }
+  @keyframes thumb-spin {
+    to {
+      transform: rotate(360deg);
+    }
   }
 
   .meta {
@@ -4972,6 +5057,26 @@
      user can tell at a glance whether the current track is on disk.
      position:relative so the .cancel-x overlay can inset against it
      when downloading. */
+  .ctrl.small.like-bar {
+    color: #b9acd6;
+    margin-left: 0.25rem;
+    transition: color 0.15s ease, background 0.15s ease, transform 0.12s ease;
+  }
+  .ctrl.small.like-bar:hover {
+    background: rgba(255, 90, 130, 0.16);
+    color: #ff6b9d;
+  }
+  .ctrl.small.like-bar.liked {
+    color: #ff5577;
+  }
+  .ctrl.small.like-bar.liked:hover {
+    background: rgba(255, 90, 130, 0.22);
+    color: #ff7da0;
+  }
+  .ctrl.small.like-bar:active {
+    transform: scale(0.88);
+  }
+
   .ctrl.small.dl {
     position: relative;
     margin-left: 0.25rem;
