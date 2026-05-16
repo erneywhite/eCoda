@@ -196,6 +196,12 @@ eCoda — **неофициальный** клиент, не связан с YouT
 
 Just open the app and listen.
 
+<p align="center">
+  <img src="docs/screenshot-library.png" alt="eCoda main screen" width="800" />
+</p>
+
+---
+
 ## ✨ What it does
 
 - 🎵 **Your real YT Music library** — all your playlists, Liked Music, subscriptions. What you have in the browser, you have here
@@ -211,46 +217,158 @@ Just open the app and listen.
 
 Plus dozens of small touches you'll only notice while using it.
 
+---
+
 ## 📥 Download
 
-[**⬇️ Latest release on GitHub**](https://github.com/erneywhite/eCoda/releases/latest)
+<div align="center">
+
+### [⬇️ Latest release on GitHub](https://github.com/erneywhite/eCoda/releases/latest)
+
+</div>
 
 | Platform | File | Size |
 | --- | --- | --- |
 | **Windows 10/11** (x64) | `eCoda-Setup-1.0.0.exe` | ~131 MB |
 | **macOS** (Apple Silicon — M1/M2/M3/M4) | `eCoda-1.0.0-arm64.dmg` | ~180 MB |
 
+---
+
 ## ⚙️ Install
 
-**Windows:** download the `.exe`, run it. SmartScreen will warn (unsigned app — Microsoft asks $300/year for code-signing, hard pass). Click **"More info" → "Run anyway"**. Pick a browser where you're already signed into YouTube on first launch — eCoda reads your session from there.
+### Windows
 
-**macOS:** open the `.dmg`, drag eCoda to Applications. First launch: **right-click → Open → Open** (Gatekeeper, app isn't notarised through Apple Developer Program — $99/year, also hard pass). One-time. Then pick a browser, same as Windows.
+1. Download the `.exe` from the link above and run it
+2. Windows might complain: "Defender: app from an unknown publisher" — normal for apps without an official Microsoft code-signing cert (it's $300/year, hard pass). Click **"More info" → "Run anyway"**
+3. Step through the installer as usual
+4. Launch eCoda. Pick a browser from the list where you're already signed into YouTube — eCoda reads your session from there. No passwords needed
+
+### macOS
+
+1. Download the `.dmg`, open it, drag **eCoda** into **Applications**
+2. First launch: macOS will complain — the app isn't notarised through Apple Developer Program ($99/year, also hard pass). Fix is simple:
+   - **Right-click eCoda** in Applications → **"Open"**
+   - Click **"Open"** again in the dialog that appears
+   - You only need to do this **once**; afterwards it launches with a normal double-click
+3. Pick a browser signed into YouTube — eCoda reads cookies from there
+
+---
 
 ## 🧩 What you need
 
-- A browser signed into YouTube — Firefox / Chrome / Edge / Brave / Opera / Vivaldi / Chromium / Whale / Safari (macOS) + Firefox forks. Doesn't need to be open afterwards.
-- **YouTube Premium recommended** — 256 kbps Opus + no ad breaks. Works without, with ads.
-- No accounts, no telemetry. Everything lives on your disk.
+- **An installed browser** signed into YouTube. Almost all are supported:
+  Firefox, Chrome, Edge, Brave, Opera, Vivaldi, Chromium, Whale, Safari (macOS only) + Firefox forks (Waterfox, LibreWolf, Floorp, Zen)
+  > The browser doesn't need to stay open — eCoda just reads cookies from it once during setup
+- **YouTube Premium** — strongly recommended. With Premium, tracks come in 256 kbps Opus with no ad breaks. Works without, but with ads and quality capped at 128 kbps
+- No accounts, no signups, no telemetry. Everything lives locally on your disk
+
+---
+
+## 🎯 How to use it (quick start)
+
+After connecting a browser:
+
+- **Sidebar on the left** — Home (YT recommendations), Search, Library (your playlists), Downloaded (what's saved to disk)
+- **Liked Music** automatically appears in the sidebar at the top as a pinned playlist
+- **Any playlist can be pinned** to the sidebar with the 📌 button — always one click away
+- **Right-click any track** — menu: "Play next", "Add to queue", "Start radio from track", "Pin position"
+- **Heart next to a track** — like / unlike. Syncs to YT
+- **⛶ button in the header** (next to back/forward arrows) — opens mini-player
+- **⚙️ Settings** at the bottom of the sidebar — themes, language, download quality, crossfade, close-button behaviour, etc.
+
+---
 
 ## ❓ FAQ
 
-**Is this legal?** It's an unofficial client for YouTube that uses the same API as the official YT Music app and plays only what's available in your account. That said — it's not affiliated with YouTube or Google, use at your own discretion, respect YT's terms.
+<details>
+<summary><b>Is this legal?</b></summary>
 
-**Where are downloaded tracks stored?** Windows: `%APPDATA%\ecoda\offline\`. macOS: `~/Library/Application Support/ecoda/offline/`.
+eCoda is just a client for YouTube. It uses the same API as the official YT Music app, and only plays what's available in your account.
 
-**Auto-updates?** Yes, eCoda checks GitHub Releases on launch + Settings → Updates has a "Check now" button.
+That said — it's an **unofficial** client, not affiliated with YouTube or Google. Use at your own discretion, respect YouTube's terms.
 
-**Safari on macOS asks for Full Disk Access** — Safari keeps its cookies in a sandbox; eCoda needs FDA to read them. System Settings → Privacy & Security → Full Disk Access → enable eCoda. Restart the app.
+</details>
 
-**Linux?** Not shipped yet. Code is cross-platform, but I haven't packaged `.deb`/`.AppImage`. Open an Issue if you want it.
+<details>
+<summary><b>Will there be a mobile version?</b></summary>
+
+No, the project is desktop-only. Mobile already has the official YT Music app — it works fine.
+
+</details>
+
+<details>
+<summary><b>Where are downloaded tracks stored?</b></summary>
+
+- **Windows:** `%APPDATA%\ecoda\offline\`
+- **macOS:** `~/Library/Application Support/ecoda/offline/`
+
+You can open this folder right from the app: Settings → Diagnostics → "Open" next to "Cache folder".
+
+</details>
+
+<details>
+<summary><b>Are updates automatic?</b></summary>
+
+Yes, on launch eCoda quietly checks GitHub Releases for new versions. If there's one, it shows up in Settings → Updates. One click to download, then "Restart and install".
+
+If the updater is silent, you can also check manually from the same Settings page with "Check for updates".
+
+</details>
+
+<details>
+<summary><b>After updating, my desktop shortcut shows the old icon</b></summary>
+
+That's **Windows** caching shortcut icons and refreshing them lazily. Fixes:
+- Reboot the machine, or
+- In cmd: `ie4uinit.exe -show`, or
+- Delete the shortcut and recreate it from the Start menu
+
+The icon inside the `.exe` itself is already the new one, don't worry.
+
+</details>
+
+<details>
+<summary><b>On macOS, Safari doesn't work / asks for permission</b></summary>
+
+Safari keeps its cookies in a sandboxed folder, and eCoda needs **Full Disk Access** to read it:
+
+System Settings → Privacy & Security → Full Disk Access → enable eCoda
+
+After that, restart the app and Safari will appear in the browser list.
+
+</details>
+
+<details>
+<summary><b>Can I switch accounts?</b></summary>
+
+Yes — Settings → Account → "Disconnect". Then pick a browser again. If you want to switch YouTube accounts, log into the other one in the browser, then reconnect it in eCoda.
+
+</details>
+
+<details>
+<summary><b>What about Linux?</b></summary>
+
+No Linux build yet. The code is cross-platform (Electron + youtubei.js + yt-dlp all work everywhere), I just haven't gotten around to packaging `.deb`/`.AppImage` and testing it. If you're interested — open an Issue, or send a PR.
+
+</details>
+
+---
 
 ## 🎨 Credits
 
-Mascot + wordmark by **[╻٭𝕊˙𖣐˙ℝ˙𝔸˙𝕊٭╹](https://t.me/S_O_R_A_S)**. Powered by [yt-dlp](https://github.com/yt-dlp/yt-dlp), [youtubei.js](https://github.com/LuanRT/YouTube.js), [Electron](https://www.electronjs.org/), [Svelte](https://svelte.dev/), and [Deno](https://deno.com/).
+- 🦝 **Raccoon mascot + wordmark** — drawn by **[╻٭𝕊˙𖣐˙ℝ˙𝔸˙𝕊٭╹](https://t.me/S_O_R_A_S)**.
+- 🛠️ **[yt-dlp](https://github.com/yt-dlp/yt-dlp)** + **[youtubei.js](https://github.com/LuanRT/YouTube.js)** — without these this app wouldn't exist
+- 🚀 **[Electron](https://www.electronjs.org/)** + **[Svelte](https://svelte.dev/)** + **[Deno](https://deno.com/)** — the stack everything runs on
+
+---
 
 ## 📜 License + disclaimer
 
-[MIT](LICENSE). eCoda is **unofficial** and not affiliated with YouTube or Google. For personal use. Bug reports + ideas welcome in [Issues](https://github.com/erneywhite/eCoda/issues).
+[MIT](LICENSE) — do whatever you want with the code, just don't blame me if something breaks.
+
+eCoda is an **unofficial** client, not affiliated with YouTube or Google. Built for personal use. Respect YouTube's terms and your local laws.
+
+Bug reports and ideas — in [Issues](https://github.com/erneywhite/eCoda/issues).
 
 <sub>Made with 🦝 by Erney White, 2026</sub>
 
