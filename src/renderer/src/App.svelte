@@ -2393,6 +2393,22 @@
         >
           ›
         </button>
+        {#if playing}
+          <!-- Mini-player entry button — only shown when a track is
+               loaded, since there's nothing for the mini view to
+               render otherwise. Sits next to nav since it's a window-
+               level switch, like the window controls on the right. -->
+          <button
+            class="hist mini-enter"
+            onclick={() => void window.api.window.enterMini('compact')}
+            aria-label={t('mini.enter')}
+            title={t('mini.enter')}
+          >
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
+              <path d="M19 11h-8v6h8v-6zm4 8V4.98C23 3.88 22.1 3 21 3H3c-1.1 0-2 .88-2 1.98V19c0 1.1.9 2 2 2h18c1.1 0 2-.9 2-2zm-2 .02H3V4.97h18v14.05z"/>
+            </svg>
+          </button>
+        {/if}
       </div>
     {/if}
     <!-- Custom window controls. Native chrome is hidden (titleBarStyle:
@@ -3831,21 +3847,6 @@
                 {/if}
               </button>
             {/if}
-            <!-- Mini-player entry: same window resizes + goes always-on-top
-                 + swaps the renderer to the .mini-shell layout. Starts in
-                 compact (A) mode; user can toggle to square (B) from
-                 inside the mini-player. -->
-            <button
-              class="ctrl small mini-enter"
-              onclick={() => void window.api.window.enterMini('compact')}
-              aria-label={t('mini.enter')}
-              title={t('mini.enter')}
-            >
-              <!-- picture_in_picture_alt: signals "shrink to corner widget" -->
-              <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
-                <path d="M19 11h-8v6h8v-6zm4 8V4.98C23 3.88 22.1 3 21 3H3c-1.1 0-2 .88-2 1.98V19c0 1.1.9 2 2 2h18c1.1 0 2-.9 2-2zm-2 .02H3V4.97h18v14.05z"/>
-              </svg>
-            </button>
           </div>
 
           <div class="volume">
@@ -3921,86 +3922,95 @@
              drag region; interactive children (`.mini-btn`, the seek
              input) opt out via -webkit-app-region: no-drag. Audio
              element stays mounted inside the hidden player-bar above so
-             playback isn't interrupted across the mode toggle. -->
-        <div class="mini-shell" class:layout-square={miniLayout === 'square'}>
+             playback isn't interrupted across the mode toggle.
+
+             --seek-pct is a CSS custom property that drives the
+             progress fill in the seek track's gradient — without it
+             the track stayed flat-gray regardless of playback. -->
+        <div
+          class="mini-shell"
+          class:layout-square={miniLayout === 'square'}
+          style:--seek-pct={duration > 0 ? `${(currentTime / duration) * 100}%` : '0%'}
+        >
+          <!-- Thin seek strip at the very top of the shell — same role
+               as the one on the full player bar. Renders as a block at
+               the top so it's never clipped by overflow. -->
+          <input
+            type="range"
+            class="mini-seek"
+            min="0"
+            max={Math.max(0, duration)}
+            step="0.1"
+            value={currentTime}
+            onpointerdown={() => (seeking = true)}
+            oninput={(e) => {
+              const v = parseFloat((e.currentTarget as HTMLInputElement).value)
+              if (Number.isFinite(v)) currentTime = v
+            }}
+            onchange={(e) => {
+              const v = parseFloat((e.currentTarget as HTMLInputElement).value)
+              if (Number.isFinite(v) && audioEl) audioEl.currentTime = v
+              seeking = false
+            }}
+          />
           {#if miniLayout === 'compact'}
-            <!-- A: horizontal pill -->
-            <div
-              class="mini-cover-sm"
-              style:background-image={`url("${thumbnailFor(playing.id, playing.thumbnail)}")`}
-            ></div>
-            <div class="mini-meta">
-              <div class="mini-title" title={playing.title}>{playing.title}</div>
-              <div class="mini-artist" title={playing.artist}>{playing.artist}</div>
+            <!-- A: horizontal pill. Below the seek strip = a single row. -->
+            <div class="mini-row">
+              <div
+                class="mini-cover-sm"
+                style:background-image={`url("${thumbnailFor(playing.id, playing.thumbnail)}")`}
+              ></div>
+              <div class="mini-meta">
+                <div class="mini-title" title={playing.title}>{playing.title}</div>
+                <div class="mini-artist" title={playing.artist}>{playing.artist}</div>
+              </div>
+              <div class="mini-controls">
+                <button class="mini-btn" onclick={() => void playPrev()} title={t('player.prev')}>
+                  <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M6 6h2v12H6zm3.5 6 8.5 6V6z"/></svg>
+                </button>
+                <button class="mini-btn mini-btn-primary" onclick={togglePlay} title={isPlaying ? t('player.pause') : t('player.play')}>
+                  {#if isPlaying}
+                    <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M6 5h4v14H6zM14 5h4v14h-4z"/></svg>
+                  {:else}
+                    <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M9 5v14l11-7z"/></svg>
+                  {/if}
+                </button>
+                <button class="mini-btn" onclick={() => void playNext({ fromUserClick: true })} title={t('player.next')}>
+                  <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M6 18l8.5-6L6 6zM16 6h2v12h-2z"/></svg>
+                </button>
+                <button
+                  class="mini-btn mini-btn-like"
+                  class:liked={playingLiked}
+                  onclick={() => void togglePlayingLikeFromBar()}
+                  title={playingLiked ? t('like.remove') : t('like.add')}
+                >
+                  <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d={playingLiked ? CTX_ICONS.like : CTX_ICONS.unlike}/></svg>
+                </button>
+                <button
+                  class="mini-btn"
+                  onclick={() => void window.api.window.setMiniLayout('square')}
+                  title={t('mini.switchToSquare')}
+                >
+                  <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M4 4h7v7H4zm9 0h7v7h-7zM4 13h7v7H4zm9 0h7v7h-7z"/></svg>
+                </button>
+                <button
+                  class="mini-btn"
+                  onclick={() => void window.api.window.exitMini()}
+                  title={t('mini.exit')}
+                >
+                  <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M5 5h6V3H3v8h2zm14 0h-6V3h8v8h-2zM5 19h6v2H3v-8h2zm14 0h-6v2h8v-8h-2z"/></svg>
+                </button>
+              </div>
             </div>
-            <div class="mini-controls">
-              <button class="mini-btn" onclick={() => void playPrev()} title={t('player.prev')}>
-                <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M6 6h2v12H6zm3.5 6 8.5 6V6z"/></svg>
-              </button>
-              <button class="mini-btn mini-btn-primary" onclick={togglePlay} title={isPlaying ? t('player.pause') : t('player.play')}>
-                {#if isPlaying}
-                  <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M6 5h4v14H6zM14 5h4v14h-4z"/></svg>
-                {:else}
-                  <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M9 5v14l11-7z"/></svg>
-                {/if}
-              </button>
-              <button class="mini-btn" onclick={() => void playNext({ fromUserClick: true })} title={t('player.next')}>
-                <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M6 18l8.5-6L6 6zM16 6h2v12h-2z"/></svg>
-              </button>
-              <button
-                class="mini-btn mini-btn-like"
-                class:liked={playingLiked}
-                onclick={() => void togglePlayingLikeFromBar()}
-                title={playingLiked ? t('like.remove') : t('like.add')}
-              >
-                <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d={playingLiked ? CTX_ICONS.like : CTX_ICONS.unlike}/></svg>
-              </button>
-              <button
-                class="mini-btn"
-                onclick={() => void window.api.window.setMiniLayout('square')}
-                title={t('mini.switchToSquare')}
-              >
-                <!-- view_module: switch to square cover layout -->
-                <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M4 11h6V5H4v6zm0 7h6v-6H4v6zm7 0h6v-6h-6v6zm7-13v6h-6V5h6zm-6 7h6v6h-6zm-7-7h6v6H4z" opacity="0"/><path d="M4 4h7v7H4zm9 0h7v7h-7zM4 13h7v7H4zm9 0h7v7h-7z"/></svg>
-              </button>
-              <button
-                class="mini-btn"
-                onclick={() => void window.api.window.exitMini()}
-                title={t('mini.exit')}
-              >
-                <!-- open_in_full: restore back to full window -->
-                <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M5 5h6V3H3v8h2zm14 0h-6V3h8v8h-2zM5 19h6v2H3v-8h2zm14 0h-6v2h8v-8h-2z"/></svg>
-              </button>
-            </div>
-            <!-- Thin seek strip at the bottom edge — same role as the
-                 one on the full player bar. -->
-            <input
-              type="range"
-              class="mini-seek"
-              min="0"
-              max={Math.max(0, duration)}
-              step="0.1"
-              value={currentTime}
-              onpointerdown={() => (seeking = true)}
-              oninput={(e) => {
-                const v = parseFloat((e.currentTarget as HTMLInputElement).value)
-                if (Number.isFinite(v)) currentTime = v
-              }}
-              onchange={(e) => {
-                const v = parseFloat((e.currentTarget as HTMLInputElement).value)
-                if (Number.isFinite(v) && audioEl) audioEl.currentTime = v
-                seeking = false
-              }}
-            />
           {:else}
-            <!-- B: square cover-focused -->
+            <!-- B: square cover-focused. Cover sized so the remaining
+                 height comfortably fits the meta + transport row. -->
             <div class="mini-square-top">
               <button
                 class="mini-btn mini-btn-bare"
                 onclick={() => void window.api.window.setMiniLayout('compact')}
                 title={t('mini.switchToCompact')}
               >
-                <!-- view_agenda: switch to compact layout -->
                 <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M3 5h18v6H3zm0 8h18v6H3z"/></svg>
               </button>
               <button
@@ -4019,9 +4029,9 @@
             >
               <span class="mini-cover-overlay" aria-hidden="true">
                 {#if isPlaying}
-                  <svg viewBox="0 0 24 24" width="32" height="32" fill="currentColor"><path d="M6 5h4v14H6zM14 5h4v14h-4z"/></svg>
+                  <svg viewBox="0 0 24 24" width="30" height="30" fill="currentColor"><path d="M6 5h4v14H6zM14 5h4v14h-4z"/></svg>
                 {:else}
-                  <svg viewBox="0 0 24 24" width="32" height="32" fill="currentColor"><path d="M9 5v14l11-7z"/></svg>
+                  <svg viewBox="0 0 24 24" width="30" height="30" fill="currentColor"><path d="M9 5v14l11-7z"/></svg>
                 {/if}
               </span>
             </button>
@@ -4035,9 +4045,9 @@
               </button>
               <button class="mini-btn mini-btn-primary" onclick={togglePlay} title={isPlaying ? t('player.pause') : t('player.play')}>
                 {#if isPlaying}
-                  <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M6 5h4v14H6zM14 5h4v14h-4z"/></svg>
+                  <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M6 5h4v14H6zM14 5h4v14h-4z"/></svg>
                 {:else}
-                  <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M9 5v14l11-7z"/></svg>
+                  <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M9 5v14l11-7z"/></svg>
                 {/if}
               </button>
               <button class="mini-btn" onclick={() => void playNext({ fromUserClick: true })} title={t('player.next')}>
@@ -4052,24 +4062,6 @@
                 <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d={playingLiked ? CTX_ICONS.like : CTX_ICONS.unlike}/></svg>
               </button>
             </div>
-            <input
-              type="range"
-              class="mini-seek mini-seek-square"
-              min="0"
-              max={Math.max(0, duration)}
-              step="0.1"
-              value={currentTime}
-              onpointerdown={() => (seeking = true)}
-              oninput={(e) => {
-                const v = parseFloat((e.currentTarget as HTMLInputElement).value)
-                if (Number.isFinite(v)) currentTime = v
-              }}
-              onchange={(e) => {
-                const v = parseFloat((e.currentTarget as HTMLInputElement).value)
-                if (Number.isFinite(v) && audioEl) audioEl.currentTime = v
-                seeking = false
-              }}
-            />
           {/if}
         </div>
       {/if}
@@ -4225,29 +4217,39 @@
 
   /* ---- mini-player ------------------------------------------------------- */
 
-  /* Container — also the OS-level drag region. Backdrop matches the
-     full player-bar so the visual identity stays consistent. */
+  /* Container — also the OS-level drag region. Backdrop is intentionally
+     a touch transparent (alpha 0.78) so when the user has the mini
+     widget pinned in a corner, whatever they're working on still reads
+     through. Heavy blur + a thin accent-tinted border keeps it legible
+     against busy backgrounds anyway. */
   .mini-shell {
     position: fixed;
     inset: 0;
-    background: rgba(20, 12, 36, 0.92);
-    backdrop-filter: blur(28px);
-    -webkit-backdrop-filter: blur(28px);
+    background: rgba(20, 12, 36, 0.78);
+    backdrop-filter: blur(28px) saturate(140%);
+    -webkit-backdrop-filter: blur(28px) saturate(140%);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 14px;
     color: #ffffff;
     -webkit-app-region: drag;
     display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    padding: 0.45rem 0.7rem;
+    flex-direction: column;
     overflow: hidden;
   }
-  /* Square (B) layout — switches to column flow + extra header strip
-     for the toggle/exit buttons. */
+  .mini-row {
+    display: flex;
+    align-items: center;
+    gap: 0.55rem;
+    padding: 0.5rem 0.7rem;
+    flex: 1;
+    min-height: 0;
+  }
+  /* Square (B) layout — extra padding for the cover-meta-controls
+     stack. The cover is sized below; everything else fits within the
+     remaining height. */
   .mini-shell.layout-square {
-    flex-direction: column;
-    align-items: stretch;
-    gap: 0.45rem;
-    padding: 0.45rem 0.6rem;
+    padding: 0;
+    gap: 0;
   }
 
   .mini-cover-sm {
@@ -4270,7 +4272,9 @@
   }
   .mini-meta-square {
     text-align: center;
-    padding: 0 0.4rem;
+    padding: 0 0.6rem;
+    margin-top: 0.3rem;
+    flex: 0 0 auto;
   }
   .mini-title {
     color: #ffffff;
@@ -4296,7 +4300,9 @@
   }
   .mini-controls-square {
     justify-content: center;
-    gap: 0.35rem;
+    gap: 0.4rem;
+    padding: 0.4rem 0;
+    flex: 0 0 auto;
   }
 
   .mini-btn {
@@ -4333,8 +4339,8 @@
     background: rgba(255, 90, 130, 0.18);
   }
   .mini-btn-primary {
-    width: 36px;
-    height: 36px;
+    width: 34px;
+    height: 34px;
     border-radius: 50%;
     background: linear-gradient(135deg, var(--accent), var(--accent-2));
     color: #0a0612;
@@ -4345,59 +4351,66 @@
     filter: brightness(1.08);
   }
 
+  /* Top-of-shell seek strip. Block element so it always renders at the
+     top edge regardless of layout — was absolute-positioned before
+     which made it invisible in some configurations. Progress fill is
+     a gradient with stops anchored to --seek-pct, which the renderer
+     updates via inline style on each timeupdate. */
   .mini-seek {
     -webkit-app-region: no-drag;
-    position: absolute;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    width: 100%;
-    height: 3px;
     appearance: none;
-    background: rgba(255, 255, 255, 0.1);
+    width: 100%;
+    height: 4px;
+    margin: 0;
+    background: transparent;
     cursor: pointer;
     border: none;
     outline: none;
     padding: 0;
+    flex: 0 0 auto;
+  }
+  .mini-seek::-webkit-slider-runnable-track {
+    height: 4px;
+    background: linear-gradient(
+      to right,
+      var(--accent) 0%,
+      var(--accent) var(--seek-pct, 0%),
+      rgba(255, 255, 255, 0.14) var(--seek-pct, 0%),
+      rgba(255, 255, 255, 0.14) 100%
+    );
+    border: none;
   }
   .mini-seek::-webkit-slider-thumb {
     appearance: none;
     width: 10px;
     height: 10px;
+    margin-top: -3px;
     border-radius: 50%;
     background: var(--accent);
     border: none;
     cursor: pointer;
-  }
-  .mini-seek::-webkit-slider-runnable-track {
-    height: 3px;
-    background: linear-gradient(
-      to right,
-      var(--accent) 0%,
-      var(--accent) calc(var(--seek-pct, 0%)),
-      rgba(255, 255, 255, 0.12) calc(var(--seek-pct, 0%)),
-      rgba(255, 255, 255, 0.12) 100%
-    );
-  }
-  .mini-seek-square {
-    position: relative;
-    margin-top: -0.2rem;
+    box-shadow: 0 0 6px rgba(var(--accent-rgb), 0.7);
   }
 
-  /* Square layout-specific extras */
+  /* Square layout-specific extras. The drag-bar strip up top holds
+     the toggle/exit buttons; cover is intentionally sized in px (not
+     100% width / aspect-ratio) so the remaining height comfortably
+     fits the meta + transport — when those were `aspect-ratio: 1/1`
+     they consumed the full window height and pushed the rest off. */
   .mini-square-top {
     -webkit-app-region: drag;
     display: flex;
     justify-content: flex-end;
     gap: 0.2rem;
-    height: 20px;
+    padding: 0.25rem 0.4rem 0.2rem;
     flex: 0 0 auto;
   }
   .mini-cover-lg {
     -webkit-app-region: no-drag;
     flex: 0 0 auto;
-    width: 100%;
-    aspect-ratio: 1 / 1;
+    align-self: center;
+    width: 180px;
+    height: 180px;
     border-radius: 12px;
     background-color: #0e0a16;
     background-position: center;
@@ -4412,7 +4425,7 @@
     transition: transform 0.2s ease;
   }
   .mini-cover-lg:hover {
-    transform: scale(1.01);
+    transform: scale(1.02);
   }
   .mini-cover-overlay {
     position: absolute;
@@ -4420,7 +4433,7 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    background: rgba(0, 0, 0, 0.35);
+    background: rgba(0, 0, 0, 0.4);
     color: #ffffff;
     opacity: 0;
     transition: opacity 0.18s ease;
@@ -4429,15 +4442,10 @@
     opacity: 1;
   }
 
-  /* Entry button in the full player bar — same shape as .ctrl.small but
-     a touch quieter (no accent hue until hover). */
-  .ctrl.small.mini-enter {
-    margin-left: 0.25rem;
-    color: #b9acd6;
-  }
-  .ctrl.small.mini-enter:hover {
-    color: #ffffff;
-    background: rgba(var(--accent-rgb), 0.18);
+  /* Entry button in the header next to the back/forward chips —
+     same .hist shape, just a left margin so it doesn't kiss them. */
+  .hist.mini-enter {
+    margin-left: 0.5rem;
   }
 
   header {
