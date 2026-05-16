@@ -910,7 +910,11 @@
   // search / Downloaded / future surfaces.
   interface CtxMenuItem {
     label: string
-    icon?: string
+    // SVG path string (24×24 viewBox, `fill="currentColor"`). Rendered
+    // as a 16×16 icon at the left of the item. We pass the raw path
+    // instead of an icon-name lookup so each surface that builds a
+    // menu can use whatever shape it wants without a central registry.
+    iconPath?: string
     danger?: boolean
     disabled?: boolean
     onSelect: () => void
@@ -921,6 +925,16 @@
     items: CtxMenuItem[]
   }
   let ctxMenu = $state<CtxMenuState | null>(null)
+
+  // Reusable Material-style icon path strings for context-menu items.
+  // 24×24 viewBox, single-path. Mirror YT Music's vocabulary so users
+  // get instant visual recognition.
+  const CTX_ICONS = {
+    // playlist_play — list of lines + right-pointing play arrow
+    playNext: 'M3 10h11v2H3v-2zm0-4h11v2H3V6zm0 8h7v2H3v-2zm14-4v8l6-4-6-4z',
+    // playlist_add — list of lines + plus
+    addToQueue: 'M14 10H2v2h12v-2zm0-4H2v2h12V6zM2 14h8v2H2v-2zm19-3h-2V8h-2v3h-2v2h2v3h2v-3h2v-2z'
+  }
 
   // Builds the context menu items for a track. sourceList lets actions
   // like "play next" find their position; sourceContext carries the
@@ -933,11 +947,13 @@
     const items: CtxMenuItem[] = []
     items.push({
       label: t('ctx.playNext'),
+      iconPath: CTX_ICONS.playNext,
       onSelect: () => queuePlayNext(track),
       disabled: track.unavailable
     })
     items.push({
       label: t('ctx.addToQueue'),
+      iconPath: CTX_ICONS.addToQueue,
       onSelect: () => queueAppend(track),
       disabled: track.unavailable
     })
@@ -2770,7 +2786,13 @@
             closeCtxMenu()
           }}
         >
-          {#if item.icon}<span class="ctx-icon">{item.icon}</span>{/if}
+          {#if item.iconPath}
+            <span class="ctx-icon">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+                <path d={item.iconPath} />
+              </svg>
+            </span>
+          {/if}
           <span class="ctx-label">{item.label}</span>
         </button>
       {/each}
@@ -4368,10 +4390,15 @@
   }
   .ctx-icon {
     flex: 0 0 auto;
-    width: 14px;
+    width: 18px;
+    height: 18px;
     display: inline-flex;
     align-items: center;
     justify-content: center;
+    color: #a99bc9;
+  }
+  .ctx-item:hover:not(:disabled) .ctx-icon {
+    color: #ffffff;
   }
   .ctx-label {
     flex: 1;
