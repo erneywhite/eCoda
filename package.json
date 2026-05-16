@@ -1,6 +1,6 @@
 {
   "name": "ecoda",
-  "version": "0.0.52",
+  "version": "0.0.53",
   "description": "Desktop YouTube Music client with offline caching — own your music",
   "author": "Erney White",
   "license": "MIT",
@@ -28,6 +28,7 @@
     "electron": "^33.0.0",
     "electron-builder": "^25.1.8",
     "electron-vite": "^3.0.0",
+    "sharp": "^0.34.5",
     "svelte": "^5.0.0",
     "svelte-check": "^4.0.0",
     "typescript": "^5.6.0",

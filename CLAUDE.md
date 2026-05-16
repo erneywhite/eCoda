@@ -48,9 +48,14 @@ src/
 build/                   electron-builder resources (icon + mac entitlements)
 resources/               bundled binaries (yt-dlp + deno, auto-fetched
                          per platform by postinstall scripts)
-scripts/                 fetch-ytdlp + fetch-deno (postinstall) + probes
-branding/                source brand assets — final wordmark + icon
-                         drop in here when the artist delivers
+scripts/                 fetch-ytdlp + fetch-deno + fetch-python (postinstall),
+                         resize-branding (one-shot for asset refresh), probes
+branding/                source brand assets at full artist resolution
+                         (wordmark.png ~14k×5k, icon.png ~5k×5k). Run
+                         `node scripts/resize-branding.mjs` to downscale
+                         + copy into src/renderer/src/assets/, resources/,
+                         build/ — the three places the app and
+                         electron-builder actually read from
 ```
 
 ## Cross-platform binary paths (load-bearing)
