@@ -2,7 +2,7 @@
 
 Desktop client for YouTube Music — your library, fast playback, Spotify-style offline cache, and a native UI you can theme. Talks to YouTube's InnerTube API directly: no embedded webview, no heavy web player.
 
-> **Status:** Phase 4 done, 0.0.13 shipped. Every core flow plus polish — playlist counts, unavailable-row handling, audio quality picker, Downloaded virtual playlist, live download progress, full continuation pagination. Public 1.0 release still pending the artist's final brand assets.
+> **Status:** Phase 4 done; Phase 5 first slice + streamer bundle shipped in 0.0.28. Like / unlike + radio-by-track are the only remaining Phase 5 backlog. Public 1.0 release still pending the artist's final brand assets.
 
 ## Features
 
@@ -19,10 +19,20 @@ Desktop client for YouTube Music — your library, fast playback, Spotify-style 
 - **Mouse-side-button navigation** + back/forward chips in the header.
 
 ### Player
-- **Custom YT-Music-style player bar** — aurora-glass background, thin top progress strip flush to the player's rounded top edge, prev / play / next + inline time, volume slider, mute toggle, plus a download chip that mirrors the playlist-row state for the currently playing track.
+- **Custom YT-Music-style player bar** — aurora-glass background, thin top progress strip flush to the player's rounded top edge, `[shuffle] [prev] [play] [next] [repeat]` transport row + inline time, volume slider, mute toggle, plus a download chip that mirrors the playlist-row state for the currently playing track.
+- **Shuffle + repeat modes** persisted in config — shuffle plays a random next-track from the source list (with a real "walk back through history" prev), repeat cycles off → all → one (loop the track at end-of-play). Each toggle gets a small accent dot under the icon so the active state reads even without colour-vision contrast.
 - **Source-list-aware next/prev** — skipping follows whichever list you launched the track from (search results vs playlist vs Downloaded), preserved across track changes.
 - **Background prefetch** — while one track plays, the next few in the active list are resolved in the background, so the next click is instant.
 - **Resume where you left off** — last track + queue + position restored on launch as a paused, ready-to-play state in the player bar. First Play click resolves the stream and continues from the saved second; no auto-blast on Windows boot.
+- **Right-click context menu** on every track row (playlist + search): `▶ Play next`, `≡ Add to queue`, plus the streamer-bundle actions below. Material-style icons next to each label.
+- **Explicit queue** (separate from sourceList) — "Play next" prepends, "Add to queue" appends; the queue takes priority over normal sourceList traversal at end-of-track. Toast feedback on every queue action.
+
+### Track-list editing (the "streamer bundle")
+- **Reshuffle button** in the playlist header — one click reorders the playlist into a fresh random sequence; each click is a different arrangement. Different from the player-bar's continuous shuffle: this PERMANENTLY rewrites the saved order until you click again, so an OBS source can show the same plan you set up.
+- **Pin position** via the context menu — pinned tracks stay where they are when you reshuffle; Fisher-Yates only touches non-pinned rows and reflows them between the fixed positions. The exact use-case it was built for: pin the stream intro at position 0, click reshuffle for a different random remainder each session. A small 📌 indicator marks pinned rows.
+- **Drag-and-drop reorder** — native HTML5 drag, with an accent-coloured drop indicator on the hovered row. Survives restarts (saved as part of the per-playlist override).
+- **Smart merge when the playlist changes on YouTube** — added tracks land at the end (regular playlists) or at the top (Liked Music + the Downloaded virtual playlist, both "recent-activity" surfaces). Removed tracks disappear from the override (pins included). The custom order survives YT-side edits as long as the tracks still exist.
+- **"Reset to default order"** button appears whenever there's a saved override — drops it entirely and reloads YT's natural order. Guarded by a stylised in-app confirm dialog (no more Windows-native popup).
 
 ### Offline cache (download)
 - **Per-track ↓ / per-playlist 📥** with a live percentage ring driven by yt-dlp's own progress output (no fake spinner). Audio + cover thumbnails are persisted to `<userData>/offline/` (*not* `cache/` — see "How it works" for why).
@@ -117,8 +127,19 @@ mockups/                 standalone HTML mockups (A/B/C) used during UI redesign
 - **Phase 1 — streaming MVP** — ✅ done (search, home, playlist navigation, custom player UI)
 - **Phase 2 — offline** — ✅ done (per-track + per-playlist downloads, persistent cache, instant disk playback via `media://`)
 - **Phase 3 — polish** — ✅ done (sidebar pinned playlists, eight colour themes, language switch, mouse-side-button navigation, settings with cache/diagnostics/about/updates/donate, audio quality picker, Downloaded virtual playlist, live progress rings, total playlist duration, unavailable-row handling)
-- **Phase 4 — distribution** — ✅ done (`electron-builder` NSIS installer, `electron-updater` against GitHub Releases; current build cycle: 0.0.x, latest 0.0.13)
-- **Phase 5 — playback features (planned)** — shuffle / repeat modes, queue management (separate from sourceList), right-click context menu on tracks ("play next", "add to queue", "open artist", "remove from playlist"), "Radio by track" via `getUpNext`, like / dislike via page-proxy `/like/like`.
+- **Phase 4 — distribution** — ✅ done (`electron-builder` NSIS installer, `electron-updater` against GitHub Releases; current build cycle: 0.0.x, latest 0.0.28)
+- **Phase 5 — playback features** — mostly done in 0.0.14 + 0.0.24–28:
+  - ✅ shuffle + repeat modes (off / all / one), both persisted
+  - ✅ queue management (separate from sourceList; Play next / Add to queue)
+  - ✅ right-click context menu on tracks with Material-style icons
+  - ✅ Reshuffle button (one-shot Fisher-Yates with pinned-position respect)
+  - ✅ Pin / unpin position via context menu
+  - ✅ Drag-and-drop reorder
+  - ✅ Smart YT-side merge (append for normal playlists, prepend for LM + Downloaded)
+  - ✅ Reset-to-default-order button
+  - ✅ In-app confirm dialog (replaces native Windows prompt)
+  - 🔜 "Radio by track" via `yt.music.getUpNext`
+  - 🔜 Like / unlike via page-proxy `/like/like` + `/like/removelike`
 - **Phase 6 — deeper navigation (planned)** — artist + album views, lyrics panel via `yt.music.getLyrics`.
 - **Phase 7 — system integration (planned)** — system tray icon + minimal menu, global media keys (Play / Pause / Next / Prev that work when the app isn't focused), mini-player mode (slim always-on-top window).
 - **Brand swap** — when the artist delivers the final wordmark + icon, drop them into `branding/` and rebuild.
