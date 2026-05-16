@@ -46,6 +46,7 @@
       "output": "dist",
       "buildResources": "build"
     },
+    "afterPack": "build/afterPack.js",
     "files": [
       "out/**/*",
       "resources/**/*"
@@ -103,10 +104,9 @@
       "category": "public.app-category.music",
       "icon": "build/icon.png",
       "artifactName": "eCoda-${version}-${arch}.${ext}",
-      "hardenedRuntime": true,
+      "hardenedRuntime": false,
       "gatekeeperAssess": false,
-      "entitlements": "build/entitlements.mac.plist",
-      "entitlementsInherit": "build/entitlements.mac.plist"
+      "identity": null
     },
     "dmg": {
       "title": "eCoda ${version}",
