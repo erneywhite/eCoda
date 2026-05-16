@@ -4809,8 +4809,11 @@
        sidebar with the same 1rem left gutter. Right side has zero
        padding because the window controls (.window-controls) hug the
        window's actual right edge; the right gutter is built into the
-       controls' own internal padding. */
-    padding: 1.2rem 0 1.2rem 1rem;
+       controls' own internal padding. Bottom padding is trimmed so the
+       wordmark sits visually closer to the sidebar card below — the
+       sidebar already has its own top margin (0.5rem) which provides
+       enough breathing room. */
+    padding: 1rem 0 0.3rem 1rem;
     flex-shrink: 0;
   }
   /* macOS draws its three traffic-light circles inside our drag region
@@ -4861,15 +4864,17 @@
      with the sidebar's centre below — one vertical axis down the
      left side of the window. `object-fit: contain` centres the
      raccoon+lettering inside that box without distorting the aspect
-     ratio. Height kept modest (52px) so the logo doesn't dwarf the
-     small sidebar nav items right under it — the current wordmark.png
-     has a checker-pattern "fake transparency" baked in, which renders
-     as a solid pale frame at large sizes and dominates the corner.
-     Shrinking it back-pressures the visual weight. drop-shadow gives
-     the same neon halo we used to draw on the old raccoon avatar. */
+     ratio, regardless of the source PNG dimensions. drop-shadow
+     gives the same neon halo we used to draw on the old raccoon
+     avatar.
+     Height 72 — substantial enough that the logo feels intentional
+     rather than a tiny mark in the corner, while still leaving room
+     for the back/forward chips to the right of it on the same row.
+     (Tighter header bottom-padding above closes the gap to the
+     sidebar so the corner reads as one composition.) */
   .wordmark {
     width: 200px;
-    height: 52px;
+    height: 72px;
     object-fit: contain;
     object-position: center;
     display: block;
