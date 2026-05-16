@@ -92,6 +92,12 @@ const RU: Strings = {
   // Context menu (right-click on a track row)
   'ctx.playNext': 'Играть следующим',
   'ctx.addToQueue': 'Добавить в очередь',
+  'ctx.pinPosition': 'Закрепить позицию',
+  'ctx.unpinPosition': 'Открепить позицию',
+  'ctx.pinnedHint': 'Закреплён — остаётся на месте при перемешке',
+
+  // Playlist header
+  'playlist.reshuffle': 'Перемешать сейчас',
 
   // Toast messages
   'toast.playNextAdded': '«{title}» — следующим',
@@ -251,6 +257,11 @@ const EN: Strings = {
 
   'ctx.playNext': 'Play next',
   'ctx.addToQueue': 'Add to queue',
+  'ctx.pinPosition': 'Pin position',
+  'ctx.unpinPosition': 'Unpin position',
+  'ctx.pinnedHint': 'Pinned — stays put on reshuffle',
+
+  'playlist.reshuffle': 'Reshuffle now',
 
   'toast.playNextAdded': '"{title}" — playing next',
   'toast.queueAdded': '"{title}" — added to queue',

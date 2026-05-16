@@ -111,7 +111,11 @@ const api = {
     setShuffleMode: (on: boolean) => ipcRenderer.invoke('settings:setShuffleMode', on),
     getRepeatMode: () => ipcRenderer.invoke('settings:getRepeatMode'),
     setRepeatMode: (m: 'off' | 'one' | 'all') =>
-      ipcRenderer.invoke('settings:setRepeatMode', m)
+      ipcRenderer.invoke('settings:setRepeatMode', m),
+    getPlaylistOverride: (id: string) =>
+      ipcRenderer.invoke('settings:getPlaylistOverride', id),
+    setPlaylistOverride: (id: string, override: unknown) =>
+      ipcRenderer.invoke('settings:setPlaylistOverride', id, override)
   },
   // Last-playing track + queue + position. Resume-on-launch is wired
   // around these three IPCs.

@@ -19,6 +19,12 @@ export interface SearchResult {
   // videoId (deleted / region-blocked / Premium-only after the user
   // added it). UI renders it dimmed + non-clickable; player skips it.
   unavailable?: boolean
+  // YT's unique per-playlist row id. Two rows of the same videoId in
+  // the same playlist have different setVideoIds — used as the key for
+  // pin / reshuffle / drag-reorder persistence so duplicate rows can
+  // be pinned independently. Absent on non-playlist surfaces (search,
+  // Home, Downloaded) where the rendering falls back to videoId.
+  setVideoId?: string
 }
 
 export type HomeItemType = 'playlist' | 'album' | 'song' | 'video' | 'artist'
@@ -62,6 +68,12 @@ export type Lang = 'ru' | 'en'
 export type AudioQuality = 'best' | 'medium' | 'low'
 
 export type RepeatMode = 'off' | 'one' | 'all'
+
+export interface PlaylistOverride {
+  order: string[]
+  pinned: string[]
+  prependOnAdd?: boolean
+}
 
 export type Theme =
   | 'purple'
@@ -210,6 +222,8 @@ export interface EcodaApi {
     setShuffleMode: (on: boolean) => Promise<void>
     getRepeatMode: () => Promise<RepeatMode>
     setRepeatMode: (m: RepeatMode) => Promise<void>
+    getPlaylistOverride: (id: string) => Promise<PlaylistOverride | null>
+    setPlaylistOverride: (id: string, override: PlaylistOverride | null) => Promise<void>
   }
   session: {
     get: () => Promise<LastSession | null>

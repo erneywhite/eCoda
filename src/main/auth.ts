@@ -194,6 +194,25 @@ export interface PinnedPlaylist {
   thumbnail: string
 }
 
+// User overrides applied on top of whatever YT returns for a playlist.
+// Lets the user reshuffle / pin / drag-reorder tracks and have those
+// changes survive a restart. Driven by the streamer-wife use case:
+// pin the intro at position 0, click reshuffle for a random remainder
+// each stream.
+//
+// `order` is the full list of setVideoIds in the user's desired
+// position. On load, we drop ids not in the YT response (track was
+// removed) and add new ids from YT either at the top (LM/Downloaded)
+// or the bottom (regular playlists) via `prependOnAdd`. `pinned` is
+// the subset of setVideoIds that stay put when reshuffle runs —
+// Fisher-Yates only touches non-pinned rows and re-flows them between
+// the pinned positions.
+export interface PlaylistOverride {
+  order: string[]
+  pinned: string[]
+  prependOnAdd?: boolean
+}
+
 // Window geometry remembered between launches so the user doesn't have to
 // re-arrange the app every time. The bounds are validated against the
 // current display layout before being applied — if a monitor was
@@ -235,6 +254,7 @@ interface Config {
   shuffleMode?: boolean
   repeatMode?: RepeatMode
   pinnedPlaylists?: PinnedPlaylist[]
+  playlistOverrides?: Record<string, PlaylistOverride>
   windowState?: WindowState
   lastSession?: LastSession
 }
@@ -330,6 +350,33 @@ export async function getRepeatMode(): Promise<RepeatMode> {
 
 export async function setRepeatMode(m: RepeatMode): Promise<void> {
   await writeConfig({ ...(await readConfig()), repeatMode: m })
+}
+
+// Per-playlist override (custom track order + pinned set). null result
+// means no override stored — renderer should show YT's natural order.
+export async function getPlaylistOverride(
+  playlistId: string
+): Promise<PlaylistOverride | null> {
+  const map = (await readConfig()).playlistOverrides ?? {}
+  return map[playlistId] ?? null
+}
+
+// Saving null deletes the entry. Used by "Reset to default" (future
+// menu action) and by the renderer when it decides the override is
+// stale beyond repair.
+export async function setPlaylistOverride(
+  playlistId: string,
+  override: PlaylistOverride | null
+): Promise<void> {
+  const cfg = await readConfig()
+  const map = { ...(cfg.playlistOverrides ?? {}) }
+  if (override === null) {
+    delete map[playlistId]
+  } else {
+    map[playlistId] = override
+  }
+  cfg.playlistOverrides = map
+  await writeConfig(cfg)
 }
 
 // InnerTube locale tuple derived from the user's UI language. Used by

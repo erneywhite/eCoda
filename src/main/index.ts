@@ -25,12 +25,15 @@ import {
   setShuffleMode,
   getRepeatMode,
   setRepeatMode,
+  getPlaylistOverride,
+  setPlaylistOverride,
   getWindowState,
   setWindowState,
   getLastSession,
   setLastSession,
   clearLastSession,
   type AudioQuality,
+  type PlaylistOverride,
   type RepeatMode,
   type DefaultTab,
   type Lang,
@@ -586,6 +589,17 @@ app.whenReady().then(async () => {
   ipcMain.handle('settings:setShuffleMode', (_event, on: boolean) => setShuffleMode(on))
   ipcMain.handle('settings:getRepeatMode', () => getRepeatMode())
   ipcMain.handle('settings:setRepeatMode', (_event, m: RepeatMode) => setRepeatMode(m))
+  // Per-playlist override (custom track order + pinned setVideoIds).
+  // Lets reshuffle / drag-reorder / pin survive a restart. Saving null
+  // deletes the entry — equivalent to "reset to YT's natural order".
+  ipcMain.handle('settings:getPlaylistOverride', (_event, id: string) =>
+    getPlaylistOverride(id)
+  )
+  ipcMain.handle(
+    'settings:setPlaylistOverride',
+    (_event, id: string, override: PlaylistOverride | null) =>
+      setPlaylistOverride(id, override)
+  )
 
   // Last-playing track + queue + position. Renderer pushes a snapshot on
   // every track change / pause / throttled timeupdate; we restore it on

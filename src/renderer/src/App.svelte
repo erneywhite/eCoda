@@ -9,6 +9,7 @@
     HomeSection,
     LastSession,
     PinnedPlaylist,
+    PlaylistOverride,
     PlaylistView,
     RepeatMode,
     SearchResult,
@@ -120,6 +121,115 @@
   let playlistView = $state<PlaylistView | null>(null)
   let playlistLoading = $state(false)
   let playlistError = $state('')
+
+  // ---- per-playlist override state (reshuffle / pin / drag) --------------
+  // Set of pinned row-ids in the currently-open playlist. Rows live in
+  // this set by their unique key (setVideoId, falling back to videoId
+  // for surfaces without setVideoId — e.g. the Downloaded virtual list).
+  // Reshuffle leaves pinned rows where they are and reflows the rest.
+  // Re-loaded from config on every playlist open.
+  let playlistPinned = $state<Set<string>>(new Set())
+  // Drag state for the playlist track list. dragIndex = the index of
+  // the row being dragged; dragOverIndex = the row currently under the
+  // cursor (used to render a visual drop indicator).
+  let dragIndex = $state<number | null>(null)
+  let dragOverIndex = $state<number | null>(null)
+
+  // The key used to identify a row in pin / order persistence. For YT
+  // playlists this is the row-id YT itself uses; for the Downloaded
+  // virtual playlist where setVideoId isn't available, fall back to
+  // videoId — duplicates in Downloaded would have collapsed already
+  // during the manifest's videoId-keyed dedup, so this is safe.
+  function rowKey(t: SearchResult): string {
+    return t.setVideoId || t.id
+  }
+
+  // Playlists that show newest-first by nature — when YT adds a row,
+  // it should land at the TOP of our stored order, not the bottom.
+  // Library card "Liked Music" sorts newest like first; our Downloaded
+  // virtual playlist sorts newest download first.
+  function isPrependPlaylist(id: string | null): boolean {
+    return id != null && (isLikedMusicId(id) || isDownloadedId(id))
+  }
+
+  // Applies a stored override to YT's natural track list. Drops rows
+  // YT no longer returns (track was removed from the playlist) and
+  // injects rows YT returns but the override hasn't seen yet (track
+  // was added). New rows go to the top for prepend-lists, to the
+  // bottom otherwise.
+  function applyOverride(
+    ytTracks: SearchResult[],
+    override: PlaylistOverride | null,
+    playlistId: string | null
+  ): SearchResult[] {
+    if (!override) return ytTracks
+    const ytByKey = new Map<string, SearchResult>()
+    for (const t of ytTracks) ytByKey.set(rowKey(t), t)
+
+    // Walk override.order, dropping entries no longer in YT.
+    const ordered: SearchResult[] = []
+    const orderedKeys = new Set<string>()
+    for (const k of override.order) {
+      const t = ytByKey.get(k)
+      if (t) {
+        ordered.push(t)
+        orderedKeys.add(k)
+      }
+    }
+    // New rows YT returned that the override doesn't have yet.
+    const added: SearchResult[] = []
+    for (const t of ytTracks) {
+      if (!orderedKeys.has(rowKey(t))) added.push(t)
+    }
+    return isPrependPlaylist(playlistId) ? [...added, ...ordered] : [...ordered, ...added]
+  }
+
+  // Builds a PlaylistOverride from the current display order + pinned set.
+  // Stored on every action that changes the order (reshuffle / pin /
+  // drag) so the next playlist open reproduces what the user saw.
+  async function savePlaylistOverride(): Promise<void> {
+    if (!openPlaylistId || !playlistView) return
+    if (isDownloadedId(openPlaylistId)) {
+      // Downloaded uses the same persistence path; auth.ts treats
+      // 'DOWNLOADED' as just another playlist id.
+    }
+    const order = playlistView.tracks.map(rowKey)
+    const pinned = order.filter((k) => playlistPinned.has(k))
+    const prependOnAdd = isPrependPlaylist(openPlaylistId)
+    try {
+      await window.api.settings.setPlaylistOverride(openPlaylistId, {
+        order,
+        pinned,
+        prependOnAdd
+      })
+    } catch (err) {
+      console.warn('savePlaylistOverride failed', err)
+    }
+  }
+
+  // Fisher-Yates over the non-pinned subset, then reassemble with
+  // pinned rows back at their original indices. The streamer's intro
+  // stays at position 0 across reshuffles as long as it's pinned.
+  function reshuffleTracks(tracks: SearchResult[], pinned: Set<string>): SearchResult[] {
+    const pinnedByIndex = new Map<number, SearchResult>()
+    const unpinned: SearchResult[] = []
+    tracks.forEach((t, i) => {
+      if (pinned.has(rowKey(t))) pinnedByIndex.set(i, t)
+      else unpinned.push(t)
+    })
+    // Fisher-Yates on the unpinned slice.
+    for (let i = unpinned.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1))
+      ;[unpinned[i], unpinned[j]] = [unpinned[j], unpinned[i]]
+    }
+    const result: SearchResult[] = new Array(tracks.length)
+    let cursor = 0
+    for (let i = 0; i < tracks.length; i++) {
+      if (pinnedByIndex.has(i)) result[i] = pinnedByIndex.get(i)!
+      else result[i] = unpinned[cursor++]
+    }
+    return result
+  }
 
   // ---- theme system (colour palettes) -------------------------------------
   // Each palette is a small map of CSS variables. applyTheme() writes them
@@ -933,7 +1043,11 @@
     // playlist_play — list of lines + right-pointing play arrow
     playNext: 'M3 10h11v2H3v-2zm0-4h11v2H3V6zm0 8h7v2H3v-2zm14-4v8l6-4-6-4z',
     // playlist_add — list of lines + plus
-    addToQueue: 'M14 10H2v2h12v-2zm0-4H2v2h12V6zM2 14h8v2H2v-2zm19-3h-2V8h-2v3h-2v2h2v3h2v-3h2v-2z'
+    addToQueue: 'M14 10H2v2h12v-2zm0-4H2v2h12V6zM2 14h8v2H2v-2zm19-3h-2V8h-2v3h-2v2h2v3h2v-3h2v-2z',
+    // push_pin — slanted thumbtack (pinned indicator)
+    pin: 'M16 9V4l1-1V1H7v2l1 1v5l-2 2v2h5v7l1 1 1-1v-7h5v-2l-2-2z',
+    // push_pin outline — same pin shape but outline-only
+    unpin: 'M14 4v5l2 2v2h-5v7l-1 1-1-1v-7H4v-2l2-2V4H4V2h14v2h-2zm-2 0H8v5l-2 2h10l-2-2V4z'
   }
 
   // Builds the context menu items for a track. sourceList lets actions
@@ -941,8 +1055,8 @@
   // playlist id / title for the player bar's source-list tracking.
   function buildTrackMenu(
     track: SearchResult,
-    _sourceList: SearchResult[],
-    _sourceContext: { id?: string; title?: string }
+    sourceList: SearchResult[],
+    sourceContext: { id?: string; title?: string }
   ): CtxMenuItem[] {
     const items: CtxMenuItem[] = []
     items.push({
@@ -957,6 +1071,22 @@
       onSelect: () => queueAppend(track),
       disabled: track.unavailable
     })
+    // Pin / unpin only makes sense in a playlist view (search results
+    // aren't a list with persistent order). Detect by: openPlaylistId
+    // is set AND this menu was opened on a row from the playlist view.
+    const isPlaylistRow =
+      openPlaylistId != null &&
+      playlistView != null &&
+      sourceList === playlistView.tracks &&
+      sourceContext.id === openPlaylistId
+    if (isPlaylistRow) {
+      const pinned = isTrackPinned(track)
+      items.push({
+        label: pinned ? t('ctx.unpinPosition') : t('ctx.pinPosition'),
+        iconPath: pinned ? CTX_ICONS.unpin : CTX_ICONS.pin,
+        onSelect: () => void togglePinTrack(track)
+      })
+    }
     return items
   }
 
@@ -1247,6 +1377,9 @@
     openPlaylistId = id
     playlistLoading = true
     playlistError = ''
+    // Reset per-playlist override state — it's recomputed below from
+    // whatever's persisted in config for this id.
+    playlistPinned = new Set()
     // Synthetic "Downloaded" virtual playlist: data comes from the local
     // manifest, not InnerTube. Same UI as a normal playlist; the pin
     // button + bulk download are hidden because they don't apply.
@@ -1254,6 +1387,19 @@
       playlistFallback = null
       try {
         const data = await window.api.downloads.asPlaylist()
+        let tracks: SearchResult[] = data.tracks.map((tr) => ({
+          id: tr.id,
+          title: tr.title,
+          artist: tr.artist,
+          duration: tr.duration,
+          thumbnail: tr.thumbnail
+        }))
+        // Apply the user's saved override (reshuffle / drag / pin) on
+        // top of the newest-first default. Downloaded uses videoId as
+        // its row key since there's no setVideoId for cached files.
+        const override = await window.api.settings.getPlaylistOverride(DOWNLOADED_ID)
+        tracks = applyOverride(tracks, override, DOWNLOADED_ID)
+        playlistPinned = new Set(override?.pinned ?? [])
         playlistView = {
           title: t('downloaded.title'),
           subtitle: t('downloaded.summary', {
@@ -1261,13 +1407,7 @@
             size: fmtBytes(data.totalBytes)
           }),
           thumbnail: data.thumbnail,
-          tracks: data.tracks.map((tr) => ({
-            id: tr.id,
-            title: tr.title,
-            artist: tr.artist,
-            duration: tr.duration,
-            thumbnail: tr.thumbnail
-          }))
+          tracks
         }
         // Everything in this list is by definition downloaded.
         const s = new Set(downloadedIds)
@@ -1297,10 +1437,17 @@
     playlistFallback = null
     try {
       const data = await window.api.metadata.playlist(id)
+      // Apply the user's saved override (reshuffle / drag / pin) on
+      // top of YT's natural order. Liked Music is special-cased to
+      // prepend new tracks; everything else appends.
+      const override = await window.api.settings.getPlaylistOverride(id)
+      const merged = applyOverride(data.tracks, override, id)
+      playlistPinned = new Set(override?.pinned ?? [])
       playlistView = {
         ...data,
         title: data.title || fallbackTitle,
-        thumbnail: data.thumbnail || fallbackThumb
+        thumbnail: data.thumbnail || fallbackThumb,
+        tracks: merged
       }
       // Once we have the track list, check which of them are already on
       // disk so the download badges render in the correct state.
@@ -1613,6 +1760,70 @@
       id: openPlaylistId ?? undefined,
       title: playlistView.title
     })
+  }
+
+  // ---- streamer bundle (reshuffle / pin / drag) --------------------------
+
+  // One-shot reshuffle of the current playlist. Pinned rows stay where
+  // they are; Fisher-Yates randomises the rest. Saves the new order so
+  // the next open shows the same arrangement.
+  async function reshuffleCurrentPlaylist(): Promise<void> {
+    if (!playlistView || playlistView.tracks.length < 2) return
+    const next = reshuffleTracks(playlistView.tracks, playlistPinned)
+    playlistView = { ...playlistView, tracks: next }
+    await savePlaylistOverride()
+  }
+
+  // Toggle pinned status of a track. Pinned tracks keep their position
+  // when the user reshuffles, and get a 📌 indicator on the row.
+  async function togglePinTrack(track: SearchResult): Promise<void> {
+    const k = rowKey(track)
+    const next = new Set(playlistPinned)
+    if (next.has(k)) next.delete(k)
+    else next.add(k)
+    playlistPinned = next
+    await savePlaylistOverride()
+  }
+
+  function isTrackPinned(track: SearchResult): boolean {
+    return playlistPinned.has(rowKey(track))
+  }
+
+  // HTML5 drag-and-drop reorder. dataTransfer is required for Chrome
+  // to actually fire dragover/drop on the targets; we don't use the
+  // payload, the source index lives in dragIndex state.
+  function onRowDragStart(e: DragEvent, idx: number): void {
+    if (!playlistView) return
+    dragIndex = idx
+    if (e.dataTransfer) {
+      e.dataTransfer.effectAllowed = 'move'
+      e.dataTransfer.setData('text/plain', String(idx))
+    }
+  }
+  function onRowDragOver(e: DragEvent, idx: number): void {
+    if (dragIndex == null) return
+    e.preventDefault()
+    if (e.dataTransfer) e.dataTransfer.dropEffect = 'move'
+    if (dragOverIndex !== idx) dragOverIndex = idx
+  }
+  async function onRowDrop(e: DragEvent, idx: number): Promise<void> {
+    e.preventDefault()
+    const from = dragIndex
+    dragIndex = null
+    dragOverIndex = null
+    if (from == null || !playlistView || from === idx) return
+    const next = playlistView.tracks.slice()
+    const [moved] = next.splice(from, 1)
+    // When dragging downwards, the destination index shifts by -1 after
+    // the splice — drop ABOVE the hovered row regardless of direction.
+    const dest = from < idx ? idx - 1 : idx
+    next.splice(dest, 0, moved)
+    playlistView = { ...playlistView, tracks: next }
+    await savePlaylistOverride()
+  }
+  function onRowDragEnd(): void {
+    dragIndex = null
+    dragOverIndex = null
   }
 
   // Hover-play on a sidebar pinned playlist: same effect as clicking the
@@ -1941,6 +2152,24 @@
                         {/if}
                       </button>
 
+                      <!-- Reshuffle: one-shot Fisher-Yates of non-pinned
+                           rows. Different from the player-bar's continuous
+                           shuffle: this PERMANENTLY reorders the saved
+                           order; each click is a new arrangement. Pinned
+                           rows stay in their positions. -->
+                      {#if playlistView.tracks.length > 1}
+                        <button
+                          class="dl-icon-btn"
+                          onclick={reshuffleCurrentPlaylist}
+                          aria-label={t('playlist.reshuffle')}
+                          title={t('playlist.reshuffle')}
+                        >
+                          <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+                            <path d="M10.59 9.17 5.41 4 4 5.41l5.17 5.17 1.42-1.41zM14.5 4l2.04 2.04L4 18.59 5.41 20 17.96 7.46 20 9.5V4h-5.5zm.33 9.41-1.41 1.41 3.13 3.13L14.5 20H20v-5.5l-2.04 2.04-3.13-3.13z"/>
+                          </svg>
+                        </button>
+                      {/if}
+
                       <!-- Compact download chip: arrow + small N badge when
                            there are tracks left to fetch, ✓ when everything
                            is on disk. Hidden on Downloaded view because by
@@ -2060,7 +2289,21 @@
                    added a track to the playlist twice), and Svelte 5
                    throws on duplicate keys. -->
               {#each playlistView.tracks as r, idx (`${idx}-${r.id}`)}
-                <li class="track-li" class:unavailable={r.unavailable}>
+                <li
+                  class="track-li"
+                  class:unavailable={r.unavailable}
+                  class:pinned={isTrackPinned(r)}
+                  class:dragging={dragIndex === idx}
+                  class:drag-over={dragOverIndex === idx && dragIndex !== idx}
+                  draggable={true}
+                  ondragstart={(e) => onRowDragStart(e, idx)}
+                  ondragover={(e) => onRowDragOver(e, idx)}
+                  ondragleave={() => {
+                    if (dragOverIndex === idx) dragOverIndex = null
+                  }}
+                  ondrop={(e) => onRowDrop(e, idx)}
+                  ondragend={onRowDragEnd}
+                >
                   <button
                     class="track-row"
                     class:current={playing?.id === r.id}
@@ -2091,6 +2334,16 @@
                         {/if}
                       </div>
                     </div>
+                    {#if isTrackPinned(r)}
+                      <!-- 📌 stay-put indicator: this row's position is
+                           preserved across reshuffles. Click-through
+                           target is the surrounding row button. -->
+                      <span class="pin-mark" title={t('ctx.pinnedHint')}>
+                        <svg viewBox="0 0 24 24" width="13" height="13" fill="currentColor">
+                          <path d="M16 9V4l1-1V1H7v2l1 1v5l-2 2v2h5v7l1 1 1-1v-7h5v-2l-2-2z" />
+                        </svg>
+                      </span>
+                    {/if}
                     <div class="duration">{r.duration}</div>
                   </button>
                   <button
@@ -3860,9 +4113,50 @@
     display: flex;
     align-items: center;
     gap: 0.4rem;
+    position: relative;
+    transition: opacity 0.12s ease, box-shadow 0.12s ease;
   }
   .track-li .track-row {
     flex: 1;
+  }
+  /* Drag-and-drop reorder visuals:
+     .dragging  — the row currently being dragged (faded so the user
+                  sees it's been picked up).
+     .drag-over — the row currently under the cursor; a 2px accent line
+                  on top serves as the drop indicator. Drop lands the
+                  row ABOVE the indicator, matching the visual cue. */
+  .track-li.dragging {
+    opacity: 0.45;
+  }
+  .track-li.drag-over::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: -1px;
+    height: 2px;
+    background: var(--accent);
+    border-radius: 2px;
+    box-shadow: 0 0 8px rgba(var(--accent-rgb), 0.6);
+    pointer-events: none;
+  }
+  /* Pinned-row indicator: a small accent-tinted pin between the artist
+     meta and the duration column. The whole row stays clickable; only
+     the pin glyph turns accent so it doesn't bleed into the row hover
+     colour. */
+  .pin-mark {
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    margin-left: 0.5rem;
+    color: var(--accent);
+    opacity: 0.85;
+  }
+  .track-li.pinned .pin-mark {
+    opacity: 1;
   }
 
   .dl-btn {

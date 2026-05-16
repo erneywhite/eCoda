@@ -85,6 +85,12 @@ export interface SearchResult {
   // owner once added. We keep the row in the list (matches YT's UI and
   // the library-card count) but the player + next/prev skip over it.
   unavailable?: boolean
+  // YT's unique row-id within a playlist (e.g. "31A22D0994588080"). Two
+  // copies of the same videoId in one playlist have DIFFERENT setVideoIds,
+  // which is how we tell them apart for dedup / pinning / drag-reorder
+  // persistence. Absent on search results + Home items + the Downloaded
+  // virtual playlist — the renderer falls back to videoId for those.
+  setVideoId?: string
 }
 
 function fmtDuration(seconds: unknown): string {
@@ -543,7 +549,14 @@ function parseTrackRowsInto(
     const thumb = findFirstThumbnail(item)
 
     if (hasPlayableId) {
-      out.push({ id: videoId, title: trackTitle, artist, duration, thumbnail: thumb })
+      out.push({
+        id: videoId,
+        title: trackTitle,
+        artist,
+        duration,
+        thumbnail: thumb,
+        setVideoId: setVideoId || undefined
+      })
     } else {
       // Synthetic id so Svelte's keyed iteration stays unique and the
       // player can hard-detect "this isn't playable" by the prefix.
@@ -553,7 +566,8 @@ function parseTrackRowsInto(
         artist,
         duration,
         thumbnail: thumb,
-        unavailable: true
+        unavailable: true,
+        setVideoId: setVideoId || undefined
       })
     }
   }
