@@ -15,8 +15,6 @@
 
 <p align="center">
   <img src="docs/screenshot-library.png" alt="Главный экран eCoda" width="800" />
-  <br>
-  <sub><i>Если картинки нет — добавлю как только сделаю парочку чистых скриншотов :)</i></sub>
 </p>
 
 ---
