@@ -4137,16 +4137,18 @@
     margin: 0;
     background: transparent;
     cursor: pointer;
-    /* Drop the browser default focus ring — the 25px hit-area input
-       makes it look like a thick purple "halo" around the visible 3px
-       track. We provide our own subtle accent outline on the WRAPPER
-       below so it only tracks the visible area, not the whole hit box. */
+    /* No focus halo around the slider — the only visual the user
+       should see is the track + thumb. The 25px hit-area input would
+       otherwise pick up Chrome's default purple focus ring on click. */
     outline: none;
   }
+  .seek:focus,
+  .seek:focus-visible {
+    outline: none;
+  }
+  .seek-wrap,
   .seek-wrap:focus-within {
-    outline: 1px solid rgba(var(--accent-rgb), 0.55);
-    outline-offset: 2px;
-    border-radius: 4px;
+    outline: none;
   }
 
   .bottom-row {
@@ -4452,7 +4454,7 @@
   }
 
   /* Volume — same look but anchored centred (it lives inline with controls,
-     not as a top edge). */
+     not as a top edge). No focus halo either; just the track + thumb. */
   .vol {
     -webkit-appearance: none;
     appearance: none;
@@ -4465,13 +4467,9 @@
     cursor: pointer;
     outline: none;
   }
-  /* Same accent-tinted focus ring as the seek bar. Visible only after
-     the user actually clicks/keyboard-focuses the slider — default
-     state has no border. */
-  .vol:focus {
-    outline: 1px solid rgba(var(--accent-rgb), 0.55);
-    outline-offset: 2px;
-    border-radius: 4px;
+  .vol:focus,
+  .vol:focus-visible {
+    outline: none;
   }
 
   .vol::-webkit-slider-runnable-track {
