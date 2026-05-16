@@ -1,6 +1,6 @@
 {
   "name": "ecoda",
-  "version": "0.0.46",
+  "version": "0.0.47",
   "description": "Desktop YouTube Music client with offline caching — own your music",
   "author": "Erney White",
   "license": "MIT",
@@ -9,7 +9,7 @@
     "dev": "electron-vite dev",
     "build": "electron-vite build",
     "preview": "electron-vite preview",
-    "postinstall": "node scripts/fetch-ytdlp.mjs && node scripts/fetch-deno.mjs && electron-builder install-app-deps",
+    "postinstall": "node scripts/fetch-ytdlp.mjs && node scripts/fetch-deno.mjs && node scripts/fetch-python-mac.mjs && electron-builder install-app-deps",
     "typecheck:node": "tsc --noEmit -p tsconfig.node.json --composite false",
     "typecheck:web": "svelte-check --tsconfig ./tsconfig.web.json",
     "typecheck": "npm run typecheck:node && npm run typecheck:web",
@@ -51,7 +51,8 @@
     ],
     "asarUnpack": [
       "resources/yt-dlp*",
-      "resources/deno*"
+      "resources/deno*",
+      "resources/python-mac/**/*"
     ],
     "publish": [
       {
@@ -87,15 +88,13 @@
         {
           "target": "dmg",
           "arch": [
-            "arm64",
-            "x64"
+            "arm64"
           ]
         },
         {
           "target": "zip",
           "arch": [
-            "arm64",
-            "x64"
+            "arm64"
           ]
         }
       ],

@@ -12,7 +12,14 @@ const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 const isWin = process.platform === 'win32'
 const isMac = process.platform === 'darwin'
 
-const assetName = isWin ? 'yt-dlp.exe' : isMac ? 'yt-dlp_macos' : 'yt-dlp'
+// macOS gets the Python zipapp (executed via system `python3 <file>`)
+// instead of the `yt-dlp_macos` PyInstaller binary. The PyInstaller
+// bundle on macOS extracts ~100 internal .so files at every launch, each
+// of which amfid validates (~150ms apiece) → 12-15s cold start. The
+// zipapp imports Python modules from the system Python install (all
+// Apple-signed) → no amfid overhead, ~0.05s startup. See ytdlp.ts for
+// the matching change in how we spawn it.
+const assetName = isWin ? 'yt-dlp.exe' : isMac ? 'yt-dlp' : 'yt-dlp'
 const fileName = isWin ? 'yt-dlp.exe' : 'yt-dlp'
 const dest = join(root, 'resources', fileName)
 const url = `https://github.com/yt-dlp/yt-dlp/releases/latest/download/${assetName}`

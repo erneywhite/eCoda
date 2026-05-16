@@ -3,7 +3,7 @@ import { join } from 'path'
 import { createReadStream, statSync } from 'node:fs'
 import { Readable } from 'node:stream'
 import icon from '../../resources/icon.png?asset'
-import { verifyBrowserLogin } from './ytdlp'
+import { verifyBrowserLogin, startYtdlpDaemon, stopYtdlpDaemon } from './ytdlp'
 import {
   detectBrowsers,
   getBrowser,
@@ -782,6 +782,15 @@ async function silentReconnect(): Promise<void> {
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send('auth:refreshed')
     }
+    // Spin up the yt-dlp daemon pool. No warmup — it just queues
+    // ahead of user clicks. The first click pays YoutubeDL construction
+    // cost (~5-7s) on one daemon; subsequent clicks land on the warm
+    // daemon at ~3s. No-op on Windows/Linux.
+    try {
+      startYtdlpDaemon(arg)
+    } catch (err) {
+      console.warn('[startup-reconnect] daemon start failed:', err)
+    }
   } catch (err) {
     console.warn('[startup-reconnect] failed:', err)
   }
@@ -798,6 +807,9 @@ app.on('window-all-closed', () => {
 // handler skip the tray interception so the window actually closes.
 app.on('before-quit', () => {
   forceQuit = true
+  // Tell the persistent yt-dlp daemon to exit cleanly so it gets a
+  // chance to flush its caches; falls through to SIGTERM if it doesn't.
+  stopYtdlpDaemon()
 })
 
 // ---------------------------------------------------------------------------

@@ -4808,15 +4808,45 @@
   /* macOS draws its three traffic-light circles inside our drag region
      at the top-left (positioned via trafficLightPosition in main).
      Pad the header left so the wordmark + back/forward chips don't
-     collide with them. ~78px clears the 70px-wide cluster. */
+     collide with them. ~78px clears the 70px-wide cluster.
+     padding-top is bumped so the wordmark sits BELOW the traffic-
+     lights vertically (otherwise they overlap on the same baseline,
+     which reads as a collision); padding-bottom is trimmed so the
+     total header height stays close to the Windows side.
+     padding-right gives the back/forward + mini-player cluster a bit
+     of breathing room from the window edge — on Windows our own
+     close/min/max buttons provided that gutter; on macOS the traffic
+     lights live on the left, so there's nothing on the right edge
+     otherwise. */
   main.platform-mac header {
-    padding-left: 78px;
+    /* Wordmark slot is exactly the sidebar width (200px). The 1rem
+       padding-left matches `.layout`'s own padding so the wordmark
+       slot lines up perfectly with the sidebar slot below — same
+       left edge, same width, same centre line. */
+    padding-left: 1rem;
+    padding-top: 2.2rem;
+    padding-bottom: 0.6rem;
+    /* Right cluster (back / forward / mini-player) lines up with the
+       right edge of the floating .player-bar below (`margin: 0 2rem
+       1.2rem 1rem`). 2rem on both keeps a clean vertical line down
+       the right side of the window. */
+    padding-right: 2rem;
     /* Whole header is the drag region for the frameless window —
        grab anywhere in the empty space to move the window. Interactive
        children (.hist, .win-ctrl) opt out via -webkit-app-region:no-drag
        below. Double-clicking the drag region toggles maximize, which
        is the standard OS expectation. */
     -webkit-app-region: drag;
+  }
+  /* On macOS the wordmark slot fills the sidebar width so the image's
+     visual centre matches the sidebar's centre. `object-fit: contain`
+     centres the raccoon+lettering inside that box without distorting
+     the aspect ratio, regardless of the source PNG dimensions. */
+  main.platform-mac .wordmark {
+    width: 200px;
+    height: 60px;
+    object-fit: contain;
+    object-position: center;
   }
 
   /* All interactive header elements must opt out of the drag region —

@@ -3,6 +3,7 @@ import { join, dirname, delimiter } from 'node:path'
 import { existsSync, mkdirSync, readFileSync, writeFileSync, unlinkSync, readdirSync } from 'node:fs'
 import { spawn } from 'node:child_process'
 import { getAudioQuality, type AudioQuality } from './auth'
+import { ytdlpInvocation } from './ytdlp'
 
 // Cross-platform binary paths. Resolved at runtime (rather than via
 // Vite's `?asset` import) so the same compiled main bundle works on
@@ -72,7 +73,8 @@ async function runYtdlp(
   videoId?: string
 ): Promise<void> {
   return new Promise<void>((resolve, reject) => {
-    const proc = spawn(ytdlpPath, args, { env: ytdlpEnv })
+    const [cmd, spawnArgs] = ytdlpInvocation(args)
+    const proc = spawn(cmd, spawnArgs, { env: ytdlpEnv })
     let stderr = ''
     let stdout = ''
     let lastPct = -1
@@ -657,6 +659,12 @@ export async function downloadOne(
         'youtube:player_client=web_music,web',
         '--cookies-from-browser',
         browser,
+        // Explicit JS runtime — yt-dlp 2026.x on macOS no longer
+        // auto-discovers Deno on PATH. Without this the n-challenge
+        // falls back to a slow retry loop. See ytdlp.ts/resolveAudio
+        // for the same rationale.
+        '--js-runtimes',
+        `deno:${denoPath}`,
         '-o',
         outTemplate,
         `https://music.youtube.com/watch?v=${info.videoId}`

@@ -13,5 +13,8 @@ resources/yt-dlp.exe
 resources/yt-dlp
 resources/deno.exe
 resources/deno
+# Bundled standalone Python for the macOS build (~65 MB, see
+# scripts/fetch-python-mac.mjs). Fetched by postinstall on macOS only.
+resources/python-mac/
 .claude/
 logs/

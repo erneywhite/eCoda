@@ -1,6 +1,7 @@
 import { app } from 'electron'
 import { existsSync, readdirSync, statSync } from 'node:fs'
 import { readFile, writeFile } from 'node:fs/promises'
+import { homedir } from 'node:os'
 import { join } from 'node:path'
 
 // `kind` decides how the browser is handed to yt-dlp:
@@ -14,17 +15,35 @@ interface BrowserDef {
   // the directory its profiles live in)
   profileRoot: string
   kind: 'native' | 'firefox-fork'
-  // For forks: candidate executable locations. Required for detection — a
-  // stale Profiles directory from a past install must not count as installed.
+  // For forks: candidate executable / .app locations. Required for
+  // detection — a stale Profiles directory from a past install must not
+  // count as installed.
   exePaths?: string[]
 }
+
+const isWin = process.platform === 'win32'
+const isMac = process.platform === 'darwin'
 
 const LOCALAPPDATA = process.env.LOCALAPPDATA ?? ''
 const APPDATA = process.env.APPDATA ?? ''
 const PROGRAMFILES = process.env['ProgramFiles'] ?? ''
 const PROGRAMFILES_X86 = process.env['ProgramFiles(x86)'] ?? ''
 
-const BROWSERS: BrowserDef[] = [
+// macOS browser data lives under ~/Library/Application Support/<vendor>/;
+// Safari is the exception — its cookies are in a sandbox container.
+const HOME = homedir()
+const MAC_APP_SUPPORT = join(HOME, 'Library', 'Application Support')
+const MAC_SAFARI_COOKIES = join(
+  HOME,
+  'Library',
+  'Containers',
+  'com.apple.Safari',
+  'Data',
+  'Library',
+  'Cookies'
+)
+
+const BROWSERS_WIN: BrowserDef[] = [
   // Browsers yt-dlp supports natively
   {
     id: 'firefox',
@@ -112,6 +131,105 @@ const BROWSERS: BrowserDef[] = [
     kind: 'firefox-fork'
   }
 ]
+
+const BROWSERS_MAC: BrowserDef[] = [
+  // Native to yt-dlp
+  {
+    id: 'firefox',
+    name: 'Firefox',
+    profileRoot: join(MAC_APP_SUPPORT, 'Firefox', 'Profiles'),
+    kind: 'native'
+  },
+  {
+    id: 'chrome',
+    name: 'Chrome',
+    profileRoot: join(MAC_APP_SUPPORT, 'Google', 'Chrome'),
+    kind: 'native'
+  },
+  {
+    id: 'edge',
+    name: 'Edge',
+    profileRoot: join(MAC_APP_SUPPORT, 'Microsoft Edge'),
+    kind: 'native'
+  },
+  {
+    id: 'brave',
+    name: 'Brave',
+    profileRoot: join(MAC_APP_SUPPORT, 'BraveSoftware', 'Brave-Browser'),
+    kind: 'native'
+  },
+  {
+    id: 'opera',
+    name: 'Opera',
+    profileRoot: join(MAC_APP_SUPPORT, 'com.operasoftware.Opera'),
+    kind: 'native'
+  },
+  {
+    id: 'vivaldi',
+    name: 'Vivaldi',
+    profileRoot: join(MAC_APP_SUPPORT, 'Vivaldi'),
+    kind: 'native'
+  },
+  {
+    id: 'chromium',
+    name: 'Chromium',
+    profileRoot: join(MAC_APP_SUPPORT, 'Chromium'),
+    kind: 'native'
+  },
+  {
+    id: 'whale',
+    name: 'Whale',
+    profileRoot: join(MAC_APP_SUPPORT, 'Naver', 'Naver Whale'),
+    kind: 'native'
+  },
+  // Safari: yt-dlp supports it natively, but reading the cookies file
+  // requires Full Disk Access for eCoda (System Settings → Privacy &
+  // Security → Full Disk Access → enable eCoda). Without that, yt-dlp
+  // fails with a permission error. We still surface Safari in the list
+  // — Safari is the most common Mac browser and excluding it would be
+  // surprising. The Settings UI should warn about FDA when it's picked.
+  {
+    id: 'safari',
+    name: 'Safari',
+    profileRoot: MAC_SAFARI_COOKIES,
+    kind: 'native'
+  },
+  // Firefox forks — read as firefox:<profile path>. Detection checks for
+  // the .app bundle so a stale Profiles directory doesn't count.
+  {
+    id: 'waterfox',
+    name: 'Waterfox',
+    profileRoot: join(MAC_APP_SUPPORT, 'Waterfox', 'Profiles'),
+    exePaths: ['/Applications/Waterfox.app'],
+    kind: 'firefox-fork'
+  },
+  {
+    id: 'librewolf',
+    name: 'LibreWolf',
+    profileRoot: join(MAC_APP_SUPPORT, 'LibreWolf', 'Profiles'),
+    exePaths: ['/Applications/LibreWolf.app'],
+    kind: 'firefox-fork'
+  },
+  {
+    id: 'floorp',
+    name: 'Floorp',
+    profileRoot: join(MAC_APP_SUPPORT, 'Floorp', 'Profiles'),
+    exePaths: ['/Applications/Floorp.app'],
+    kind: 'firefox-fork'
+  },
+  {
+    id: 'zen',
+    name: 'Zen Browser',
+    profileRoot: join(MAC_APP_SUPPORT, 'zen', 'Profiles'),
+    exePaths: ['/Applications/Zen Browser.app', '/Applications/Zen.app'],
+    kind: 'firefox-fork'
+  }
+]
+
+// On unsupported platforms (Linux etc.) we surface no browsers — the
+// connect flow handles an empty list with a clear "no supported browser
+// detected" message.
+const BROWSERS: BrowserDef[] = isWin ? BROWSERS_WIN : isMac ? BROWSERS_MAC : []
 
 export interface DetectedBrowser {
   id: string
@@ -436,12 +554,31 @@ const LIKED_MUSIC_PIN: PinnedPlaylist = {
 }
 
 export async function getPinnedPlaylists(): Promise<PinnedPlaylist[]> {
-  const list = (await readConfig()).pinnedPlaylists ?? []
+  const cfg = await readConfig()
+  const raw = cfg.pinnedPlaylists ?? []
+  // Migrate: a past bug in `updatePinSnapshot` matched by exact id, so a
+  // user who opened Liked Music via both code paths could end up with
+  // BOTH 'LM' and 'VLLM' persisted as separate pins (visible as the
+  // playlist appearing twice in the sidebar). Collapse them to the
+  // record with a richer snapshot (non-empty thumbnail wins) and
+  // persist the cleaned list so it heals on first launch after upgrade.
+  const lmIdx = raw.findIndex((p) => p.id === 'LM')
+  const vllmIdx = raw.findIndex((p) => p.id === 'VLLM')
+  if (lmIdx >= 0 && vllmIdx >= 0) {
+    const lm = raw[lmIdx]
+    const vllm = raw[vllmIdx]
+    const survivor = vllm.thumbnail ? vllm : lm.thumbnail ? lm : vllm
+    const cleaned = raw.filter((_, i) => i !== lmIdx && i !== vllmIdx)
+    cleaned.unshift(survivor)
+    cfg.pinnedPlaylists = cleaned
+    await writeConfig(cfg)
+    return cleaned
+  }
   // Make sure Liked Music is always present and at the top, even if the
   // user has never opened it yet.
-  const hasLM = list.some((p) => p.id === 'LM' || p.id === 'VLLM')
-  if (hasLM) return list
-  return [LIKED_MUSIC_PIN, ...list]
+  const hasLM = raw.some((p) => p.id === 'LM' || p.id === 'VLLM')
+  if (hasLM) return raw
+  return [LIKED_MUSIC_PIN, ...raw]
 }
 
 // Refreshes the title + thumbnail snapshot of an already-pinned playlist
@@ -451,7 +588,14 @@ export async function getPinnedPlaylists(): Promise<PinnedPlaylist[]> {
 export async function updatePinSnapshot(item: PinnedPlaylist): Promise<void> {
   const cfg = await readConfig()
   const list = cfg.pinnedPlaylists ?? []
-  const idx = list.findIndex((p) => p.id === item.id)
+  // Liked Music has two interchangeable ids: 'LM' (raw) and 'VLLM' (with
+  // the /browse prefix the metadata layer prepends). Both refer to the
+  // same playlist — collapse them onto the same slot so we never write
+  // both as separate pins.
+  const isLM = item.id === 'LM' || item.id === 'VLLM'
+  const idx = list.findIndex((p) =>
+    isLM ? p.id === 'LM' || p.id === 'VLLM' : p.id === item.id
+  )
   if (idx >= 0) {
     list[idx] = item
     cfg.pinnedPlaylists = list
@@ -460,7 +604,7 @@ export async function updatePinSnapshot(item: PinnedPlaylist): Promise<void> {
   }
   // Liked Music auto-pin: not yet in the persisted list but always shown
   // in the UI. Persist now so the cover survives a restart.
-  if (item.id === 'LM' || item.id === 'VLLM') {
+  if (isLM) {
     list.unshift(item)
     cfg.pinnedPlaylists = list
     await writeConfig(cfg)

@@ -66,7 +66,61 @@ const ytdlpPath = join(binDir, isWin ? 'yt-dlp.exe' : 'yt-dlp')
 const denoPath  = join(binDir, isWin ? 'deno.exe'  : 'deno')
 ```
 
-`electron-builder` `asarUnpack` is `["resources/yt-dlp*", "resources/deno*"]` (globs) so it picks up whichever platform-specific binary was fetched by postinstall.
+`electron-builder` `asarUnpack` includes `resources/yt-dlp*`, `resources/deno*`, and `resources/python-mac/**/*` (macOS only — see below) so spawn() can reach the binaries on disk.
+
+## macOS yt-dlp pipeline (load-bearing — paid for in blood)
+
+On macOS we ship **the yt-dlp zipapp + a bundled standalone Python**, NOT the `yt-dlp_macos` PyInstaller binary. Reason:
+
+- `yt-dlp_macos` is a PyInstaller onefile bundle. At every launch it extracts ~100 Python `.so` modules (Cryptodome, websockets, lib-dynload, etc.) into `/var/folders/.../tmp/_MEI*/`.
+- macOS `amfid` (AppleMobileFileIntegrity daemon) validates each extracted `.so` against Apple's cert chain. Every file fails with `Error -423 "adhoc signed or unknown certificate chain"`, but amfid still takes ~150ms per validation → **12-15 seconds of cold startup overhead before yt-dlp even talks to YouTube**. Combined with the network calls it adds up to 20-30s per resolve in practice; on Windows the same yt-dlp.exe is sub-second because Windows has no amfid.
+- The `yt-dlp` zipapp (Python source archive, 3.2 MB) imports Python modules from the bundled standalone Python install — every `.so` there is signed by python-build-standalone's developer cert and amfid passes them instantly. Cold resolve drops to **5-7 seconds** (network-bound).
+
+Implementation:
+
+- `resources/yt-dlp` on macOS is the zipapp (downloaded by `scripts/fetch-ytdlp.mjs`, which switches asset by platform). On Windows it's the PyInstaller `.exe` as before.
+- `resources/python-mac/` holds astral-sh/python-build-standalone's `cpython-3.13.13+...-aarch64-apple-darwin-install_only_stripped`. ~65 MB extracted. Pinned in `scripts/fetch-python-mac.mjs` for reproducibility — bump the `RELEASE` + `PY_VERSION` constants together when updating.
+- `macPython3Path()` in `src/main/ytdlp.ts` picks `<binDir>/python-mac/bin/python3` first; Homebrew paths are a dev fallback only. `ytdlpInvocation(args)` returns `[python3Path, [zipappPath, ...args]]` on macOS and `[binaryPath, args]` on Windows/Linux.
+- `--js-runtimes deno:<denoPath>` is passed explicitly in both `resolveAudio` and `downloadOne` because yt-dlp 2026.x stopped auto-discovering Deno on PATH on macOS — without the explicit flag the n-challenge falls back to a slow retry loop.
+
+**Don't switch back to `yt-dlp_macos`** — codesign'ing the outer binary doesn't help (the extracted `.so` files in `/tmp` are what amfid scans, and they're created at runtime). `--options runtime` on the outer binary actively breaks the bundle because the extracted Python.framework has a different Team ID from the resigned executable.
+
+**`mac.target.arch` is `arm64` only.** Apple-Silicon-first decision. Adding Intel support would require either a universal-arch Python bundle (~130 MB, doubles .dmg size) or an electron-builder `afterPack` hook that fetches the arch-specific Python per build pass — neither is worth doing until there's actual Intel demand.
+
+**Persistent daemon pool (macOS, 0.0.47):** `resources/yt-dlp-daemon.py` is a Python worker that imports `yt_dlp` once and processes newline-delimited JSON over stdin/stdout. `src/main/ytdlp-daemon.ts` is the Node wrapper; `YtdlpDaemonPool` runs **two** daemons so a foreground user click can land on the idle one while a background prefetch occupies the other (pool size 1 caused 10s clicks because requests queued behind prefetches). Pool starts after `silentReconnect` succeeds; `stopYtdlpDaemon()` runs on `before-quit`. **No warmup-on-start** — we tried it and it actively queued ahead of the user's first real click. Per-call spawn stays as a fallback if the daemon script is missing or the bundled Python can't be found.
+
+## TODO: port the same yt-dlp pipeline to Windows
+
+Status: planned but not implemented. Windows still spawns `yt-dlp.exe` per call (~4-5s cold resolve). Bringing the macOS pipeline (zipapp + bundled Python + daemon pool) over should drop that to ~2-3s. Cost: NSIS installer grows from ~139 MB to ~200 MB (+65 MB for standalone Python).
+
+**Files to change (concrete diff):**
+
+1. **`scripts/fetch-python-mac.mjs`** → generalise (rename to `fetch-python.mjs` and branch on `process.platform`, or create a parallel `fetch-python-win.mjs`). Windows asset name from python-build-standalone: `cpython-3.13.13+20260510-x86_64-pc-windows-msvc-install_only_stripped.tar.gz`. Windows layout is **flat, not Unix-style** — after `tar -xzf`, `python/` contains `python.exe`, `pythonw.exe`, `python313.dll`, `DLLs/`, `Lib/`, `Scripts/`, `tcl/`. Destination is `resources/python-win/python.exe` (no `bin/` subdirectory). Same `RELEASE` + `PY_VERSION` constants as macOS so the two stay in lockstep.
+
+2. **`scripts/fetch-ytdlp.mjs`** — switch Windows to the zipapp too. Currently fetches `yt-dlp.exe` and saves as `resources/yt-dlp.exe`. Change to fetch the `yt-dlp` zipapp on Windows as well, saved as `resources/yt-dlp` (no extension). All three platforms then use the same zipapp + Python combo.
+
+3. **`package.json`:** postinstall calls `fetch-python.mjs` (handles both platforms); `asarUnpack` adds `resources/python-win/**/*` and `resources/yt-dlp-daemon.py` (daemon script must live on disk for spawn, can't be inside the asar archive).
+
+4. **`.gitignore`:** add `resources/python-win/`.
+
+5. **`src/main/ytdlp.ts`:**
+   - `ytdlpPath` becomes `join(binDir, 'yt-dlp')` on all platforms (no `.exe` suffix now that Windows uses the zipapp).
+   - Add `winPython3Path()` mirroring `macPython3Path()` — candidate list `[join(binDir, 'python-win', 'python.exe')]`.
+   - `ytdlpInvocation()`: `if (isWin) return [winPython3Path(), [ytdlpPath, ...userArgs]]`.
+   - `getYtdlpDaemonPool()`: drop the `if (!isMac) return null` gate; spawn with `isMac ? macPython3Path() : winPython3Path()`.
+
+6. **`src/main/downloads.ts`:** no change — it already routes through `ytdlpInvocation()`.
+
+7. **`resources/yt-dlp-daemon.py`:** no change — cross-platform as-is. The protocol works identically; `sys.stdout.flush()` after every write guards against Windows non-interactive line-buffering.
+
+**Verify on a Windows machine:** clean `resources/{yt-dlp,yt-dlp.exe,python-win,python-mac}` → `npm install` (postinstall pulls zipapp + deno.exe + standalone Python; verify `resources/python-win/python.exe --version` prints 3.13.13) → `npm run typecheck` → `npm run dev`, click a fresh track, watch `[resolver] yt-dlp <id> in <ms>ms` go from 4-5s to ~3s after the first click warms one daemon → `npm run build:win`, confirm installer at ~200 MB.
+
+**Anti-checklist for Windows side:**
+- Don't codesign Python or yt-dlp (no amfid on Windows; signature games can only break SmartScreen).
+- Don't ship Python 3.14 — keep 3.13.13 + the same `RELEASE` constant as macOS.
+- Don't try to share `resources/python/` across mac and win (layouts differ).
+- Don't pre-warm via a fake resolve at startup (tried on mac in 0.0.47 dev, hurt first-click latency).
+- Don't set pool size higher than 2 without measuring — each daemon = ~70 MB resident.
 
 ## Build commands
 
