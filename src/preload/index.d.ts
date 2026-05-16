@@ -25,6 +25,11 @@ export interface SearchResult {
   // be pinned independently. Absent on non-playlist surfaces (search,
   // Home, Downloaded) where the rendering falls back to videoId.
   setVideoId?: string
+  // Whether the user has liked this track. Sourced from the row's
+  // `likeStatus` in the page-proxy response (most playlist rows carry
+  // it); forced to true for Liked Music. Drives the inline heart
+  // toggle in the renderer.
+  liked?: boolean
 }
 
 export type HomeItemType = 'playlist' | 'album' | 'song' | 'video' | 'artist'

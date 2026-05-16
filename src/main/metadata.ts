@@ -91,6 +91,11 @@ export interface SearchResult {
   // persistence. Absent on search results + Home items + the Downloaded
   // virtual playlist — the renderer falls back to videoId for those.
   setVideoId?: string
+  // Whether the user has liked this track. Sourced from the row's
+  // `likeStatus` field when the page-proxy includes it (most playlist
+  // rows do), and forced to true for tracks served from Liked Music.
+  // The renderer's inline heart toggle reads + writes this optimistically.
+  liked?: boolean
 }
 
 function fmtDuration(seconds: unknown): string {
@@ -461,6 +466,31 @@ function findPlaylistContinuationToken(data: unknown): string | null {
   return null
 }
 
+// Deep-walks a row subtree looking for the row's like state. YT encodes
+// it in different shapes depending on the view: `likeStatus: 'LIKE'`
+// inside `likeButtonRenderer`, OR as a toggle-menu-item where the
+// `defaultServiceEndpoint.likeEndpoint.status` says what the DEFAULT
+// click would do — if the default action is "INDIFFERENT" (i.e. remove
+// like), the track must already be liked. Returns the literal status
+// string when found, null otherwise.
+function findLikeStatus(node: unknown): 'LIKE' | 'DISLIKE' | 'INDIFFERENT' | null {
+  if (!node || typeof node !== 'object') return null
+  const stack: unknown[] = [node]
+  while (stack.length > 0) {
+    const cur = stack.pop()
+    if (!cur || typeof cur !== 'object') continue
+    if (Array.isArray(cur)) {
+      for (const c of cur) stack.push(c)
+      continue
+    }
+    const obj = cur as Record<string, unknown>
+    const ls = obj.likeStatus
+    if (ls === 'LIKE' || ls === 'DISLIKE' || ls === 'INDIFFERENT') return ls
+    for (const v of Object.values(obj)) stack.push(v)
+  }
+  return null
+}
+
 // Walks a response subtree, pulls every track row out, and appends them
 // to `out` (deduped via the shared `seen` set, keyed by playlistSetVideoId
 // when present so the same videoId added twice to a playlist shows up
@@ -548,6 +578,9 @@ function parseTrackRowsInto(
     const duration = fixedColText(item, 0) || flexColText(item, 2)
     const thumb = findFirstThumbnail(item)
 
+    const likeStatus = findLikeStatus(item)
+    const liked = likeStatus === 'LIKE' ? true : undefined
+
     if (hasPlayableId) {
       out.push({
         id: videoId,
@@ -555,7 +588,8 @@ function parseTrackRowsInto(
         artist,
         duration,
         thumbnail: thumb,
-        setVideoId: setVideoId || undefined
+        setVideoId: setVideoId || undefined,
+        liked
       })
     } else {
       // Synthetic id so Svelte's keyed iteration stays unique and the
@@ -567,7 +601,8 @@ function parseTrackRowsInto(
         duration,
         thumbnail: thumb,
         unavailable: true,
-        setVideoId: setVideoId || undefined
+        setVideoId: setVideoId || undefined,
+        liked
       })
     }
   }
@@ -710,6 +745,15 @@ export async function getPlaylistTracks(id: string): Promise<{
     } catch (err) {
       console.warn('[getPlaylistTracks] youtubei.js fallback failed:', err)
     }
+  }
+
+  // Tracks fetched from Liked Music are liked by definition — the page-
+  // proxy's likeStatus walk catches most of them but is occasionally
+  // empty for older rows; force the flag so the inline heart renders
+  // filled even when the per-row signal didn't survive.
+  const rawId = id.startsWith('VL') ? id.slice(2) : id
+  if (rawId === 'LM') {
+    for (const t of tracks) t.liked = true
   }
 
   return { title, subtitle, thumbnail, tracks }

@@ -88,6 +88,8 @@
       // different id. Downloaded is the exception — it's a synthetic
       // virtual playlist whose contents may have changed between visits
       // (user downloaded/deleted tracks elsewhere), so always refresh.
+      // Radio is a per-click ephemeral list — only refresh when the seed
+      // (or the id) changed.
       if (entry.id === DOWNLOADED_ID || openPlaylistId !== entry.id) {
         void loadPlaylistData(entry.id)
       }
@@ -194,6 +196,9 @@
   // drag) so the next playlist open reproduces what the user saw.
   async function savePlaylistOverride(): Promise<void> {
     if (!openPlaylistId || !playlistView) return
+    // Radio is ephemeral — no point persisting an override against a
+    // RADIO_<id> key the next session won't re-derive the same way.
+    if (isRadioId(openPlaylistId)) return
     const order = playlistView.tracks.map(rowKey)
     const pinned = order.filter((k) => playlistPinned.has(k))
     const prependOnAdd = isPrependPlaylist(openPlaylistId)
@@ -1159,17 +1164,13 @@
       onSelect: () => void startRadioFromTrack(track),
       disabled: track.unavailable
     })
-    items.push({
-      label: t('ctx.addToLiked'),
-      iconPath: CTX_ICONS.like,
-      onSelect: () => void likeTrackAction(track, true),
-      disabled: track.unavailable
-    })
     // Pin / unpin only makes sense in a playlist view (search results
     // aren't a list with persistent order). Detect by: openPlaylistId
     // is set AND this menu was opened on a row from the playlist view.
+    // Pin is also meaningless on the radio view — radio is ephemeral.
     const isPlaylistRow =
       openPlaylistId != null &&
+      !isRadioId(openPlaylistId) &&
       playlistView != null &&
       sourceList === playlistView.tracks &&
       sourceContext.id === openPlaylistId
@@ -1181,63 +1182,95 @@
         onSelect: () => void togglePinTrack(track)
       })
     }
-    // Inside Liked Music playlist itself, expose "Remove from Liked"
-    // as an inverse. (Calls /like/removelike.)
-    if (isLikedMusicId(openPlaylistId)) {
-      items.push({
-        label: t('ctx.removeFromLiked'),
-        iconPath: CTX_ICONS.unlike,
-        onSelect: () => void likeTrackAction(track, false),
-        danger: true
-      })
-    }
     return items
   }
 
   // ---- Like + Radio actions ---------------------------------------------
 
-  async function likeTrackAction(track: SearchResult, like: boolean): Promise<void> {
-    if (!track.id || track.unavailable) return
-    showToast(like ? t('toast.likeSending') : t('toast.unlikeSending'))
-    const ok = await window.api.metadata.like(track.id, like)
-    if (ok) {
-      showToast(like ? t('toast.liked', { title: track.title }) : t('toast.unliked', { title: track.title }))
-      // When the user removes a like from inside the Liked Music view,
-      // drop the row immediately so the count + list reflect reality.
-      // The next visit will re-fetch and confirm.
-      if (!like && isLikedMusicId(openPlaylistId) && playlistView) {
-        const next = playlistView.tracks.filter((t) => t.id !== track.id)
-        playlistView = { ...playlistView, tracks: next }
-        syncPlayingSourceList()
-      }
-    } else {
-      showToast(t('toast.likeFailed'))
+  // Mirror the new liked state across every place a copy of this track
+  // lives — playlistView, searchResults, player's sourceList — so the
+  // inline heart and any future row re-renders all agree without waiting
+  // for a re-fetch. Called both optimistically (before the IPC returns)
+  // and on revert if the API said no.
+  function setTrackLikedEverywhere(videoId: string, liked: boolean): void {
+    if (playlistView) {
+      let changed = false
+      const next = playlistView.tracks.map((t) => {
+        if (t.id === videoId && t.liked !== liked) {
+          changed = true
+          return { ...t, liked }
+        }
+        return t
+      })
+      if (changed) playlistView = { ...playlistView, tracks: next }
+    }
+    if (searchResults.length > 0) {
+      let changed = false
+      const next = searchResults.map((t) => {
+        if (t.id === videoId && t.liked !== liked) {
+          changed = true
+          return { ...t, liked }
+        }
+        return t
+      })
+      if (changed) searchResults = next
+    }
+    if (playing && playing.sourceList) {
+      let changed = false
+      const next = playing.sourceList.map((t) => {
+        if (t.id === videoId && t.liked !== liked) {
+          changed = true
+          return { ...t, liked }
+        }
+        return t
+      })
+      if (changed) playing = { ...playing, sourceList: next }
     }
   }
 
-  // Starts radio from a track: pulls related songs via yt.music.getUpNext,
-  // builds a sourceList of [seed, ...related] and starts playback. The
-  // sticky prev/next then walks the radio list. Toast + spinner-ish
-  // toast feedback because the IPC takes ~300-800ms.
-  async function startRadioFromTrack(track: SearchResult): Promise<void> {
+  async function toggleTrackLike(track: SearchResult): Promise<void> {
     if (!track.id || track.unavailable) return
-    showToast(t('toast.radioStarting', { title: track.title }))
-    let related: SearchResult[] = []
-    try {
-      related = await window.api.metadata.radio(track.id)
-    } catch (err) {
-      console.warn('radio fetch failed', err)
-    }
-    if (related.length === 0) {
-      showToast(t('toast.radioEmpty'))
+    const newLiked = !track.liked
+    // Optimistic: heart fills/empties before the network round-trip lands.
+    setTrackLikedEverywhere(track.id, newLiked)
+    const ok = await window.api.metadata.like(track.id, newLiked)
+    if (!ok) {
+      // Revert and tell the user; the heart visibly snaps back so they
+      // know the action didn't take.
+      setTrackLikedEverywhere(track.id, !newLiked)
+      showToast(t('toast.likeFailed'))
       return
     }
-    const sourceList = [track, ...related]
-    await playTrack(track, sourceList, {
-      id: undefined,
-      title: t('radio.title', { title: track.title })
-    })
-    showToast(t('toast.radioStarted', { n: related.length }))
+    // Inside the Liked Music view, an unlike removes the row from the
+    // visible list immediately — otherwise the user sees an empty heart
+    // sitting in their Liked playlist, which is confusing.
+    if (!newLiked && isLikedMusicId(openPlaylistId) && playlistView) {
+      const next = playlistView.tracks.filter((t) => t.id !== track.id)
+      playlistView = { ...playlistView, tracks: next }
+      syncPlayingSourceList()
+    }
+  }
+
+  // Radio as a fully-fledged playlist view. We synthesize a PlaylistView
+  // with title "Радиостанция · {seed}" so the user can SEE what's queued
+  // (matches YT Music's "Up next" panel) instead of the queue going dark
+  // and prev/next pulling tracks out of nowhere.
+  const RADIO_PREFIX = 'RADIO_'
+  function isRadioId(id: string | null): boolean {
+    return id != null && id.startsWith(RADIO_PREFIX)
+  }
+  // Cache the seed metadata so back/forward navigation to a RADIO_<id>
+  // entry can rebuild the view without having to crawl the source list
+  // again. Cleared on auth disconnect alongside the other view caches.
+  let radioSeedCache = $state<Map<string, SearchResult>>(new Map())
+
+  async function startRadioFromTrack(track: SearchResult): Promise<void> {
+    if (!track.id || track.unavailable) return
+    // Cache the seed BEFORE we navigate — loadPlaylistData(RADIO_…) will
+    // look it up on history forward/back.
+    radioSeedCache.set(track.id, track)
+    radioSeedCache = new Map(radioSeedCache)
+    navigate({ kind: 'playlist', id: RADIO_PREFIX + track.id })
   }
 
   function openCtxMenu(
@@ -1429,6 +1462,7 @@
     playHistory = []
     ctxMenu = null
     toast = null
+    radioSeedCache = new Map()
     historyStack = [{ kind: 'home' }]
     historyIndex = 0
     view = 'home'
@@ -1540,6 +1574,54 @@
     // Reset per-playlist override state — it's recomputed below from
     // whatever's persisted in config for this id.
     playlistPinned = new Set()
+    hasPlaylistOverride = false
+    // Radio "playlist": synthesise a view from the cached seed track +
+    // a fresh getUpNext call. No override / pin / drag affordances apply
+    // (the view is ephemeral). Auto-plays the seed after the related
+    // tracks land so prev/next walks the radio list.
+    if (isRadioId(id)) {
+      playlistFallback = null
+      const seedId = id.slice(RADIO_PREFIX.length)
+      const seed = radioSeedCache.get(seedId) ?? {
+        id: seedId,
+        title: '',
+        artist: '',
+        duration: '',
+        thumbnail: ''
+      }
+      // Render the seed alone immediately so the cover / title appear
+      // while related tracks are fetched.
+      playlistView = {
+        title: t('radio.title', { title: seed.title || seedId }),
+        subtitle: seed.artist,
+        thumbnail: seed.thumbnail,
+        tracks: [seed]
+      }
+      try {
+        const related = await window.api.metadata.radio(seedId)
+        const tracks = [seed, ...related]
+        playlistView = {
+          title: t('radio.title', { title: seed.title || seedId }),
+          subtitle: seed.artist,
+          thumbnail: seed.thumbnail,
+          tracks
+        }
+        void refreshDownloadStatus(playlistView.tracks)
+        // Auto-play the seed after the list materialises. Skip if the
+        // user is already listening within THIS exact radio (e.g. they
+        // hit browser-back and we re-entered loadPlaylistData) — yanking
+        // playback back to the seed would be jarring.
+        const playingThisRadio = playing?.sourceListId === id
+        if (!playingThisRadio && seed.id) {
+          await playTrack(seed, tracks, { id, title: playlistView.title })
+        }
+      } catch (e) {
+        playlistError = e instanceof Error ? e.message : String(e)
+      } finally {
+        playlistLoading = false
+      }
+      return
+    }
     // Synthetic "Downloaded" virtual playlist: data comes from the local
     // manifest, not InnerTube. Same UI as a normal playlist; the pin
     // button + bulk download are hidden because they don't apply.
@@ -1968,6 +2050,9 @@
   // payload, the source index lives in dragIndex state.
   function onRowDragStart(e: DragEvent, idx: number): void {
     if (!playlistView) return
+    // Radio rows aren't reorderable — the list is ephemeral and
+    // savePlaylistOverride would be a no-op anyway.
+    if (isRadioId(openPlaylistId)) return
     dragIndex = idx
     if (e.dataTransfer) {
       e.dataTransfer.effectAllowed = 'move'
@@ -2241,7 +2326,7 @@
           {#if searchResults.length > 0}
             <ul class="track-list">
               {#each searchResults as r (r.id)}
-                <li>
+                <li class="track-li">
                   <button
                     class="track-row"
                     class:current={playing?.id === r.id}
@@ -2257,8 +2342,19 @@
                       <div class="title">{r.title}</div>
                       <div class="artist">{r.artist}</div>
                     </div>
-                    <div class="duration">{r.duration}</div>
                   </button>
+                  <button
+                    class="like-btn"
+                    class:liked={r.liked}
+                    onclick={() => void toggleTrackLike(r)}
+                    aria-label={r.liked ? t('like.remove') : t('like.add')}
+                    title={r.liked ? t('like.remove') : t('like.add')}
+                  >
+                    <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
+                      <path d={r.liked ? CTX_ICONS.like : CTX_ICONS.unlike} />
+                    </svg>
+                  </button>
+                  <div class="duration">{r.duration}</div>
                 </li>
               {/each}
             </ul>
@@ -2285,6 +2381,8 @@
                 <div class="playlist-subtitle">
                   {#if isDownloadedId(openPlaylistId)}
                     {t('downloaded.subtitle')}
+                  {:else if isRadioId(openPlaylistId)}
+                    {t('radio.subtitle')}
                   {:else}
                     {playlistView.subtitle}
                   {/if}
@@ -2331,8 +2429,10 @@
                            rows. Different from the player-bar's continuous
                            shuffle: this PERMANENTLY reorders the saved
                            order; each click is a new arrangement. Pinned
-                           rows stay in their positions. -->
-                      {#if playlistView.tracks.length > 1}
+                           rows stay in their positions. Hidden on the
+                           radio view — radio is ephemeral, no override
+                           to persist. -->
+                      {#if playlistView.tracks.length > 1 && !isRadioId(openPlaylistId)}
                         <button
                           class="dl-icon-btn"
                           onclick={reshuffleCurrentPlaylist}
@@ -2369,7 +2469,7 @@
                            there are tracks left to fetch, ✓ when everything
                            is on disk. Hidden on Downloaded view because by
                            definition everything is already cached there. -->
-                      {#if !isDownloadedId(openPlaylistId)}
+                      {#if !isDownloadedId(openPlaylistId) && !isRadioId(openPlaylistId)}
                         {#if bulkProgress}
                           <!-- During a bulk download, the chip is clickable
                                and cancels the rest of the batch. Hover
@@ -2416,7 +2516,7 @@
                         {/if}
                       {/if}
 
-                      {#if !isLikedMusicId(openPlaylistId) && !isDownloadedId(openPlaylistId)}
+                      {#if !isLikedMusicId(openPlaylistId) && !isDownloadedId(openPlaylistId) && !isRadioId(openPlaylistId)}
                         <button
                           class="pin-toggle"
                           class:pinned={isPinned(openPlaylistId)}
@@ -2539,8 +2639,23 @@
                         </svg>
                       </span>
                     {/if}
-                    <div class="duration">{r.duration}</div>
                   </button>
+                  <!-- Inline like toggle, YT-Music-style: filled heart =
+                       liked, outlined = not. Optimistic update; reverts
+                       if the IPC fails. Disabled on unavailable rows. -->
+                  <button
+                    class="like-btn"
+                    class:liked={r.liked}
+                    onclick={() => void toggleTrackLike(r)}
+                    aria-label={r.liked ? t('like.remove') : t('like.add')}
+                    title={r.liked ? t('like.remove') : t('like.add')}
+                    disabled={r.unavailable}
+                  >
+                    <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
+                      <path d={r.liked ? CTX_ICONS.like : CTX_ICONS.unlike} />
+                    </svg>
+                  </button>
+                  <div class="duration">{r.duration}</div>
                   <button
                     class="dl-btn"
                     class:done={downloadedIds.has(r.id)}
@@ -4347,6 +4462,47 @@
   }
   .track-li .track-row {
     flex: 1;
+    /* Without min-width:0, the row's intrinsic min-content width
+       (driven by the title's longest unbroken run) keeps it from
+       shrinking — long titles then push the heart / duration / dl-btn
+       columns past the viewport instead of letting the title ellipsise. */
+    min-width: 0;
+  }
+  /* Inline like toggle — borrowed visual language from the dl-btn so
+     the three trailing controls (heart / duration / download) read as
+     a small cluster. Filled red when liked. */
+  .like-btn {
+    flex: 0 0 auto;
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    border: none;
+    border-radius: 50%;
+    background: transparent;
+    color: #b9acd6;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.15s ease, color 0.15s ease, transform 0.12s ease;
+  }
+  .like-btn:hover:not(:disabled) {
+    background: rgba(255, 90, 130, 0.16);
+    color: #ff6b9d;
+  }
+  .like-btn.liked {
+    color: #ff5577;
+  }
+  .like-btn.liked:hover:not(:disabled) {
+    background: rgba(255, 90, 130, 0.22);
+    color: #ff7da0;
+  }
+  .like-btn:active:not(:disabled) {
+    transform: scale(0.88);
+  }
+  .like-btn:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
   }
   /* Drag-and-drop reorder visuals:
      .dragging  — the row currently being dragged (faded so the user
@@ -4580,7 +4736,8 @@
      the user can see what's "missing" and clean it up in YT proper, but
      we dim it and italicise the metadata so it's obviously inert. */
   .track-li.unavailable .track-row,
-  .track-li.unavailable .dl-btn {
+  .track-li.unavailable .dl-btn,
+  .track-li.unavailable .like-btn {
     opacity: 0.4;
     cursor: not-allowed;
   }
