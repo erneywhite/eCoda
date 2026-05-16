@@ -65,6 +65,14 @@ console.log(
 //                         (macOS) icon bundles. The recommended
 //                         source size is 1024×1024 — anything smaller
 //                         and the high-DPI sizes in .icns look soft.
+//
+// The source artwork from the artist isn't guaranteed to be square
+// (the 2026-05 revision was 5733×4900 → 1.17:1). Both Windows .ico
+// and macOS .icns need a square master, so we `fit: contain` into
+// 1024×1024 and pad the shorter side with TRANSPARENT pixels. macOS
+// applies a rounded-squircle mask anyway; Windows shows the square
+// as-is but the transparent padding stays invisible against any
+// background.
 const iconDst1 = join(root, 'resources', 'icon.png')
 const iconDst2 = join(root, 'build', 'icon.png')
 const iconMeta = await sharp(iconSrc).metadata()
@@ -76,7 +84,12 @@ console.log(
   ).toFixed(1)} MB`
 )
 await sharp(iconSrc)
-  .resize({ width: 1024, height: 1024, withoutEnlargement: true, fit: 'inside' })
+  .resize({
+    width: 1024,
+    height: 1024,
+    fit: 'contain',
+    background: { r: 0, g: 0, b: 0, alpha: 0 }
+  })
   .png({ compressionLevel: 9, adaptiveFiltering: true })
   .toFile(iconDst1)
 await copyFile(iconDst1, iconDst2)
