@@ -469,7 +469,13 @@
   }
 
   async function toggleTrackDownload(track: SearchResult): Promise<void> {
-    if (downloadingIds.has(track.id)) return
+    // Clicking ↓ while it's already downloading = cancel. Kills the
+    // underlying yt-dlp; the IPC promise still rejects (caught in the
+    // catch below) and the finally clears the in-flight badge.
+    if (downloadingIds.has(track.id)) {
+      void window.api.downloads.cancel(track.id)
+      return
+    }
     if (downloadedIds.has(track.id)) {
       // already downloaded → delete
       const ok = await window.api.downloads.delete(track.id)
@@ -498,6 +504,13 @@
     } finally {
       setDownloading(track.id, false)
     }
+  }
+
+  // Cancel the in-flight bulk download (playlist Download N). Tells main
+  // to kill the running yt-dlp + stop dispatching more tracks. Already-
+  // downloaded ones stay; the progress chip's "cancel" tooltip explains.
+  function cancelBulkDownload(): void {
+    void window.api.downloads.cancelAll()
   }
 
   async function downloadCurrentPlaylist(): Promise<void> {
@@ -796,12 +809,15 @@
     else audioEl.pause()
   }
 
-  function onSeekInput(e: Event): void {
+  // With bind:value below, Svelte handles the input→state write. Our
+  // job here is just to flip the `seeking` flag so timeupdate stops
+  // fighting the drag, AND to commit the seek to the audio element on
+  // mouseup (`change` event).
+  function onSeekInput(): void {
     seeking = true
-    currentTime = Number((e.target as HTMLInputElement).value)
   }
-  function onSeekCommit(e: Event): void {
-    if (audioEl) audioEl.currentTime = Number((e.target as HTMLInputElement).value)
+  function onSeekCommit(): void {
+    if (audioEl) audioEl.currentTime = currentTime
     seeking = false
   }
   function onVolumeInput(e: Event): void {
@@ -1891,20 +1907,22 @@
                            definition everything is already cached there. -->
                       {#if !isDownloadedId(openPlaylistId)}
                         {#if bulkProgress}
-                          <div
-                            class="dl-icon-btn busy"
-                            aria-label={t('playlist.download.progress', {
-                              done: bulkProgress.done,
-                              total: bulkProgress.total
-                            })}
-                            title={t('playlist.download.progress', {
-                              done: bulkProgress.done,
-                              total: bulkProgress.total
-                            })}
+                          <!-- During a bulk download, the chip is clickable
+                               and cancels the rest of the batch. Hover
+                               swaps the spinner+count for a big ✕ so the
+                               cancel affordance is visible. -->
+                          <button
+                            class="dl-icon-btn busy cancelable"
+                            onclick={cancelBulkDownload}
+                            aria-label={t('downloads.cancelBulk')}
+                            title={t('downloads.cancelBulk')}
                           >
-                            <span class="spinner spinner-inline"></span>
-                            <span class="dl-count">{bulkProgress.done}/{bulkProgress.total}</span>
-                          </div>
+                            <span class="busy-content">
+                              <span class="spinner spinner-inline"></span>
+                              <span class="dl-count">{bulkProgress.done}/{bulkProgress.total}</span>
+                            </span>
+                            <span class="cancel-x" aria-hidden="true">✕</span>
+                          </button>
                         {:else if playlistView.tracks.some((t) => !downloadedIds.has(t.id))}
                           {@const pending = playlistView.tracks.filter(
                             (t) => !downloadedIds.has(t.id)
@@ -2044,10 +2062,10 @@
                       : downloadedIds.has(r.id)
                         ? t('track.dl.done')
                         : downloadingIds.has(r.id)
-                          ? t('track.dl.busy')
+                          ? t('track.dl.cancel')
                           : t('track.dl.idle')}
                     onclick={() => toggleTrackDownload(r)}
-                    disabled={downloadingIds.has(r.id) || r.unavailable}
+                    disabled={r.unavailable}
                   >
                     {#if downloadedIds.has(r.id)}
                       ✓
@@ -2056,28 +2074,33 @@
                            percent. Background arc + foreground arc using
                            the stroke-dasharray-on-r≈15.9 trick (full
                            circumference ≈ 100, so the dasharray value
-                           equals the percent). -->
-                      <svg class="dl-ring" viewBox="0 0 36 36" width="18" height="18">
-                        <circle
-                          cx="18"
-                          cy="18"
-                          r="15.9"
-                          fill="none"
-                          stroke="rgba(255,255,255,0.18)"
-                          stroke-width="3"
-                        />
-                        <circle
-                          cx="18"
-                          cy="18"
-                          r="15.9"
-                          fill="none"
-                          stroke="currentColor"
-                          stroke-width="3"
-                          stroke-dasharray="{downloadPercent.get(r.id) ?? 0}, 100"
-                          transform="rotate(-90 18 18)"
-                          stroke-linecap="round"
-                        />
-                      </svg>
+                           equals the percent). On hover the ring fades
+                           and a ✕ takes over so the user knows the
+                           click cancels the download. -->
+                      <span class="busy-content">
+                        <svg class="dl-ring" viewBox="0 0 36 36" width="18" height="18">
+                          <circle
+                            cx="18"
+                            cy="18"
+                            r="15.9"
+                            fill="none"
+                            stroke="rgba(255,255,255,0.18)"
+                            stroke-width="3"
+                          />
+                          <circle
+                            cx="18"
+                            cy="18"
+                            r="15.9"
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="3"
+                            stroke-dasharray="{downloadPercent.get(r.id) ?? 0}, 100"
+                            transform="rotate(-90 18 18)"
+                            stroke-linecap="round"
+                          />
+                        </svg>
+                      </span>
+                      <span class="cancel-x" aria-hidden="true">✕</span>
                     {:else}
                       ↓
                     {/if}
@@ -2433,13 +2456,19 @@
              player bar (visually replaces the top border). Times live
              inline with the transport buttons below, the same way YT Music
              arranges them. -->
+        <!-- bind:value keeps the input and currentTime in sync without
+             Svelte re-applying the `value` attribute every render — which
+             during heavy re-render bursts (e.g. download progress events
+             ticking ~10/sec) was racing the user's seek-bar click and
+             snapping the thumb back, making the audio commit to the
+             pre-click position. -->
         <input
           type="range"
           class="seek"
           min="0"
           max={duration || 0}
           step="0.5"
-          value={currentTime}
+          bind:value={currentTime}
           oninput={onSeekInput}
           onchange={onSeekCommit}
           disabled={!duration}
@@ -2555,6 +2584,7 @@
               <button
                 class="ctrl small dl"
                 class:done={downloadedIds.has(playing.id)}
+                class:busy={downloadingIds.has(playing.id)}
                 onclick={() =>
                   toggleTrackDownload({
                     id: playing!.id,
@@ -2563,42 +2593,46 @@
                     duration: '',
                     thumbnail: playing!.thumbnail
                   })}
-                disabled={downloadingIds.has(playing.id)}
                 aria-label={downloadedIds.has(playing.id)
                   ? t('track.dl.done')
                   : downloadingIds.has(playing.id)
-                    ? t('track.dl.busy')
+                    ? t('track.dl.cancel')
                     : t('track.dl.idle')}
                 title={downloadedIds.has(playing.id)
                   ? t('track.dl.done')
                   : downloadingIds.has(playing.id)
-                    ? t('track.dl.busy')
+                    ? t('track.dl.cancel')
                     : t('track.dl.idle')}
               >
                 {#if downloadingIds.has(playing.id)}
                   <!-- Same filling ring as the playlist row chip uses,
-                       driven by the live percent from downloads:track-progress. -->
-                  <svg class="dl-ring" viewBox="0 0 36 36" width="18" height="18">
-                    <circle
-                      cx="18"
-                      cy="18"
-                      r="15.9"
-                      fill="none"
-                      stroke="rgba(255,255,255,0.18)"
-                      stroke-width="3"
-                    />
-                    <circle
-                      cx="18"
-                      cy="18"
-                      r="15.9"
-                      fill="none"
-                      stroke="currentColor"
-                      stroke-width="3"
-                      stroke-dasharray="{downloadPercent.get(playing.id) ?? 0}, 100"
-                      transform="rotate(-90 18 18)"
-                      stroke-linecap="round"
-                    />
-                  </svg>
+                       driven by the live percent from downloads:track-progress.
+                       Hover fades the ring + shows a ✕ to make the cancel
+                       affordance discoverable. -->
+                  <span class="busy-content">
+                    <svg class="dl-ring" viewBox="0 0 36 36" width="18" height="18">
+                      <circle
+                        cx="18"
+                        cy="18"
+                        r="15.9"
+                        fill="none"
+                        stroke="rgba(255,255,255,0.18)"
+                        stroke-width="3"
+                      />
+                      <circle
+                        cx="18"
+                        cy="18"
+                        r="15.9"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="3"
+                        stroke-dasharray="{downloadPercent.get(playing.id) ?? 0}, 100"
+                        transform="rotate(-90 18 18)"
+                        stroke-linecap="round"
+                      />
+                    </svg>
+                  </span>
+                  <span class="cancel-x" aria-hidden="true">✕</span>
                 {:else if downloadedIds.has(playing.id)}
                   <!-- ✓ filled checkmark -->
                   <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
@@ -3806,7 +3840,8 @@
   }
 
   .dl-btn.busy {
-    cursor: default;
+    position: relative;
+    cursor: pointer;
     color: var(--accent);
     opacity: 1;
   }
@@ -3820,6 +3855,53 @@
   }
   .dl-ring circle:nth-child(2) {
     transition: stroke-dasharray 0.2s ease-out;
+  }
+
+  /* Cancel affordance: the ring (or whatever .busy-content holds) fades
+     out on parent :hover and a centred ✕ fades in. Reuses the .busy
+     state on .dl-btn (track row), .ctrl.small.dl (player bar) and the
+     wider .dl-icon-btn.busy (playlist bulk chip). */
+  .busy-content {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    transition: opacity 0.12s ease;
+  }
+  .cancel-x {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #ff8db5;
+    font-size: 0.95rem;
+    font-weight: 700;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.12s ease;
+  }
+  .dl-btn.busy:hover .busy-content,
+  .ctrl.small.dl.busy:hover .busy-content,
+  .dl-icon-btn.busy.cancelable:hover .busy-content {
+    opacity: 0;
+  }
+  .dl-btn.busy:hover .cancel-x,
+  .ctrl.small.dl.busy:hover .cancel-x,
+  .dl-icon-btn.busy.cancelable:hover .cancel-x {
+    opacity: 1;
+  }
+  .dl-icon-btn.busy.cancelable {
+    cursor: pointer;
+    position: relative;
+  }
+  .dl-icon-btn.busy.cancelable:hover {
+    background: rgba(255, 60, 120, 0.18);
+    border-color: rgba(255, 107, 157, 0.5);
+    color: #ff8db5;
+  }
+  /* Bigger ✕ for the wider playlist-header bulk chip */
+  .dl-icon-btn.busy .cancel-x {
+    font-size: 1.1rem;
   }
 
   .dl-bulk {
@@ -4118,10 +4200,17 @@
   /* Download chip in the player bar — uses .ctrl.small as the base
      (compact round icon button) and only overrides what's distinctive:
      a softer hover and the green "✓ already downloaded" state so the
-     user can tell at a glance whether the current track is on disk. */
+     user can tell at a glance whether the current track is on disk.
+     position:relative so the .cancel-x overlay can inset against it
+     when downloading. */
   .ctrl.small.dl {
+    position: relative;
     margin-left: 0.25rem;
     color: #b9acd6;
+  }
+  .ctrl.small.dl.busy:hover {
+    color: #ff8db5;
+    background: rgba(255, 60, 120, 0.18);
   }
   .ctrl.small.dl.done {
     color: #9eef9e;

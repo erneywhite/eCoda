@@ -55,6 +55,8 @@ import {
   getCachedThumbPath,
   getCacheStats,
   clearAllDownloads,
+  cancelDownload,
+  cancelAllDownloads,
   getDownloadedStatus,
   listDownloadedTracks,
   getDownloadsAsPlaylist,
@@ -449,6 +451,15 @@ app.whenReady().then(async () => {
   ipcMain.handle('downloads:delete', (_event, videoId: string) => deleteDownloadedTrack(videoId))
   ipcMain.handle('downloads:stats', () => getCacheStats())
   ipcMain.handle('downloads:clearAll', () => clearAllDownloads())
+  // Cancel an in-flight per-track download (clicking ↓ on a track that's
+  // currently being fetched). Kills the underlying yt-dlp process; the
+  // .part file is swept up in downloadOne's catch block.
+  ipcMain.handle('downloads:cancel', (_event, videoId: string) => cancelDownload(videoId))
+  // Cancel an in-flight BULK download (the playlist-header progress
+  // chip's ✕ button). Kills the currently-running yt-dlp AND tells the
+  // downloadMany loop to stop dispatching new tracks. Already-completed
+  // tracks stay on disk.
+  ipcMain.handle('downloads:cancelAll', () => cancelAllDownloads())
   // Scan the cache directory, reconcile manifest entries with files on
   // disk, and report what was patched up. Surfaced from Settings →
   // Diagnostics so the user can recover from a flaky restart by hand.

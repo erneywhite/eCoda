@@ -20,6 +20,48 @@ function asUnpackedPath(p: string): string {
 const ytdlpPath = asUnpackedPath(ytdlpRawPath)
 const denoPath = asUnpackedPath(denoRawPath)
 
+// Map<videoId, ChildProcess> of in-flight yt-dlp downloads so cancel
+// requests can target the right process. Bulk downloads check
+// `bulkCancelled` between iterations to stop the loop without waiting
+// for each remaining track to error out individually.
+const runningProcesses = new Map<string, ReturnType<typeof spawn>>()
+let bulkCancelled = false
+
+// Cancels a single in-flight download (per-track ↓ in the playlist row
+// or the player-bar chip). Returns true if a process was found and a
+// kill was attempted. The killed process's runYtdlp promise rejects
+// with the standard non-zero exit error; downloadOne propagates that
+// as a download failure, which the renderer interprets as "cancelled"
+// since we cleared its in-flight state at click time.
+export function cancelDownload(videoId: string): boolean {
+  const proc = runningProcesses.get(videoId)
+  if (!proc) return false
+  try {
+    proc.kill()
+  } catch (err) {
+    console.warn(`[downloads] cancel kill failed for ${videoId}:`, err)
+    return false
+  }
+  return true
+}
+
+// Cancels every in-flight download AND signals downloadMany to stop
+// iterating. Used by the bulk-download cancel button so the user can
+// abort a long playlist mid-way. Tracks that already finished stay on
+// disk; the one currently mid-download is killed (partial file is
+// cleaned up by the close-handler in downloadOne).
+export function cancelAllDownloads(): void {
+  bulkCancelled = true
+  for (const [id, proc] of runningProcesses) {
+    try {
+      proc.kill()
+    } catch (err) {
+      console.warn(`[downloads] cancelAll kill failed for ${id}:`, err)
+    }
+  }
+  runningProcesses.clear()
+}
+
 // Wraps yt-dlp in a streaming spawn so the caller can react to live
 // progress lines. We add --newline so yt-dlp emits one progress update
 // per line (instead of \r-overwriting), which makes parsing trivial.
@@ -28,13 +70,19 @@ const denoPath = asUnpackedPath(denoRawPath)
 // summarizeDownloadError() expects.
 async function runYtdlp(
   args: string[],
-  onProgress?: (percent: number) => void
+  onProgress?: (percent: number) => void,
+  videoId?: string
 ): Promise<void> {
   return new Promise<void>((resolve, reject) => {
     const proc = spawn(ytdlpPath, args, { env: ytdlpEnv })
     let stderr = ''
     let stdout = ''
     let lastPct = -1
+
+    // Register the proc so cancelDownload can find it. Always cleared
+    // in the close handler so a finished download doesn't leak into
+    // the map indefinitely.
+    if (videoId) runningProcesses.set(videoId, proc)
 
     proc.stdout.on('data', (chunk: Buffer) => {
       const text = chunk.toString('utf8')
@@ -59,17 +107,25 @@ async function runYtdlp(
     proc.stderr.on('data', (chunk: Buffer) => {
       stderr += chunk.toString('utf8')
     })
-    proc.on('error', (err) => reject(err))
-    proc.on('close', (code) => {
+    proc.on('error', (err) => {
+      if (videoId) runningProcesses.delete(videoId)
+      reject(err)
+    })
+    proc.on('close', (code, signal) => {
+      if (videoId) runningProcesses.delete(videoId)
       if (code === 0) {
         resolve()
       } else {
-        const err = new Error(`yt-dlp exited with code ${code}`) as Error & {
-          stderr: string
-          stdout: string
-        }
+        // Killed-by-signal (proc.kill from cancelDownload) ends with
+        // code=null + a signal name. Tag the rejection so the renderer
+        // can show "cancelled" rather than a real failure.
+        const wasCancelled = code === null && signal != null
+        const err = new Error(
+          wasCancelled ? 'cancelled' : `yt-dlp exited with code ${code}`
+        ) as Error & { stderr: string; stdout: string; cancelled?: boolean }
         err.stderr = stderr
         err.stdout = stdout
+        if (wasCancelled) err.cancelled = true
         reject(err)
       }
     })
@@ -582,25 +638,44 @@ export async function downloadOne(
   const quality = await getAudioQuality()
   const formatSelector = formatSelectorFor(quality)
   const outTemplate = join(cacheDir, `${info.videoId}.%(ext)s`)
-  await runYtdlp(
-    [
-      '-f',
-      formatSelector,
-      '--no-playlist',
-      '--no-warnings',
-      // --newline ensures yt-dlp prints each progress update on its own
-      // line instead of \r-overwriting, so our line-oriented regex
-      // catches every percentage tick. --progress is the default, so no
-      // need to add it; we just removed the old --no-progress.
-      '--newline',
-      '--cookies-from-browser',
-      browser,
-      '-o',
-      outTemplate,
-      `https://www.youtube.com/watch?v=${info.videoId}`
-    ],
-    onProgress
-  )
+  try {
+    await runYtdlp(
+      [
+        '-f',
+        formatSelector,
+        '--no-playlist',
+        '--no-warnings',
+        // --newline ensures yt-dlp prints each progress update on its own
+        // line instead of \r-overwriting, so our line-oriented regex
+        // catches every percentage tick. --progress is the default, so no
+        // need to add it; we just removed the old --no-progress.
+        '--newline',
+        '--cookies-from-browser',
+        browser,
+        '-o',
+        outTemplate,
+        `https://www.youtube.com/watch?v=${info.videoId}`
+      ],
+      onProgress,
+      info.videoId
+    )
+  } catch (err) {
+    // If a kill cancelled the download, sweep up any partial file yt-dlp
+    // left on disk so the user doesn't end up with a 30%-of-a-track
+    // playable file. yt-dlp normally writes `<id>.<ext>.part` during
+    // transfer and only renames on success; killing mid-flight leaves
+    // the .part behind.
+    if ((err as { cancelled?: boolean }).cancelled) {
+      try {
+        for (const f of readdirSync(cacheDir)) {
+          if (f.startsWith(`${info.videoId}.`)) {
+            try { unlinkSync(join(cacheDir, f)) } catch { /* ignore */ }
+          }
+        }
+      } catch { /* ignore */ }
+    }
+    throw err
+  }
 
   // yt-dlp picked the extension itself — find the file it wrote.
   const written = readdirSync(cacheDir).find((f) => f.startsWith(`${info.videoId}.`))
@@ -681,12 +756,22 @@ export async function downloadMany(
   ) => void,
   onTrackPercent?: (videoId: string, percent: number) => void
 ): Promise<DownloadManySummary> {
+  // Reset the cancellation flag for this batch — a previous bulk that
+  // was cancelled would otherwise refuse to run anything for the next.
+  bulkCancelled = false
   const total = tracks.length
   let done = 0
   let ok = 0
   const failed: DownloadManySummary['failed'] = []
   console.log(`[downloads] downloadMany: starting batch of ${total}`)
   for (const t of tracks) {
+    // Honour a bulk-cancel between tracks. The currently-running yt-dlp
+    // was killed in cancelAllDownloads; we just need to stop dispatching
+    // new ones.
+    if (bulkCancelled) {
+      console.log(`[downloads] downloadMany: cancelled at ${done}/${total}`)
+      break
+    }
     let errored = false
     let reason: string | undefined
     try {
@@ -695,6 +780,7 @@ export async function downloadMany(
     } catch (err) {
       errored = true
       reason = summarizeDownloadError(err)
+      if ((err as { cancelled?: boolean }).cancelled) reason = 'cancelled'
       failed.push({ videoId: t.videoId, title: t.title, reason })
       console.warn(`[downloads] failed for ${t.videoId} (${t.title}): ${reason}`)
     }

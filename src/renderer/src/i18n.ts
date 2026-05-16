@@ -84,8 +84,10 @@ const RU: Strings = {
   // Track-row download badges
   'track.dl.idle': 'Скачать',
   'track.dl.busy': 'Скачиваю…',
+  'track.dl.cancel': 'Отменить скачивание',
   'track.dl.done': 'Удалить с устройства',
   'track.unavailable': 'Трек недоступен',
+  'downloads.cancelBulk': 'Отменить скачивание плейлиста',
 
   // Context menu (right-click on a track row)
   'ctx.playNext': 'Играть следующим',
@@ -242,8 +244,10 @@ const EN: Strings = {
 
   'track.dl.idle': 'Download',
   'track.dl.busy': 'Downloading…',
+  'track.dl.cancel': 'Cancel download',
   'track.dl.done': 'Remove from device',
   'track.unavailable': 'Track unavailable',
+  'downloads.cancelBulk': 'Cancel playlist download',
 
   'ctx.playNext': 'Play next',
   'ctx.addToQueue': 'Add to queue',

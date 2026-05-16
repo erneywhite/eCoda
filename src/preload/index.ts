@@ -39,6 +39,8 @@ const api = {
     clearAll: () => ipcRenderer.invoke('downloads:clearAll'),
     verify: () => ipcRenderer.invoke('downloads:verify'),
     asPlaylist: () => ipcRenderer.invoke('downloads:asPlaylist'),
+    cancel: (videoId: string) => ipcRenderer.invoke('downloads:cancel', videoId),
+    cancelAll: () => ipcRenderer.invoke('downloads:cancelAll'),
     // The renderer subscribes once at mount; the unsubscribe function is
     // returned so $effect-style teardown can remove the listener cleanly.
     onProgress: (
