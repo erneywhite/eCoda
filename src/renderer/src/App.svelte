@@ -4208,15 +4208,6 @@
     flex-direction: column;
     height: 100vh;
     overflow: hidden;
-    /* Opaque background ONLY in full mode — keeps the regular UI
-       solid even though the window itself is transparent (transparent
-       lets the mini-player's rgba show through, see app.css). In
-       mini mode this background is suppressed so the .mini-shell's
-       0.78-alpha purple is what the user actually sees. */
-    background-color: #0e0a16;
-  }
-  main.mini {
-    background-color: transparent;
   }
 
   /* ---- mini-player ------------------------------------------------------- */
@@ -4227,20 +4218,12 @@
      through. Heavy blur + a thin accent-tinted border keeps it legible
      against busy backgrounds anyway. */
   .mini-shell {
-    /* Inset by 4px so the rounded-corner card doesn't kiss the window
-       edge — leaves room for the box-shadow to render outside its
-       border. Frameless transparent windows on Windows lose the OS
-       drop shadow, so the inset + shadow is what gives the widget
-       its "floating" feel. */
+    /* Fills the whole window edge-to-edge — no inset, no border-radius.
+       The window itself is opaque + rectangular; rounding the shell
+       would just leave dark body-coloured triangles in the corners. */
     position: fixed;
-    inset: 4px;
-    background: rgba(20, 12, 36, 0.78);
-    backdrop-filter: blur(28px) saturate(140%);
-    -webkit-backdrop-filter: blur(28px) saturate(140%);
-    border: 1px solid rgba(255, 255, 255, 0.06);
-    border-radius: 14px;
-    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.55),
-      0 0 0 1px rgba(var(--accent-rgb), 0.12);
+    inset: 0;
+    background: rgba(20, 12, 36, 0.96);
     color: #ffffff;
     -webkit-app-region: drag;
     display: flex;

@@ -15,11 +15,7 @@ body {
 }
 
 body {
-  /* Window is transparent so the mini-player's translucency reads
-     through. <main:not(.mini)> in App.svelte paints an opaque
-     background so full mode still looks solid; only the rare gap
-     between window edge and rendered content lets the desktop show. */
-  background-color: transparent;
+  background-color: #0e0a16;
   color: #ffffff;
   user-select: none;
   overflow: hidden;
