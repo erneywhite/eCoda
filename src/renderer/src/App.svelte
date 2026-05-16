@@ -4846,17 +4846,6 @@
        is the standard OS expectation. */
     -webkit-app-region: drag;
   }
-  /* On macOS the wordmark slot fills the sidebar width so the image's
-     visual centre matches the sidebar's centre. `object-fit: contain`
-     centres the raccoon+lettering inside that box without distorting
-     the aspect ratio, regardless of the source PNG dimensions. */
-  main.platform-mac .wordmark {
-    width: 200px;
-    height: 60px;
-    object-fit: contain;
-    object-position: center;
-  }
-
   /* All interactive header elements must opt out of the drag region —
      otherwise clicks land as drag attempts and the buttons feel dead. */
   .wordmark,
@@ -4865,12 +4854,21 @@
     -webkit-app-region: no-drag;
   }
 
-  /* Wordmark image is the eCoda lettering — no need for a separate text
-     "eCoda" alongside it. drop-shadow gives the same neon halo we used
-     to draw on the old raccoon avatar. */
+  /* Wordmark image is the eCoda lettering — no need for a separate
+     text "eCoda" alongside it.
+     The slot is sized to exactly the sidebar width (200px, see
+     .layout's grid-template-columns) so the lettering's visual centre
+     lines up with the sidebar's centre below — single vertical axis
+     down the left side of the window. `object-fit: contain` centres
+     the raccoon+lettering inside that box without distorting the
+     aspect ratio, regardless of the source PNG dimensions. drop-shadow
+     gives the same neon halo we used to draw on the old raccoon
+     avatar. */
   .wordmark {
+    width: 200px;
     height: 64px;
-    width: auto;
+    object-fit: contain;
+    object-position: center;
     display: block;
     filter: drop-shadow(0 0 18px rgba(180, 60, 240, 0.35));
   }
