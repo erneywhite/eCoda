@@ -4,6 +4,14 @@
   "description": "Native desktop client for YouTube Music — your library, offline cache, mini-player, crossfade. Windows + macOS.",
   "author": "Erney White",
   "license": "MIT",
+  "homepage": "https://github.com/erneywhite/eCoda#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/erneywhite/eCoda.git"
+  },
+  "bugs": {
+    "url": "https://github.com/erneywhite/eCoda/issues"
+  },
   "main": "./out/main/index.js",
   "scripts": {
     "dev": "electron-vite dev",
