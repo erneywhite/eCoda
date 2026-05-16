@@ -31,10 +31,14 @@ export interface ResolvedAudio {
 }
 
 // Accepts a full YouTube / YouTube Music URL or a bare 11-char video id.
+// We use the music.youtube.com host because some tracks (Premium-only
+// remixes, region-fenced auto-uploads, "art tracks" backed by SoundCloud
+// uploaders) are flagged Video unavailable when accessed via the plain
+// youtube.com extractor path but work fine under the YT Music context.
 function toWatchUrl(input: string): string {
   const trimmed = input.trim()
   if (/^[\w-]{11}$/.test(trimmed)) {
-    return `https://www.youtube.com/watch?v=${trimmed}`
+    return `https://music.youtube.com/watch?v=${trimmed}`
   }
   return trimmed
 }
@@ -42,6 +46,10 @@ function toWatchUrl(input: string): string {
 // Resolves a track's title and audio stream URL. `browser` is the browser
 // yt-dlp reads the YouTube login cookies from — that authenticated session
 // unlocks Premium quality and gets past YouTube's bot check.
+//
+// extractor-args player_client=web_music,web tells yt-dlp to try the YT
+// Music client first (sees Music-specific availability), then fall back
+// to standard web. Some tracks are only resolvable via the music client.
 export async function resolveAudio(input: string, browser: string): Promise<ResolvedAudio> {
   const { stdout } = await run(
     ytdlpPath,
@@ -50,6 +58,8 @@ export async function resolveAudio(input: string, browser: string): Promise<Reso
       'bestaudio',
       '--no-playlist',
       '--no-warnings',
+      '--extractor-args',
+      'youtube:player_client=web_music,web',
       '--cookies-from-browser',
       browser,
       '--print',

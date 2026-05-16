@@ -650,11 +650,18 @@ export async function downloadOne(
         // catches every percentage tick. --progress is the default, so no
         // need to add it; we just removed the old --no-progress.
         '--newline',
+        // YT Music client first, plain web as fallback — same reason as
+        // resolveAudio in ytdlp.ts. Some Premium / region-fenced tracks
+        // come back "Video unavailable" under the default web client but
+        // resolve cleanly via web_music. Using the music.youtube.com
+        // host also nudges the extractor toward the Music code paths.
+        '--extractor-args',
+        'youtube:player_client=web_music,web',
         '--cookies-from-browser',
         browser,
         '-o',
         outTemplate,
-        `https://www.youtube.com/watch?v=${info.videoId}`
+        `https://music.youtube.com/watch?v=${info.videoId}`
       ],
       onProgress,
       info.videoId

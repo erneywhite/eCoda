@@ -2461,20 +2461,29 @@
              during heavy re-render bursts (e.g. download progress events
              ticking ~10/sec) was racing the user's seek-bar click and
              snapping the thumb back, making the audio commit to the
-             pre-click position. -->
-        <input
-          type="range"
-          class="seek"
-          min="0"
-          max={duration || 0}
-          step="0.5"
-          bind:value={currentTime}
-          oninput={onSeekInput}
-          onchange={onSeekCommit}
-          disabled={!duration}
-          style:--p="{duration ? (currentTime / duration) * 100 : 0}%"
-          aria-label="Прогресс трека"
-        />
+             pre-click position.
+
+             The wrapper has a fixed visual height; the input is absolutely
+             positioned and extends 10px above + below into the wrapper's
+             padding so the clickable zone is ~25px without expanding the
+             layout footprint. On hover the track grows a couple of px and
+             the thumb fades in — all of that happens INSIDE the absolute
+             input so nothing above or below shifts. -->
+        <div class="seek-wrap">
+          <input
+            type="range"
+            class="seek"
+            min="0"
+            max={duration || 0}
+            step="0.5"
+            bind:value={currentTime}
+            oninput={onSeekInput}
+            onchange={onSeekCommit}
+            disabled={!duration}
+            style:--p="{duration ? (currentTime / duration) * 100 : 0}%"
+            aria-label="Прогресс трека"
+          />
+        </div>
 
         <div class="bottom-row">
           <div class="now-playing">
@@ -4073,16 +4082,36 @@
 
   /* The seek bar sits at the top of the floating player card. Player has
      border-radius + overflow:hidden, so a fully-flush input would have
-     its left/right ends clipped by the rounded corners — we give it a
-     horizontal inset so the visible track lives inside the curve. */
+     its left/right ends clipped by the rounded corners — the wrapper
+     gives it a horizontal inset so the visible track lives inside the
+     curve.
+
+     The wrapper has a stable layout height (5px); the input is absolutely
+     positioned and extends 10px above + below for a 25px hit area. Hover
+     effects (track thickening, thumb fade-in) happen entirely inside the
+     absolute input, so they never push anything in the .player-bar
+     column up or down. */
+  .seek-wrap {
+    position: relative;
+    /* Total reserved layout space ≈ original (6px margin + 12px input
+       = 18px). Wrapper sits 10px below the player-bar top edge and is
+       8px tall; the absolute input extends from y=0 (10-10) down to
+       y=25, so its content-box centre lines up with where the 3px
+       track used to render (~y=12 from the player-bar top). */
+    height: 8px;
+    margin: 10px 12px 0;
+  }
   .seek {
     -webkit-appearance: none;
     appearance: none;
     display: block;
-    width: calc(100% - 24px);
-    height: 12px;
-    margin: 6px 12px 0;
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: -10px;
+    height: 25px;
     padding: 0;
+    margin: 0;
     background: transparent;
     cursor: pointer;
   }
