@@ -93,6 +93,10 @@ export type AudioQuality = 'best' | 'medium' | 'low'
 
 export type RepeatMode = 'off' | 'one' | 'all'
 
+export type CloseAction = 'tray' | 'quit'
+
+export type TrayCommand = 'play-pause' | 'next' | 'prev'
+
 export interface PlaylistOverride {
   order: string[]
   pinned: string[]
@@ -258,6 +262,11 @@ export interface EcodaApi {
     setRepeatMode: (m: RepeatMode) => Promise<void>
     getPlaylistOverride: (id: string) => Promise<PlaylistOverride | null>
     setPlaylistOverride: (id: string, override: PlaylistOverride | null) => Promise<void>
+    getCloseAction: () => Promise<CloseAction>
+    setCloseAction: (action: CloseAction) => Promise<void>
+  }
+  tray: {
+    onCommand: (cb: (cmd: TrayCommand) => void) => () => void
   }
   session: {
     get: () => Promise<LastSession | null>

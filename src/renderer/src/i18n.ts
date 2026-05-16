@@ -153,6 +153,11 @@ const RU: Strings = {
   'settings.behaviour.defaultTab': 'Открывать при запуске:',
   'settings.behaviour.hint':
     'Эта вкладка откроется сразу после подключения аккаунта при следующем запуске.',
+  'settings.closeAction.label': 'При закрытии окна (✕):',
+  'settings.closeAction.tray': 'Свернуть в трей',
+  'settings.closeAction.quit': 'Выйти из приложения',
+  'settings.closeAction.hint':
+    '«Свернуть в трей» оставляет музыку играть в фоне — окно появится снова из иконки в трее. «Выйти» закрывает приложение полностью.',
   'settings.lang.title': 'Язык интерфейса',
   'settings.lang.hint': 'Меняется мгновенно. Списки и плейлисты с YouTube используют локаль YT.',
   'settings.cache.title': 'Оффлайн-кеш',
@@ -339,6 +344,11 @@ const EN: Strings = {
   'settings.behaviour.defaultTab': 'Open on startup:',
   'settings.behaviour.hint':
     'This tab opens automatically after the account connects on the next launch.',
+  'settings.closeAction.label': 'When the window is closed (✕):',
+  'settings.closeAction.tray': 'Minimize to tray',
+  'settings.closeAction.quit': 'Quit app',
+  'settings.closeAction.hint':
+    'Minimize keeps music playing in the background — bring the window back from the tray icon. Quit exits the app entirely.',
   'settings.lang.title': 'Interface language',
   'settings.lang.hint':
     'Applies instantly. YouTube’s own playlist and section titles still use YT’s locale.',

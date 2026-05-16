@@ -245,6 +245,14 @@ export interface LastSession {
   currentTime: number
 }
 
+// What clicking the window close button does:
+//   'tray' — hide the window, keep app + audio running, accessible from
+//            the system tray. Default for a music player — closing the
+//            window mid-track and stopping playback would be jarring.
+//   'quit' — actually quit (legacy single-instance behavior). For users
+//            who want the X to mean exit.
+export type CloseAction = 'tray' | 'quit'
+
 interface Config {
   browser?: string
   defaultTab?: DefaultTab
@@ -253,6 +261,7 @@ interface Config {
   audioQuality?: AudioQuality
   shuffleMode?: boolean
   repeatMode?: RepeatMode
+  closeAction?: CloseAction
   pinnedPlaylists?: PinnedPlaylist[]
   playlistOverrides?: Record<string, PlaylistOverride>
   windowState?: WindowState
@@ -350,6 +359,17 @@ export async function getRepeatMode(): Promise<RepeatMode> {
 
 export async function setRepeatMode(m: RepeatMode): Promise<void> {
   await writeConfig({ ...(await readConfig()), repeatMode: m })
+}
+
+// What the window's close button does. Default 'tray' for the
+// music-player-shouldn't-die-when-X-clicked reason; user can flip to
+// 'quit' in Settings if they prefer the X to actually exit.
+export async function getCloseAction(): Promise<CloseAction> {
+  return (await readConfig()).closeAction ?? 'tray'
+}
+
+export async function setCloseAction(action: CloseAction): Promise<void> {
+  await writeConfig({ ...(await readConfig()), closeAction: action })
 }
 
 // Per-playlist override (custom track order + pinned set). null result

@@ -135,7 +135,21 @@ const api = {
     getPlaylistOverride: (id: string) =>
       ipcRenderer.invoke('settings:getPlaylistOverride', id),
     setPlaylistOverride: (id: string, override: unknown) =>
-      ipcRenderer.invoke('settings:setPlaylistOverride', id, override)
+      ipcRenderer.invoke('settings:setPlaylistOverride', id, override),
+    getCloseAction: () => ipcRenderer.invoke('settings:getCloseAction'),
+    setCloseAction: (action: 'tray' | 'quit') =>
+      ipcRenderer.invoke('settings:setCloseAction', action)
+  },
+  // Tray menu commands flow from main → renderer. The renderer
+  // subscribes once at mount and dispatches the command string ('play-
+  // pause' / 'next' / 'prev') to the appropriate playback handler.
+  tray: {
+    onCommand: (cb: (cmd: 'play-pause' | 'next' | 'prev') => void) => {
+      const wrapped = (_e: unknown, cmd: unknown): void =>
+        cb(cmd as 'play-pause' | 'next' | 'prev')
+      ipcRenderer.on('tray:command', wrapped)
+      return () => ipcRenderer.removeListener('tray:command', wrapped)
+    }
   },
   // Last-playing track + queue + position. Resume-on-launch is wired
   // around these three IPCs.

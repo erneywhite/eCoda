@@ -535,6 +535,9 @@
   let cacheStats = $state<{ tracks: number; bytes: number } | null>(null)
   let clearingCache = $state(false)
   let defaultTab = $state<'home' | 'search' | 'library'>('home')
+  // What the window's X button does — 'tray' hides to the system tray
+  // (default; keeps playback running), 'quit' actually exits the app.
+  let closeAction = $state<'tray' | 'quit'>('tray')
   // Diagnostics card state — Verify cache button + last result.
   let verifying = $state(false)
   let verifyResult = $state<CacheVerifyResult | null>(null)
@@ -547,6 +550,12 @@
     cacheStats = await window.api.downloads.stats()
     defaultTab = await window.api.settings.getDefaultTab()
     audioQuality = await window.api.settings.getAudioQuality()
+    closeAction = await window.api.settings.getCloseAction()
+  }
+
+  async function changeCloseAction(action: 'tray' | 'quit'): Promise<void> {
+    closeAction = action
+    await window.api.settings.setCloseAction(action)
   }
 
   async function changeAudioQuality(q: 'best' | 'medium' | 'low'): Promise<void> {
@@ -840,6 +849,36 @@
   // user actually hits Play (which kicks off resolve + seek + start). The
   // saved position lives in pendingResumeTime; canplay reads it and seeks.
   let pendingResumeTime = $state<number | null>(null)
+
+  // Keep navigator.mediaSession in sync with the current track + play
+  // state. Chromium forwards this to OS-level media controls (Windows
+  // SMTC / macOS Now Playing / Linux MPRIS), so the lockscreen widget
+  // and dedicated keyboard media keys both "just work" without any
+  // native modules. The action handlers themselves are wired once in
+  // onMount; only the metadata + playbackState change per track.
+  $effect(() => {
+    if (typeof navigator === 'undefined' || !('mediaSession' in navigator)) return
+    if (!playing) {
+      navigator.mediaSession.metadata = null
+      navigator.mediaSession.playbackState = 'none'
+      return
+    }
+    navigator.mediaSession.metadata = new MediaMetadata({
+      title: playing.title,
+      artist: playing.artist,
+      album: playing.sourceListTitle ?? '',
+      // Pass the raw YT thumbnail URL — Chromium fetches it and hands
+      // the bitmap to the OS. We don't use the media:// cached path
+      // here because SMTC / Now Playing don't speak our protocol.
+      artwork: playing.thumbnail
+        ? [
+            { src: playing.thumbnail, sizes: '256x256', type: 'image/jpeg' },
+            { src: playing.thumbnail, sizes: '512x512', type: 'image/jpeg' }
+          ]
+        : []
+    })
+    navigator.mediaSession.playbackState = isPlaying ? 'playing' : 'paused'
+  })
 
   // ---- shuffle / repeat / queue ------------------------------------------
   // Persisted in config so the streamer use case ("set my modes once, leave
@@ -1370,6 +1409,32 @@
     // system menu) so the custom titlebar's icon stays accurate.
     void window.api.window.isMaximized().then((m) => (windowMaximized = m))
     const unsubWin = window.api.window.onMaximizeChanged((m) => (windowMaximized = m))
+    // Tray menu commands — main forwards "play-pause" / "next" / "prev"
+    // from the right-click tray menu items here.
+    const unsubTray = window.api.tray.onCommand((cmd) => {
+      if (cmd === 'play-pause') togglePlay()
+      else if (cmd === 'next') void playNext({ fromUserClick: true })
+      else if (cmd === 'prev') void playPrev()
+    })
+
+    // MediaSession action handlers. Cross-platform path for OS-level
+    // media-key support: Windows SMTC, macOS Now Playing, Linux MPRIS —
+    // Chromium forwards them all from navigator.mediaSession. Set once
+    // on mount; the metadata + playbackState are kept in sync by the
+    // $effect block below.
+    if ('mediaSession' in navigator) {
+      navigator.mediaSession.setActionHandler('play', () => togglePlay())
+      navigator.mediaSession.setActionHandler('pause', () => togglePlay())
+      navigator.mediaSession.setActionHandler('nexttrack', () =>
+        void playNext({ fromUserClick: true })
+      )
+      navigator.mediaSession.setActionHandler('previoustrack', () => void playPrev())
+      navigator.mediaSession.setActionHandler('seekto', (details) => {
+        if (audioEl && typeof details.seekTime === 'number') {
+          audioEl.currentTime = details.seekTime
+        }
+      })
+    }
     // Silent reconnect just refreshed cookies in main — drop the
     // logged-in-required caches and re-fetch whatever the user is
     // currently looking at. Stops the "empty Library on first launch
@@ -1481,6 +1546,7 @@
       unsubUpd()
       unsubAuth()
       unsubWin()
+      unsubTray()
       window.removeEventListener('mouseup', onMouse)
       window.removeEventListener('mousedown', onWindowMouseDown)
       window.removeEventListener('keydown', onWindowKeyDown)
@@ -3240,6 +3306,26 @@
                 </button>
               </div>
               <p class="settings-hint">{t('settings.behaviour.hint')}</p>
+              <p class="settings-line" style:margin-top="0.9rem">
+                {t('settings.closeAction.label')}
+              </p>
+              <div class="seg">
+                <button
+                  class="seg-btn"
+                  class:active={closeAction === 'tray'}
+                  onclick={() => changeCloseAction('tray')}
+                >
+                  {t('settings.closeAction.tray')}
+                </button>
+                <button
+                  class="seg-btn"
+                  class:active={closeAction === 'quit'}
+                  onclick={() => changeCloseAction('quit')}
+                >
+                  {t('settings.closeAction.quit')}
+                </button>
+              </div>
+              <p class="settings-hint">{t('settings.closeAction.hint')}</p>
             </section>
 
             <section class="settings-card">

@@ -1,4 +1,4 @@
-import { app, shell, BrowserWindow, ipcMain, protocol, screen } from 'electron'
+import { app, shell, BrowserWindow, ipcMain, protocol, screen, Tray, Menu, nativeImage } from 'electron'
 import { join } from 'path'
 import { createReadStream, statSync } from 'node:fs'
 import { Readable } from 'node:stream'
@@ -25,6 +25,8 @@ import {
   setShuffleMode,
   getRepeatMode,
   setRepeatMode,
+  getCloseAction,
+  setCloseAction,
   getPlaylistOverride,
   setPlaylistOverride,
   getWindowState,
@@ -33,6 +35,7 @@ import {
   setLastSession,
   clearLastSession,
   type AudioQuality,
+  type CloseAction,
   type PlaylistOverride,
   type RepeatMode,
   type DefaultTab,
@@ -81,6 +84,19 @@ import {
 } from './updater'
 
 let mainWindow: BrowserWindow | null = null
+// System tray icon. Lives for the whole app lifetime; the menu items
+// proxy back to the renderer via webContents.send('tray:command', cmd).
+let tray: Tray | null = null
+// Flips true on Cmd+Q / Alt+F4 / tray-Quit / autoUpdater quit, so the
+// `close` interceptor lets the window actually close instead of
+// hiding it back into the tray. Reset is never needed — once we're
+// quitting, we're quitting.
+let forceQuit = false
+// In-memory mirror of the persisted closeAction. The `close` handler
+// fires synchronously and can't `await getCloseAction()` from disk, so
+// we load it on startup and re-sync whenever the user toggles the
+// Settings UI (via the IPC handler below).
+let closeActionCache: CloseAction = 'tray'
 
 // Privileged custom protocol so the renderer can play offline-cached audio
 // without bumping into webSecurity / CSP rules that block bare file://
@@ -218,30 +234,39 @@ async function createWindow(): Promise<void> {
   // anything that toggles the state without going through our buttons.
   mainWindow.on('maximize', () => mainWindow?.webContents.send('window:maximize-changed', true))
   mainWindow.on('unmaximize', () => mainWindow?.webContents.send('window:maximize-changed', false))
-  mainWindow.on('close', () => {
+  mainWindow.on('close', (event) => {
+    // Save the final geometry regardless of whether we're actually
+    // closing or just minimising to tray — the user might restart
+    // tomorrow having hidden the window today, and the bounds should
+    // still survive that.
     if (saveStateTimer) {
       clearTimeout(saveStateTimer)
       saveStateTimer = null
     }
-    if (!mainWindow || mainWindow.isDestroyed()) return
-    const isMaximized = mainWindow.isMaximized()
-    const b = isMaximized ? mainWindow.getNormalBounds() : mainWindow.getBounds()
-    if (b.width >= 200 && b.height >= 200) {
-      const state: WindowState = {
-        x: b.x,
-        y: b.y,
-        width: b.width,
-        height: b.height,
-        isMaximized
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      const isMaximized = mainWindow.isMaximized()
+      const b = isMaximized ? mainWindow.getNormalBounds() : mainWindow.getBounds()
+      if (b.width >= 200 && b.height >= 200) {
+        try {
+          void setWindowState({
+            x: b.x,
+            y: b.y,
+            width: b.width,
+            height: b.height,
+            isMaximized
+          })
+        } catch (err) {
+          console.warn('[window-state] final save failed:', err)
+        }
       }
-      try {
-        // Sync write via a fire-and-forget promise — we'll get cut off if
-        // it doesn't resolve in time, but the debounced timer should have
-        // already saved everything bar the very last micro-change.
-        void setWindowState(state)
-      } catch (err) {
-        console.warn('[window-state] final save failed:', err)
-      }
+    }
+    // Hide-to-tray interception. `closeActionCache` is the in-memory
+    // mirror of config.closeAction; `forceQuit` is true when the user
+    // picked Quit (tray menu / Cmd+Q / before-quit fired for any
+    // reason), in which case we let the close go through.
+    if (closeActionCache === 'tray' && !forceQuit) {
+      event.preventDefault()
+      mainWindow?.hide()
     }
   })
 
@@ -657,7 +682,23 @@ app.whenReady().then(async () => {
     return true
   })
 
+  // Settings: close-button action (tray vs quit) — Tray section below.
+  ipcMain.handle('settings:getCloseAction', () => getCloseAction())
+  ipcMain.handle('settings:setCloseAction', async (_event, action: CloseAction) => {
+    await setCloseAction(action)
+    // Keep the in-memory mirror in sync so the close interceptor uses
+    // the new value without a restart.
+    closeActionCache = action
+  })
+
+  // Seed the in-memory closeAction BEFORE the window is created — the
+  // close handler reads from this synchronously and we don't want a
+  // first-launch race where the user closes the app before the value
+  // landed.
+  closeActionCache = await getCloseAction()
+
   await createWindow()
+  createTray()
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) void createWindow()
@@ -719,3 +760,91 @@ app.on('window-all-closed', () => {
     app.quit()
   }
 })
+
+// Cmd+Q / Alt+F4-driven app.quit / autoUpdater quit / tray-Quit all
+// flow through `before-quit` first. Setting forceQuit lets the close
+// handler skip the tray interception so the window actually closes.
+app.on('before-quit', () => {
+  forceQuit = true
+})
+
+// ---------------------------------------------------------------------------
+// SYSTEM TRAY — icon + minimal menu (show / play-pause / prev / next / quit).
+// Menu items proxy back to the renderer via `tray:command` so the existing
+// playback machinery (which all lives in the renderer) stays the source of
+// truth. Tray itself is permanent — even when closeAction='quit', the tray
+// is still useful for quick access while the window is minimised.
+// ---------------------------------------------------------------------------
+function createTray(): void {
+  const trayImage = nativeImage.createFromPath(icon)
+  // Windows tray icons render at 16px; resize so the raccoon doesn't
+  // get auto-downscaled by Windows with bad filtering.
+  const resized = trayImage.resize({ width: 16, height: 16 })
+  tray = new Tray(resized)
+  tray.setToolTip('eCoda')
+  rebuildTrayMenu()
+  // Single-click on Windows = show + focus. Double-click is also wired
+  // to the same handler so users with old Windows muscle-memory hit the
+  // same outcome. On macOS, single click opens the menu by default —
+  // we don't override that to stay native-feeling.
+  if (process.platform !== 'darwin') {
+    tray.on('click', showAndFocusWindow)
+    tray.on('double-click', showAndFocusWindow)
+  }
+}
+
+function rebuildTrayMenu(): void {
+  if (!tray) return
+  const menu = Menu.buildFromTemplate([
+    {
+      label: 'eCoda',
+      enabled: false
+    },
+    { type: 'separator' },
+    {
+      label: 'Show / Hide',
+      click: () => {
+        if (!mainWindow) return
+        if (mainWindow.isVisible() && mainWindow.isFocused()) {
+          mainWindow.hide()
+        } else {
+          showAndFocusWindow()
+        }
+      }
+    },
+    { type: 'separator' },
+    {
+      label: 'Play / Pause',
+      click: () => sendTrayCommand('play-pause')
+    },
+    {
+      label: 'Previous',
+      click: () => sendTrayCommand('prev')
+    },
+    {
+      label: 'Next',
+      click: () => sendTrayCommand('next')
+    },
+    { type: 'separator' },
+    {
+      label: 'Quit',
+      click: () => {
+        forceQuit = true
+        app.quit()
+      }
+    }
+  ])
+  tray.setContextMenu(menu)
+}
+
+function showAndFocusWindow(): void {
+  if (!mainWindow) return
+  if (mainWindow.isMinimized()) mainWindow.restore()
+  if (!mainWindow.isVisible()) mainWindow.show()
+  mainWindow.focus()
+}
+
+function sendTrayCommand(cmd: 'play-pause' | 'next' | 'prev'): void {
+  if (!mainWindow || mainWindow.isDestroyed()) return
+  mainWindow.webContents.send('tray:command', cmd)
+}
