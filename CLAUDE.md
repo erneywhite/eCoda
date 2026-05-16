@@ -10,7 +10,7 @@ This file is auto-loaded as project context whenever Claude Code starts a sessio
 
 **Stack:** Electron 33 + Vite 6 + TypeScript + Svelte 5. Build pipeline `electron-vite build`. Packaging `electron-builder` (NSIS on Windows, DMG/ZIP on macOS), auto-update `electron-updater` against GitHub Releases.
 
-**Status (2026-05-16):** All planned phases 0–7 done. Last Windows build 0.0.45. macOS port preparation in progress — cross-platform code branches landed, awaiting first Mac build.
+**Status (2026-05-16):** Public **1.0.0** released. All planned phases (0–7) done, cross-platform (Win + macOS), persistent yt-dlp daemon pipeline on both OSes, crossfade, mini-player, tray, MediaSession-driven media keys. Artist's final brand assets landed. GitHub Releases is now the canonical distribution channel — auto-updater works against it.
 
 ## Repo layout
 
@@ -130,7 +130,34 @@ Measured on Windows (5 cold resolves, firefox cookies, 0.0.48 vs 0.0.49):
 | `npm run release:win` | Build + publish to GitHub Releases. Needs `GH_TOKEN`. |
 | `npm run release:mac` | Same for macOS. Needs `GH_TOKEN` + Apple Developer credentials (see below). |
 
-## macOS-specific notes (port in progress)
+## Brand assets workflow
+
+Artist delivers full-resolution PNGs into `branding/`:
+- `wordmark.png` — large (~14k×5k), wide-aspect lettering with the raccoon mascot. RGBA with real alpha.
+- `icon.png` — square-ish (last revision was 1.17:1 = 5733×4900). RGBA.
+
+Both are huge; shipping as-is would bloat the installer and stress the renderer (downscaling a 14k bitmap every paint). `scripts/resize-branding.mjs` runs `sharp` once to:
+- Scale wordmark to **600×197** (3× the rendered size for HiDPI), drop into `src/renderer/src/assets/wordmark.png`. ~85 KB.
+- Scale icon to **1024×1024** with `fit: contain` + transparent padding (because `.ico`/`.icns` generators want a square master, and the latest icon isn't square). Drop into `resources/icon.png` AND `build/icon.png`. ~550 KB.
+
+When the artist sends an update:
+```sh
+# drop new files into branding/, then:
+node scripts/resize-branding.mjs
+npm run build:win   # or build:mac on the Mac
+```
+
+`sharp` is a **devDep only** (used by this one script + nothing in the runtime). Don't pull it into `src/main/` or the renderer.
+
+The renderer's CSS for the wordmark is tuned to the current 3.05:1 aspect: `.wordmark { width: 200px; height: 70px; object-fit: contain }`. If a future revision changes aspect significantly, the height may need adjusting so the image neither letterboxes weirdly nor crops.
+
+**Don't bring back the baked-in checker workaround.** The earlier AI-gen wordmark.png had its "fake transparency" baked into RGB pixels (no alpha channel), which forced us to fight with `height: 52` + tight header padding to mask the visible frame. The current wordmark has real alpha; those workarounds were removed in 0.0.53.
+
+## Icon cache gotcha (Windows)
+
+Updating an installed copy from one version to another doesn't refresh the desktop / Start-Menu shortcut icon — Windows caches them in `%localappdata%\IconCache.db`. The `.ico` inside the new `.exe` IS the new one (verified by reading the byte stream); the OS just shows a stale thumbnail until something invalidates the cache. To force a refresh during dev: `ie4uinit.exe -show`, or delete `IconCache.db` + restart Explorer, or reboot. End-users typically see the new icon eventually but it can lag a few sessions.
+
+## macOS-specific notes
 
 **BrowserWindow:**
 - `titleBarStyle: 'hiddenInset'` on darwin (keeps traffic lights at top-left).
@@ -192,7 +219,7 @@ Measured on Windows (5 cold resolves, firefox cookies, 0.0.48 vs 0.0.49):
 
 ## What's done
 
-Roadmap (Phases 0–7) all closed. Latest Windows: 0.0.45.
+Roadmap fully closed. Latest: **1.0.0** (Windows .exe + macOS .dmg/.zip arm64).
 
 | Phase | Status |
 | --- | --- |
@@ -200,13 +227,14 @@ Roadmap (Phases 0–7) all closed. Latest Windows: 0.0.45.
 | 1 Streaming MVP | ✅ |
 | 2 Offline | ✅ |
 | 3 Polish | ✅ |
-| 4 Distribution | ✅ |
+| 4 Distribution | ✅ (GitHub Releases live since 1.0.0) |
 | 5 Playback features (shuffle/repeat/queue/ctx menu/streamer bundle/like/radio) | ✅ |
 | 6 Deeper navigation (artist + album views; lyrics intentionally cut) | ✅ |
 | 7 System integration (tray + close-action + global media keys via MediaSession + mini-player A↔B) | ✅ |
 | Motion polish (FLIP / drag-pickup / ctx scale-in / cover crossfade / hover-lift) | ✅ |
 | Track-to-track crossfade (0-12s, Settings slider) | ✅ |
-| **macOS port** | 🔜 in progress |
+| macOS port (daemon pool + bundled Python + traffic-light titlebar) | ✅ |
+| Brand assets from artist (wordmark + icon) | ✅ |
 
 ## User decisions to remember
 

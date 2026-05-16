@@ -2,7 +2,7 @@
 
 Desktop client for YouTube Music — your library, fast playback, Spotify-style offline cache, and a native UI you can theme. Talks to YouTube's InnerTube API directly: no embedded webview, no heavy web player.
 
-> **Status:** Cross-platform (Windows + macOS) at 0.0.52. All planned phases (0–7) done; track-to-track crossfade on top, and both platforms now ship the same persistent yt-dlp daemon + bundled Python pipeline (~1.2 s saved per cold resolve on Windows, ~12+ s saved on macOS where amfid validation used to dominate). Lyrics intentionally cut from Phase 6. What's left before a public 1.0: the artist's final brand assets (wordmark + icon).
+> **Status:** **1.0.0 released** on [GitHub Releases](https://github.com/erneywhite/eCoda/releases/latest) — Windows (.exe) and macOS arm64 (.dmg/.zip). Cross-platform parity, all planned phases (0–7) done, track-to-track crossfade, mini-player A↔B, persistent yt-dlp daemon pipeline on both OSes. Lyrics intentionally cut from Phase 6.
 
 ## Features
 
@@ -146,7 +146,7 @@ mockups/                 standalone HTML mockups (A/B/C) used during UI redesign
 - **Phase 1 — streaming MVP** — ✅ done (search, home, playlist navigation, custom player UI)
 - **Phase 2 — offline** — ✅ done (per-track + per-playlist downloads, persistent cache, instant disk playback via `media://`)
 - **Phase 3 — polish** — ✅ done (sidebar pinned playlists, eight colour themes, language switch, mouse-side-button navigation, settings with cache/diagnostics/about/updates/donate, audio quality picker, Downloaded virtual playlist, live progress rings, total playlist duration, unavailable-row handling)
-- **Phase 4 — distribution** — ✅ done (`electron-builder` NSIS on Windows + `.dmg`/`.zip` on macOS, `electron-updater` against GitHub Releases; current build cycle: 0.0.x, latest 0.0.52)
+- **Phase 4 — distribution** — ✅ done (`electron-builder` NSIS on Windows + `.dmg`/`.zip` on macOS, `electron-updater` against GitHub Releases; **1.0.0 published** + auto-updater wired)
 - **Phase 5 — playback features** — ✅ done across 0.0.14 + 0.0.24–34:
   - ✅ shuffle + repeat modes (off / all / one), both persisted
   - ✅ queue management (separate from sourceList; Play next / Add to queue)
@@ -174,7 +174,8 @@ mockups/                 standalone HTML mockups (A/B/C) used during UI redesign
 - **Track-to-track crossfade** — ✅ done in 0.0.45 (Settings → "Crossfade duration" slider 0–12 s; auto-progression only, manual prev/next stays instant)
 - **macOS port** — ✅ done in 0.0.46–47 (cross-platform binary paths, custom titlebar with traffic-light branch, Mac-aware tray template image, Safari Full Disk Access hint in Connect)
 - **yt-dlp daemon pipeline (both platforms)** — ✅ done in 0.0.47 (Mac) + 0.0.49 (Windows): persistent Python worker pool that amortises interpreter + extractor init across the lifetime of the app. Measured drop on Windows: avg cold resolve 6.8 s → 5.6 s; on macOS the win is larger (~12 s) because the old PyInstaller-based `yt-dlp_macos` paid amfid validation per launch.
-- **Brand swap** — when the artist delivers the final wordmark + icon, drop them into `branding/` and rebuild. **Only thing left before public 1.0.**
+- **Brand swap** — ✅ done in 0.0.53–54 (artist's wordmark + icon landed; `scripts/resize-branding.mjs` downscales the multi-megabyte source PNGs to the sizes the app + electron-builder actually use, square-pads the icon for `.ico`/`.icns` compatibility, copies to the three destination paths in one shot).
+- **Public 1.0** — ✅ released (Windows .exe + macOS arm64 .dmg/.zip on [GitHub Releases](https://github.com/erneywhite/eCoda/releases/latest), auto-updater live).
 
 ## Disclaimer
 
