@@ -3596,7 +3596,10 @@
     margin-bottom: 0.4rem;
   }
 
-  input {
+  /* Scoped to the search bar — was a global `input` rule, which also
+     bled onto .seek and .vol (range inputs) and put a 1px purple line
+     around them on focus, reading as a halo around the player card. */
+  .search-bar input {
     flex: 1;
     padding: 0.65rem 0.85rem;
     border: 1px solid #34284e;
@@ -3607,7 +3610,7 @@
     outline: none;
   }
 
-  input:focus {
+  .search-bar input:focus {
     border-color: #a22ff0;
   }
 
@@ -4095,11 +4098,7 @@
     background: rgba(20, 12, 36, 0.55);
     backdrop-filter: blur(28px);
     -webkit-backdrop-filter: blur(28px);
-    /* No border — on the purple aurora bg the 1px white-7% line that
-       was here picked up a violet cast and read as an outline halo
-       around the entire player. The backdrop blur + box-shadow already
-       separate the card visually. */
-    border: none;
+    border: 1px solid rgba(255, 255, 255, 0.07);
     border-radius: 18px;
     margin: 0 1.5rem 1.2rem;
     box-shadow: 0 8px 30px rgba(0, 0, 0, 0.4);
