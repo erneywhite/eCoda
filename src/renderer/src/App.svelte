@@ -2217,7 +2217,7 @@
         aria-label={t('window.minimize')}
         title={t('window.minimize')}
       >
-        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
+        <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
           <line x1="5" y1="13" x2="19" y2="13" />
         </svg>
       </button>
@@ -2231,14 +2231,14 @@
       >
         {#if windowMaximized}
           <!-- Restore icon: two overlapping rectangles -->
-          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
-            <rect x="7" y="4" width="13" height="13" rx="1" />
+          <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round">
+            <rect x="7" y="4" width="13" height="13" rx="1.5" />
             <path d="M4 7v13h13" />
           </svg>
         {:else}
           <!-- Maximize icon: single rounded rectangle -->
-          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
-            <rect x="5" y="5" width="14" height="14" rx="1" />
+          <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.8">
+            <rect x="5" y="5" width="14" height="14" rx="1.5" />
           </svg>
         {/if}
       </button>
@@ -2248,7 +2248,7 @@
         aria-label={t('window.close')}
         title={t('window.close')}
       >
-        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
+        <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
           <path d="M6 6l12 12M18 6L6 18" />
         </svg>
       </button>
@@ -3687,46 +3687,50 @@
     cursor: default;
   }
 
-  /* Custom window controls (minimize / maximize / close). Sit flush to
-     the right edge of the window — matches the Windows native bar's
-     position. Close gets a red hover so the destructive action is
-     immediately readable; the other two get the standard accent tint. */
+  /* Custom window controls (minimize / maximize / close). Sized to
+     match the back/forward .hist chips so the right cluster reads as
+     a single row of equally-weighted controls rather than two
+     full-height bars overpowering a pair of small circles next to them.
+     Rounded squares (not circles) keep them visually distinct from the
+     navigation pair while staying in the same family. Close keeps a
+     pink-red hover — matches the app's existing danger palette
+     (rgba(255, 60, 120, X)) rather than the louder Windows red. */
   .window-controls {
     display: flex;
-    align-self: stretch;
+    align-self: center;
+    gap: 0.3rem;
     margin-left: 0.6rem;
+    padding-right: 0.8rem;
   }
   .win-ctrl {
-    width: 46px;
-    /* align-self:stretch + height:auto would push it to header's natural
-       height; explicit 100% fills the entire vertical drag region so the
-       buttons mirror the OS taskbar feel. */
-    height: 100%;
-    min-height: 40px;
+    width: 32px;
+    height: 32px;
     padding: 0;
-    border: none;
-    border-radius: 0;
+    border: 1px solid #34284e;
+    border-radius: 8px;
     background: transparent;
     color: #b9acd6;
     display: inline-flex;
     align-items: center;
     justify-content: center;
     cursor: pointer;
-    transition: background 0.12s ease, color 0.12s ease;
+    transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
   }
   .win-ctrl:hover {
-    background: rgba(255, 255, 255, 0.08);
-    color: #ffffff;
-  }
-  .win-ctrl.close:hover {
-    background: #e81123;
+    background: rgba(var(--accent-rgb), 0.18);
+    border-color: rgba(var(--accent-rgb), 0.5);
     color: #ffffff;
   }
   .win-ctrl:active {
-    background: rgba(255, 255, 255, 0.04);
+    background: rgba(var(--accent-rgb), 0.32);
+  }
+  .win-ctrl.close:hover {
+    background: rgba(255, 60, 120, 0.85);
+    border-color: rgba(255, 107, 157, 0.8);
+    color: #ffffff;
   }
   .win-ctrl.close:active {
-    background: #c50f1f;
+    background: #e63b56;
   }
 
   .ghost:disabled {
