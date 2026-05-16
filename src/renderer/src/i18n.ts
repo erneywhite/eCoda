@@ -106,6 +106,10 @@ const RU: Strings = {
   'toast.playNextAdded': '«{title}» — следующим',
   'toast.queueAdded': '«{title}» — в очереди',
 
+  // Confirm dialog (in-app replacement for native confirm)
+  'confirm.ok': 'Подтвердить',
+  'confirm.cancel': 'Отмена',
+
   // Settings page
   'settings.title': 'Настройки',
   'settings.account.title': 'Аккаунт',
@@ -271,6 +275,9 @@ const EN: Strings = {
 
   'toast.playNextAdded': '"{title}" — playing next',
   'toast.queueAdded': '"{title}" — added to queue',
+
+  'confirm.ok': 'Confirm',
+  'confirm.cancel': 'Cancel',
 
   'settings.title': 'Settings',
   'settings.account.title': 'Account',

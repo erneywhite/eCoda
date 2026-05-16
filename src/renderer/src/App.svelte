@@ -215,7 +215,8 @@
   // reshuffles that took the streamer hours to set up.
   async function resetPlaylistOrder(): Promise<void> {
     if (!openPlaylistId || !hasPlaylistOverride) return
-    if (!confirm(t('playlist.resetConfirm'))) return
+    const ok = await askConfirm(t('playlist.resetConfirm'), { danger: true })
+    if (!ok) return
     const id = openPlaylistId
     try {
       await window.api.settings.setPlaylistOverride(id, null)
@@ -533,7 +534,8 @@
 
   async function clearCache(): Promise<void> {
     if (clearingCache) return
-    if (!confirm(t('settings.cache.clearConfirm'))) return
+    const ok = await askConfirm(t('settings.cache.clearConfirm'), { danger: true })
+    if (!ok) return
     clearingCache = true
     try {
       await window.api.downloads.clearAll()
@@ -1039,6 +1041,43 @@
     }, 2500)
   }
 
+  // ---- confirm dialog ----------------------------------------------------
+  // Promise-based replacement for the browser's native confirm(). Native
+  // confirm draws a Windows-themed prompt that breaks the app's glass /
+  // aurora aesthetic; this one matches Settings cards.
+  //
+  // Usage:
+  //   const ok = await askConfirm(t('playlist.resetConfirm'))
+  //   if (!ok) return
+  let confirmDialog = $state<{
+    message: string
+    confirmLabel: string
+    cancelLabel: string
+    danger: boolean
+    resolve: (value: boolean) => void
+  } | null>(null)
+
+  function askConfirm(
+    message: string,
+    opts: { confirmLabel?: string; cancelLabel?: string; danger?: boolean } = {}
+  ): Promise<boolean> {
+    return new Promise<boolean>((resolve) => {
+      confirmDialog = {
+        message,
+        confirmLabel: opts.confirmLabel ?? t('confirm.ok'),
+        cancelLabel: opts.cancelLabel ?? t('confirm.cancel'),
+        danger: opts.danger ?? false,
+        resolve
+      }
+    })
+  }
+
+  function closeConfirm(answer: boolean): void {
+    const d = confirmDialog
+    confirmDialog = null
+    if (d) d.resolve(answer)
+  }
+
   // ---- context menu ------------------------------------------------------
   // Floating right-click menu on track rows. Single shared state — at
   // most one menu open at a time. Closes on outside-click / ESC / item
@@ -1198,8 +1237,18 @@
       closeCtxMenu()
     }
     const onWindowKeyDown = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape' && ctxMenu) {
-        closeCtxMenu()
+      if (e.key === 'Escape') {
+        // Confirm dialog wins over context menu — both shouldn't be
+        // open at the same time, but if they are, dismissing the
+        // modal first matches user expectation.
+        if (confirmDialog) {
+          closeConfirm(false)
+          return
+        }
+        if (ctxMenu) closeCtxMenu()
+      } else if (e.key === 'Enter' && confirmDialog) {
+        // Enter confirms — matches OS-level dialog convention.
+        closeConfirm(true)
       }
     }
     window.addEventListener('mousedown', onWindowMouseDown)
@@ -3119,6 +3168,40 @@
   {#if toast}
     <div class="toast" role="status">{toast.msg}</div>
   {/if}
+
+  <!-- Confirm dialog — Promise-based replacement for native confirm().
+       Backdrop dims everything; centred glass card matches Settings
+       look. ESC = cancel (wired in onMount alongside the ctx-menu
+       handler), click on backdrop also cancels. -->
+  {#if confirmDialog}
+    <!-- Backdrop click cancels; ESC handled globally in onMount's
+         onWindowKeyDown so the dialog itself only needs the visual
+         shell, the buttons handle their own keyboard. -->
+    <!-- svelte-ignore a11y_click_events_have_key_events -->
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <div
+      class="confirm-backdrop"
+      onclick={(e) => {
+        if (e.target === e.currentTarget) closeConfirm(false)
+      }}
+    >
+      <div class="confirm-card" role="dialog" aria-modal="true" tabindex="-1">
+        <div class="confirm-message">{confirmDialog.message}</div>
+        <div class="confirm-actions">
+          <button class="confirm-btn cancel" onclick={() => closeConfirm(false)}>
+            {confirmDialog.cancelLabel}
+          </button>
+          <button
+            class="confirm-btn ok"
+            class:danger={confirmDialog.danger}
+            onclick={() => closeConfirm(true)}
+          >
+            {confirmDialog.confirmLabel}
+          </button>
+        </div>
+      </div>
+    </div>
+  {/if}
 </main>
 
 <style>
@@ -4764,6 +4847,83 @@
      Single live message floats above the player bar. Faded purple
      background; auto-dismiss timer lives in the script. Non-clickable
      and pointer-events:none so it never blocks underlying controls. */
+
+  /* ---- in-app confirm dialog ----
+     Backdrop dims the underlying app; card matches Settings cards in
+     style (glass + accent button), with a danger variant for the
+     destructive actions (reset playlist order, clear cache). */
+  .confirm-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 1100;
+    background: rgba(0, 0, 0, 0.55);
+    backdrop-filter: blur(2px);
+    -webkit-backdrop-filter: blur(2px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    animation: confirm-bg-in 0.12s ease-out;
+  }
+  .confirm-card {
+    min-width: 340px;
+    max-width: 460px;
+    padding: 1.4rem 1.5rem 1.2rem;
+    background: rgba(26, 18, 44, 0.97);
+    backdrop-filter: blur(24px);
+    -webkit-backdrop-filter: blur(24px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 14px;
+    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.6);
+    color: #ffffff;
+    animation: confirm-card-in 0.16s ease-out;
+  }
+  .confirm-message {
+    font-size: 0.95rem;
+    line-height: 1.5;
+    color: #e6dcfa;
+    margin-bottom: 1.2rem;
+  }
+  .confirm-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.5rem;
+  }
+  .confirm-btn {
+    padding: 0.55rem 1.2rem;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 9px;
+    background: transparent;
+    color: #d4c9e8;
+    font-size: 0.88rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+  }
+  .confirm-btn:hover {
+    background: rgba(255, 255, 255, 0.07);
+    color: #ffffff;
+  }
+  .confirm-btn.ok {
+    background: linear-gradient(135deg, var(--accent), var(--accent-2));
+    border-color: transparent;
+    color: #ffffff;
+    box-shadow: 0 4px 14px rgba(var(--accent-rgb), 0.4);
+  }
+  .confirm-btn.ok:hover {
+    filter: brightness(1.08);
+  }
+  .confirm-btn.ok.danger {
+    background: linear-gradient(135deg, #ff5c8a, #d92e6f);
+    box-shadow: 0 4px 14px rgba(255, 60, 120, 0.45);
+  }
+  @keyframes confirm-bg-in {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+  @keyframes confirm-card-in {
+    from { opacity: 0; transform: translateY(8px) scale(0.97); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
+  }
 
   .toast {
     position: fixed;
