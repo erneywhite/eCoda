@@ -98,6 +98,9 @@ const RU: Strings = {
 
   // Playlist header
   'playlist.reshuffle': 'Перемешать сейчас',
+  'playlist.resetOrder': 'Сбросить порядок к исходному',
+  'playlist.resetConfirm':
+    'Сбросить порядок треков к исходному с YouTube? Все закрепления и пользовательский порядок будут утеряны.',
 
   // Toast messages
   'toast.playNextAdded': '«{title}» — следующим',
@@ -262,6 +265,9 @@ const EN: Strings = {
   'ctx.pinnedHint': 'Pinned — stays put on reshuffle',
 
   'playlist.reshuffle': 'Reshuffle now',
+  'playlist.resetOrder': 'Reset to default order',
+  'playlist.resetConfirm':
+    'Reset track order to YouTube’s default? All pins and custom ordering will be lost.',
 
   'toast.playNextAdded': '"{title}" — playing next',
   'toast.queueAdded': '"{title}" — added to queue',

@@ -129,6 +129,11 @@
   // Reshuffle leaves pinned rows where they are and reflows the rest.
   // Re-loaded from config on every playlist open.
   let playlistPinned = $state<Set<string>>(new Set())
+  // True when the open playlist has a saved override (the user has
+  // reshuffled / dragged / pinned at some point). Drives the visibility
+  // of the "Reset to default order" button — no point showing it when
+  // YT's natural order is already what's on screen.
+  let hasPlaylistOverride = $state(false)
   // Drag state for the playlist track list. dragIndex = the index of
   // the row being dragged; dragOverIndex = the row currently under the
   // cursor (used to render a visual drop indicator).
@@ -189,10 +194,6 @@
   // drag) so the next playlist open reproduces what the user saw.
   async function savePlaylistOverride(): Promise<void> {
     if (!openPlaylistId || !playlistView) return
-    if (isDownloadedId(openPlaylistId)) {
-      // Downloaded uses the same persistence path; auth.ts treats
-      // 'DOWNLOADED' as just another playlist id.
-    }
     const order = playlistView.tracks.map(rowKey)
     const pinned = order.filter((k) => playlistPinned.has(k))
     const prependOnAdd = isPrependPlaylist(openPlaylistId)
@@ -202,9 +203,34 @@
         pinned,
         prependOnAdd
       })
+      hasPlaylistOverride = true
     } catch (err) {
       console.warn('savePlaylistOverride failed', err)
     }
+  }
+
+  // Drop the override entirely for the currently-open playlist. Next
+  // load (which we trigger here) shows YT's natural order, fresh. The
+  // confirm dialog guards against accidentally throwing away pins +
+  // reshuffles that took the streamer hours to set up.
+  async function resetPlaylistOrder(): Promise<void> {
+    if (!openPlaylistId || !hasPlaylistOverride) return
+    if (!confirm(t('playlist.resetConfirm'))) return
+    const id = openPlaylistId
+    try {
+      await window.api.settings.setPlaylistOverride(id, null)
+    } catch (err) {
+      console.warn('resetPlaylistOrder failed', err)
+      return
+    }
+    hasPlaylistOverride = false
+    playlistPinned = new Set()
+    // Force loadPlaylistData to re-fetch (it short-circuits when
+    // openPlaylistId matches the id arg, but the Downloaded virtual
+    // playlist always re-fetches anyway and YT playlists are cheap
+    // enough on the page-proxy).
+    openPlaylistId = null
+    await loadPlaylistData(id)
   }
 
   // Fisher-Yates over the non-pinned subset, then reassemble with
@@ -1400,6 +1426,7 @@
         const override = await window.api.settings.getPlaylistOverride(DOWNLOADED_ID)
         tracks = applyOverride(tracks, override, DOWNLOADED_ID)
         playlistPinned = new Set(override?.pinned ?? [])
+        hasPlaylistOverride = override != null
         playlistView = {
           title: t('downloaded.title'),
           subtitle: t('downloaded.summary', {
@@ -1443,6 +1470,7 @@
       const override = await window.api.settings.getPlaylistOverride(id)
       const merged = applyOverride(data.tracks, override, id)
       playlistPinned = new Set(override?.pinned ?? [])
+      hasPlaylistOverride = override != null
       playlistView = {
         ...data,
         title: data.title || fallbackTitle,
@@ -2166,6 +2194,26 @@
                         >
                           <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
                             <path d="M10.59 9.17 5.41 4 4 5.41l5.17 5.17 1.42-1.41zM14.5 4l2.04 2.04L4 18.59 5.41 20 17.96 7.46 20 9.5V4h-5.5zm.33 9.41-1.41 1.41 3.13 3.13L14.5 20H20v-5.5l-2.04 2.04-3.13-3.13z"/>
+                          </svg>
+                        </button>
+                      {/if}
+
+                      <!-- Reset to default order — only when there's a
+                           saved override. Drops the override entirely
+                           (pins + custom order both gone) and reloads
+                           the playlist in YT's natural sequence. Guarded
+                           by a confirm dialog so an accidental click
+                           doesn't wipe a stream prep that took an hour. -->
+                      {#if hasPlaylistOverride}
+                        <button
+                          class="dl-icon-btn"
+                          onclick={resetPlaylistOrder}
+                          aria-label={t('playlist.resetOrder')}
+                          title={t('playlist.resetOrder')}
+                        >
+                          <!-- restart_alt: circular arrow with start mark -->
+                          <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+                            <path d="M12 5V2L8 6l4 4V7c3.31 0 6 2.69 6 6 0 2.97-2.17 5.43-5 5.91v2.02c3.95-.49 7-3.85 7-7.93 0-4.42-3.58-8-8-8zm-6 8c0-1.65.67-3.15 1.76-4.24L6.34 7.34A7.94 7.94 0 0 0 4 13c0 4.08 3.05 7.44 7 7.93v-2.02c-2.83-.48-5-2.94-5-5.91z"/>
                           </svg>
                         </button>
                       {/if}
