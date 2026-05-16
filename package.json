@@ -1,6 +1,6 @@
 {
   "name": "ecoda",
-  "version": "0.0.45",
+  "version": "0.0.46",
   "description": "Desktop YouTube Music client with offline caching — own your music",
   "author": "Erney White",
   "license": "MIT",
@@ -14,6 +14,9 @@
     "typecheck:web": "svelte-check --tsconfig ./tsconfig.web.json",
     "typecheck": "npm run typecheck:node && npm run typecheck:web",
     "build:win": "npm run build && electron-builder --win",
+    "build:mac": "npm run build && electron-builder --mac",
+    "release:win": "npm run build && electron-builder --win --publish always",
+    "release:mac": "npm run build && electron-builder --mac --publish always",
     "release": "npm run build && electron-builder --win --publish always"
   },
   "engines": {
@@ -47,8 +50,8 @@
       "resources/**/*"
     ],
     "asarUnpack": [
-      "resources/yt-dlp.exe",
-      "resources/deno.exe"
+      "resources/yt-dlp*",
+      "resources/deno*"
     ],
     "publish": [
       {
@@ -78,6 +81,35 @@
       "createStartMenuShortcut": true,
       "shortcutName": "eCoda",
       "deleteAppDataOnUninstall": false
+    },
+    "mac": {
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        }
+      ],
+      "category": "public.app-category.music",
+      "icon": "build/icon.png",
+      "artifactName": "eCoda-${version}-${arch}.${ext}",
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist"
+    },
+    "dmg": {
+      "title": "eCoda ${version}",
+      "icon": "build/icon.png"
     }
   }
 }

@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!-- Required for any network I/O — youtubei.js + page-proxy fetches + yt-dlp downloads + auto-update -->
+  <key>com.apple.security.network.client</key>
+  <true/>
+  <!-- Required so we can spawn bundled yt-dlp + deno binaries from app.asar.unpacked.
+       Hardened runtime blocks unsigned exec by default; allow-unsigned-executable-memory + allow-jit
+       cover the Electron + Deno V8 JIT cases. -->
+  <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+  <true/>
+  <key>com.apple.security.cs.allow-jit</key>
+  <true/>
+  <key>com.apple.security.cs.disable-library-validation</key>
+  <true/>
+</dict>
+</plist>

@@ -2,23 +2,21 @@ import { app } from 'electron'
 import { join, dirname, delimiter } from 'node:path'
 import { existsSync, mkdirSync, readFileSync, writeFileSync, unlinkSync, readdirSync } from 'node:fs'
 import { spawn } from 'node:child_process'
-import ytdlpRawPath from '../../resources/yt-dlp.exe?asset'
-import denoRawPath from '../../resources/deno.exe?asset'
 import { getAudioQuality, type AudioQuality } from './auth'
 
-// `?asset` resolves to a path INSIDE app.asar in packaged builds. Files
-// listed under build.asarUnpack live at app.asar.unpacked instead, and
-// Electron's child_process patch transparently redirects execFile for
-// those — but NOT spawn. Spawn-with-asar-path fails ENOENT in packaged
-// builds, which broke 0.0.8 downloads completely. Rewriting `app.asar\`
-// → `app.asar.unpacked\` ourselves gives spawn a real on-disk path; in
-// dev there's no "app.asar" segment in the string so the replace is a
-// no-op.
-function asUnpackedPath(p: string): string {
-  return p.replace(/([\\/])app\.asar([\\/])/, '$1app.asar.unpacked$2')
-}
-const ytdlpPath = asUnpackedPath(ytdlpRawPath)
-const denoPath = asUnpackedPath(denoRawPath)
+// Cross-platform binary paths. Resolved at runtime (rather than via
+// Vite's `?asset` import) so the same compiled main bundle works on
+// any platform — the build machine doesn't need both .exe and bare
+// binaries present at build time. Packaged: under app.asar.unpacked
+// (binaries are listed in asarUnpack so spawn() can reach them — see
+// 0.0.8 gotcha for why .asar paths don't work with spawn). Dev: the
+// `resources/` folder at the repo root.
+const isWin = process.platform === 'win32'
+const binDir = app.isPackaged
+  ? join(process.resourcesPath, 'app.asar.unpacked', 'resources')
+  : join(app.getAppPath(), 'resources')
+const ytdlpPath = join(binDir, isWin ? 'yt-dlp.exe' : 'yt-dlp')
+const denoPath = join(binDir, isWin ? 'deno.exe' : 'deno')
 
 // Map<videoId, ChildProcess> of in-flight yt-dlp downloads so cancel
 // requests can target the right process. Bulk downloads check

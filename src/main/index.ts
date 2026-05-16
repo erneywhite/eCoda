@@ -173,6 +173,7 @@ async function createWindow(): Promise<void> {
     typeof saved.y === 'number' &&
     isOnScreen({ x: saved.x, y: saved.y, width: saved.width, height: saved.height })
 
+  const isMac = process.platform === 'darwin'
   mainWindow = new BrowserWindow({
     width: useSaved ? saved!.width : 1200,
     height: useSaved ? saved!.height : 800,
@@ -182,11 +183,17 @@ async function createWindow(): Promise<void> {
     minHeight: 560,
     show: false,
     autoHideMenuBar: true,
-    // Hide the native chrome — our header doubles as the titlebar, with
-    // a drag region + custom minimize/maximize/close buttons. Resize
-    // handles + Aero-snap stay intact (Windows keeps them on a frameless
-    // window because we use 'hidden' instead of `frame: false`).
-    titleBarStyle: 'hidden',
+    // Frameless on both platforms but with the OS-native window-control
+    // affordances:
+    //   Windows — 'hidden' (no chrome, our custom min/max/close render
+    //             in the header).
+    //   macOS   — 'hiddenInset' keeps the traffic lights (red/yellow/
+    //             green) at the top-left, positioned to vertically
+    //             centre on our 40px-tall header. The renderer hides
+    //             our right-side custom window-controls on darwin
+    //             since traffic lights cover the same functions.
+    titleBarStyle: isMac ? 'hiddenInset' : 'hidden',
+    trafficLightPosition: isMac ? { x: 14, y: 16 } : undefined,
     backgroundColor: '#0c0816',
     title: 'eCoda',
     icon,
@@ -821,10 +828,23 @@ const TRAY_LABELS = {
 } as const
 
 async function createTray(): Promise<void> {
+  const isMac = process.platform === 'darwin'
   const trayImage = nativeImage.createFromPath(icon)
-  // Windows tray icons render at 16px; resize so the raccoon doesn't
-  // get auto-downscaled by Windows with bad filtering.
-  const resized = trayImage.resize({ width: 16, height: 16 })
+  // Tray icon sizing differs per platform:
+  //   Windows — system tray expects 16px; resize so the raccoon doesn't
+  //             get auto-downscaled with bad filtering.
+  //   macOS   — menu bar at standard scaling is 22px; Retina pulls a
+  //             2x. setTemplateImage(true) tells AppKit to render the
+  //             icon as a monochrome mask that follows the menu-bar
+  //             theme (white on dark, black on light) — this matters
+  //             because our coloured raccoon would clash with the
+  //             user's wallpaper otherwise. The colored icon stays as
+  //             the app icon in the Dock + window; the tray gets a
+  //             desaturated template variant for the menu bar.
+  const resized = trayImage.resize(
+    isMac ? { width: 22, height: 22 } : { width: 16, height: 16 }
+  )
+  if (isMac) resized.setTemplateImage(true)
   tray = new Tray(resized)
   tray.setToolTip('eCoda')
   rebuildTrayMenu(await getLang())
@@ -832,7 +852,7 @@ async function createTray(): Promise<void> {
   // to the same handler so users with old Windows muscle-memory hit the
   // same outcome. On macOS, single click opens the menu by default —
   // we don't override that to stay native-feeling.
-  if (process.platform !== 'darwin') {
+  if (!isMac) {
     tray.on('click', showAndFocusWindow)
     tray.on('double-click', showAndFocusWindow)
   }

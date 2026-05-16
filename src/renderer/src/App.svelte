@@ -32,6 +32,10 @@
 
   // ---- auth state -----------------------------------------------------------
   let connectedBrowser = $state<string | null>(null)
+  // True on macOS — the renderer hides its right-side custom window
+  // controls there (the OS traffic lights cover min/max/close) and
+  // pads the header left so the wordmark doesn't sit under them.
+  const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/i.test(navigator.platform)
   // True when the OS-level window is maximized — drives the custom
   // titlebar's restore/maximize icon swap. Seeded on mount + kept in
   // sync via window:maximize-changed pushes from main.
@@ -2688,7 +2692,7 @@
   }
 </script>
 
-<main class:mini={miniMode}>
+<main class:mini={miniMode} class:platform-mac={isMac}>
   {#if !miniMode}
     <header>
     <img class="wordmark" src={wordmark} alt="eCoda" />
@@ -2730,11 +2734,14 @@
         {/if}
       </div>
     {/if}
-    <!-- Custom window controls. Native chrome is hidden (titleBarStyle:
-         'hidden' in main); these three drive the same actions. The
+    <!-- Custom window controls. Hidden on macOS where the native traffic
+         lights (left side, positioned via trafficLightPosition in main)
+         cover min/max/close already. On Windows our `titleBarStyle:
+         'hidden'` leaves no native controls, so these three render. The
          maximize/restore icon swaps based on `windowMaximized`, which
          is seeded on mount and re-synced via window:maximize-changed
          so Aero snap / OS gestures stay reflected. -->
+    {#if !isMac}
     <div class="window-controls">
       <button
         class="win-ctrl"
@@ -2778,6 +2785,7 @@
         </svg>
       </button>
     </div>
+    {/if}
   </header>
 
   {#if !connectedBrowser}
@@ -4796,6 +4804,13 @@
        controls' own internal padding. */
     padding: 1.2rem 0 1.2rem 1rem;
     flex-shrink: 0;
+  }
+  /* macOS draws its three traffic-light circles inside our drag region
+     at the top-left (positioned via trafficLightPosition in main).
+     Pad the header left so the wordmark + back/forward chips don't
+     collide with them. ~78px clears the 70px-wide cluster. */
+  main.platform-mac header {
+    padding-left: 78px;
     /* Whole header is the drag region for the frameless window —
        grab anywhere in the empty space to move the window. Interactive
        children (.hist, .win-ctrl) opt out via -webkit-app-region:no-drag

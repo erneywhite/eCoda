@@ -1,10 +1,19 @@
+import { app } from 'electron'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
-import { dirname, delimiter } from 'node:path'
+import { dirname, delimiter, join } from 'node:path'
 import { writeFileSync } from 'node:fs'
-import ytdlpPath from '../../resources/yt-dlp.exe?asset'
-import denoPath from '../../resources/deno.exe?asset'
 import { getCookiesFilePath } from './auth'
+
+// Cross-platform binary paths. Resolved at runtime so the build
+// machine doesn't need both .exe and bare binaries present. See
+// downloads.ts for the same pattern + the asar gotcha.
+const isWin = process.platform === 'win32'
+const binDir = app.isPackaged
+  ? join(process.resourcesPath, 'app.asar.unpacked', 'resources')
+  : join(app.getAppPath(), 'resources')
+const ytdlpPath = join(binDir, isWin ? 'yt-dlp.exe' : 'yt-dlp')
+const denoPath = join(binDir, isWin ? 'deno.exe' : 'deno')
 
 const run = promisify(execFile)
 
