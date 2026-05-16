@@ -1761,36 +1761,50 @@
     sourceList: SearchResult[],
     sourceContext?: { id?: string; title?: string }
   ): Promise<void> {
-    if (playStatus === 'resolving') return
     // Refuse to start an unavailable row — the stream resolve would
     // fail with a hard 404 anyway and leave the player in an error
     // state. UI also disables the click handler on these rows, so this
     // is belt-and-suspenders.
     if (track.unavailable) return
+    // No-op if the user re-clicks the same row that's already mid-resolve
+    // — pointless duplicate request.
+    if (resolvingId === track.id) return
     // Push whatever was just playing into the history stack BEFORE we
     // overwrite `playing`. Used by shuffle-prev to walk back through
     // actually-played tracks rather than picking another random one.
-    // Skip the initial deferred-resume hydrate (empty streamUrl) so
-    // we don't pollute history with a placeholder entry.
+    // Skip the initial deferred-resume hydrate (empty streamUrl) so we
+    // don't pollute history with a placeholder entry, and dedupe — if
+    // the user switches tracks mid-resolve, `playing` still points at
+    // the same previously-actually-played track on each playTrack call,
+    // which would otherwise stack the same snapshot.
     if (playing && playing.streamUrl && playing.id !== track.id) {
-      const snapshot: SearchResult = {
-        id: playing.id,
-        title: playing.title,
-        artist: playing.artist,
-        duration: '',
-        thumbnail: playing.thumbnail
+      const last = playHistory[playHistory.length - 1]
+      if (!last || last.id !== playing.id) {
+        const snapshot: SearchResult = {
+          id: playing.id,
+          title: playing.title,
+          artist: playing.artist,
+          duration: '',
+          thumbnail: playing.thumbnail
+        }
+        pushHistory(snapshot)
       }
-      pushHistory(snapshot)
     }
     playStatus = 'resolving'
     playError = ''
     // The track we're about to resolve isn't `playing` yet — `playing`
     // still points at whatever was previously playing. Surface the
     // resolving state on the NEW row by stashing its id; the list
-    // overlays a tiny spinner on that row's thumbnail.
+    // overlays a tiny spinner on that row's thumbnail. Also doubles as
+    // the cancel signal — if the user clicks another row mid-resolve,
+    // `resolvingId` flips to the new track and the in-flight resolve's
+    // result is discarded when it eventually returns.
     resolvingId = track.id
     try {
       const r = await window.api.resolveAudio(track.id)
+      // User switched targets while we were waiting — this result is
+      // stale; the newer call owns the player now.
+      if (resolvingId !== track.id) return
       playing = {
         id: track.id,
         // Prefer the title we already have from InnerTube (full UTF-8 via
@@ -1838,10 +1852,17 @@
       // Save the freshly-set track into config so a restart can resume it.
       persistSession(0)
     } catch (e) {
-      playStatus = 'error'
-      playError = e instanceof Error ? e.message : String(e)
+      // Surface the error only if this is still the active target —
+      // a stale rejection (user switched tracks) shouldn't blank the
+      // bar over what the newer resolve is doing.
+      if (resolvingId === track.id) {
+        playStatus = 'error'
+        playError = e instanceof Error ? e.message : String(e)
+      }
     } finally {
-      resolvingId = null
+      // Only clear the spinner state if WE are still the active target.
+      // Otherwise the newer resolve owns this state.
+      if (resolvingId === track.id) resolvingId = null
     }
   }
 
@@ -2369,7 +2390,6 @@
                     class:current={playing?.id === r.id}
                     onclick={() => playTrack(r, searchResults)}
                     oncontextmenu={(e) => openCtxMenu(e, r, searchResults)}
-                    disabled={playStatus === 'resolving'}
                   >
                     <div
                       class="thumb"
@@ -2654,7 +2674,7 @@
                         id: openPlaylistId ?? undefined,
                         title: playlistView!.title
                       })}
-                    disabled={playStatus === 'resolving' || r.unavailable}
+                    disabled={r.unavailable}
                     title={r.unavailable ? t('track.unavailable') : undefined}
                   >
                     <div
