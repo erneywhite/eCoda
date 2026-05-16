@@ -2,7 +2,7 @@
 
 Desktop client for YouTube Music — your library, fast playback, Spotify-style offline cache, and a native UI you can theme. Talks to YouTube's InnerTube API directly: no embedded webview, no heavy web player.
 
-> **Status:** All planned phases (0–7) done as of 0.0.44. Lyrics intentionally cut from Phase 6 (not the right fit for a personal player). What's left before a public 1.0: the artist's final brand assets (wordmark + icon) and the macOS port (`.dmg` target + notarisation).
+> **Status:** Cross-platform (Windows + macOS) at 0.0.52. All planned phases (0–7) done; track-to-track crossfade on top, and both platforms now ship the same persistent yt-dlp daemon + bundled Python pipeline (~1.2 s saved per cold resolve on Windows, ~12+ s saved on macOS where amfid validation used to dominate). Lyrics intentionally cut from Phase 6. What's left before a public 1.0: the artist's final brand assets (wordmark + icon).
 
 ## Features
 
@@ -27,6 +27,7 @@ Desktop client for YouTube Music — your library, fast playback, Spotify-style 
 - **Right-click context menu** on every track row (playlist + search): `▶ Play next`, `≡ Add to queue`, `📻 Start radio`, plus the streamer-bundle actions below. Material-style icons next to each label.
 - **Explicit queue** (separate from sourceList) — "Play next" prepends, "Add to queue" appends; the queue takes priority over normal sourceList traversal at end-of-track. Toast feedback on every queue action.
 - **Mid-resolve clicks switch tracks** — clicking a different row while one is resolving cancels the in-flight resolve (the spinner overlay jumps to the new row), so you're never stuck waiting on a decision you've already changed your mind about.
+- **Track-to-track crossfade** — Settings → "Crossfade duration" slider, 0–12 s. The last N seconds of one track overlap with the start of the next via a linear gain ramp on two HTML audio elements. Applies only to natural auto-progression (manual prev/next switches instantly so seeking through a playlist still feels snappy). `repeat-one` bypasses the crossfade.
 
 ### Artist & album views
 - **Artist page** — click any artist name in a track row (search / playlist / Downloaded / artist top-songs) or any artist card on Home / Library / artist-related-artists. Header has the circular cover, name, locale-aware subscriber line ("138 подписчиков" / "1.2M subscribers"), Play and Shuffle buttons. Below: Top Songs list (full row UI — heart, download, context menu, mid-resolve switching all work), then every YT carousel (Albums, Singles, Featured on, related artists) as a grid of card-tiles.
@@ -70,7 +71,8 @@ Desktop client for YouTube Music — your library, fast playback, Spotify-style 
 ## How it works
 
 - **Electron + Vite + TypeScript + Svelte 5** for the app shell, build pipeline, and renderer.
-- **[yt-dlp](https://github.com/yt-dlp/yt-dlp)** drives stream extraction and offline downloads (audio and thumbnails).
+- **[yt-dlp](https://github.com/yt-dlp/yt-dlp)** drives stream extraction and offline downloads (audio and thumbnails). Shipped as the cross-platform Python zipapp, run inside a **bundled standalone Python** (`python-build-standalone` 3.13.13) so the app doesn't depend on a system Python install on either OS.
+- **Persistent yt-dlp daemon pool** — instead of spawning `python yt-dlp` fresh for every resolve, two long-lived Python workers stay running for the lifetime of the app. Each one imports `yt_dlp` once and caches the `YoutubeDL` instance per (browser, deno) tuple, amortising ~3 s of Python interpreter init + extractor registration over every subsequent call. On macOS the win is even larger (~12 s saved per call) because the old `yt-dlp_macos` PyInstaller binary tripped amfid validation on ~100 internal `.so` files at every launch.
 - **Deno** is the JS runtime yt-dlp uses for YouTube's signature challenges. Both binaries are downloaded automatically by `npm install` and shipped via `asarUnpack`.
 - **[youtubei.js](https://github.com/LuanRT/YouTube.js)** for public InnerTube metadata (search, Home feed, public playlist tracks fallback).
 - **Hidden Electron BrowserWindow + page-proxy** — a `music.youtube.com` window kept alive in the background. Every authenticated InnerTube call (Library landing, private playlist contents, Liked Music) is `fetch`'d inside that page context, with a manually-computed `Authorization: SAPISIDHASH …` header so the server treats us as logged in. This is what unlocks the native library experience.
@@ -88,24 +90,23 @@ npm run dev
 
 DevTools auto-open in a detached window in dev. `Ctrl+R` in the eCoda window reloads the renderer; the main process is hot-reloaded by `electron-vite`.
 
-## Building a Windows installer
+## Building an installer
 
-Local build (no publish):
-
-```sh
-npm run build:win
-```
-
-Produces `dist/eCoda-Setup-<version>.exe` — NSIS, x64, per-user install, configurable directory, desktop + Start-Menu shortcuts.
+| Platform | Local build | Release (publishes to GitHub) |
+| --- | --- | --- |
+| Windows | `npm run build:win` → `dist/eCoda-Setup-<v>.exe` (NSIS, x64) | `npm run release:win` |
+| macOS | `npm run build:mac` → `dist/eCoda-<v>-arm64.{dmg,zip}` | `npm run release:mac` |
 
 > **First build on Windows requires Administrator rights** (electron-builder unpacks `winCodeSign` which contains macOS dylib symlinks — Windows blocks symlink creation without admin or Developer Mode + the `SeCreateSymbolicLinkPrivilege` group policy). Run PowerShell as Administrator the first time; subsequent builds reuse the cache and don't need elevation.
+
+> **macOS builds** must run on a Mac (Apple keychain + notarytool live there). The `.dmg` is Apple-Silicon-only by design — Intel support would double the bundle size (Python runtime is per-arch); revisit if there's demand. For distribution-grade builds, set `CSC_LINK` + `CSC_KEY_PASSWORD` (codesigning) and `APPLE_ID` + `APPLE_APP_SPECIFIC_PASSWORD` + `APPLE_TEAM_ID` (notarisation). Without them you can still run `build:mac` and right-click → Open the unsigned `.dmg` locally.
 
 Cut a release that auto-updaters can see:
 
 1. Bump version: `npm version patch` (or edit `package.json`).
 2. `git push --follow-tags`.
-3. `set GH_TOKEN=ghp_…` — personal access token with `public_repo` scope.
-4. `npm run release` — rebuilds, then `electron-builder --win --publish always` uploads the installer + `latest.yml` to GitHub Releases.
+3. `GH_TOKEN=ghp_…` — personal access token with `public_repo` scope (`set` on Windows / `export` on macOS).
+4. Run `release:win` and/or `release:mac` to publish — uploads the installer + `latest.yml` to GitHub Releases.
 
 Installed copies see the new release via the in-app **Settings → Обновления → Проверить обновления** button and via a silent check three seconds after every launch.
 
@@ -145,7 +146,7 @@ mockups/                 standalone HTML mockups (A/B/C) used during UI redesign
 - **Phase 1 — streaming MVP** — ✅ done (search, home, playlist navigation, custom player UI)
 - **Phase 2 — offline** — ✅ done (per-track + per-playlist downloads, persistent cache, instant disk playback via `media://`)
 - **Phase 3 — polish** — ✅ done (sidebar pinned playlists, eight colour themes, language switch, mouse-side-button navigation, settings with cache/diagnostics/about/updates/donate, audio quality picker, Downloaded virtual playlist, live progress rings, total playlist duration, unavailable-row handling)
-- **Phase 4 — distribution** — ✅ done (`electron-builder` NSIS installer, `electron-updater` against GitHub Releases; current build cycle: 0.0.x, latest 0.0.44)
+- **Phase 4 — distribution** — ✅ done (`electron-builder` NSIS on Windows + `.dmg`/`.zip` on macOS, `electron-updater` against GitHub Releases; current build cycle: 0.0.x, latest 0.0.52)
 - **Phase 5 — playback features** — ✅ done across 0.0.14 + 0.0.24–34:
   - ✅ shuffle + repeat modes (off / all / one), both persisted
   - ✅ queue management (separate from sourceList; Play next / Add to queue)
@@ -170,8 +171,10 @@ mockups/                 standalone HTML mockups (A/B/C) used during UI redesign
   - ✅ System tray icon + localised right-click menu, configurable close-button behaviour (tray vs quit)
   - ✅ Global media keys via `navigator.mediaSession` — Windows SMTC, macOS Now Playing, Linux MPRIS, no native modules
   - ✅ Mini-player mode — same window, two fixed presets (A horizontal pill, B square cover), toggle button + restore, always-on-top
-- **Brand swap** — when the artist delivers the final wordmark + icon, drop them into `branding/` and rebuild.
-- **macOS port** — same codebase, `.dmg` target, needs Mac/CI + Apple notarisation. The custom titlebar will need a macOS branch (traffic lights on the left).
+- **Track-to-track crossfade** — ✅ done in 0.0.45 (Settings → "Crossfade duration" slider 0–12 s; auto-progression only, manual prev/next stays instant)
+- **macOS port** — ✅ done in 0.0.46–47 (cross-platform binary paths, custom titlebar with traffic-light branch, Mac-aware tray template image, Safari Full Disk Access hint in Connect)
+- **yt-dlp daemon pipeline (both platforms)** — ✅ done in 0.0.47 (Mac) + 0.0.49 (Windows): persistent Python worker pool that amortises interpreter + extractor init across the lifetime of the app. Measured drop on Windows: avg cold resolve 6.8 s → 5.6 s; on macOS the win is larger (~12 s) because the old PyInstaller-based `yt-dlp_macos` paid amfid validation per launch.
+- **Brand swap** — when the artist delivers the final wordmark + icon, drop them into `branding/` and rebuild. **Only thing left before public 1.0.**
 
 ## Disclaimer
 
