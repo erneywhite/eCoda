@@ -625,6 +625,20 @@ app.whenReady().then(async () => {
   })
   ipcMain.handle('window:close', () => mainWindow?.close())
   ipcMain.handle('window:isMaximized', () => mainWindow?.isMaximized() ?? false)
+
+  // Mini-player. Same BrowserWindow, just resized + always-on-top +
+  // its own renderer layout. Two presets: 'compact' (horizontal pill,
+  // 420×96) and 'square' (cover-focused, 280×360). preMini bounds
+  // are stashed so exit can restore exactly what the user had.
+  ipcMain.handle(
+    'window:enterMini',
+    (_event, layout: 'compact' | 'square') => enterMiniMode(layout)
+  )
+  ipcMain.handle(
+    'window:setMiniLayout',
+    (_event, layout: 'compact' | 'square') => setMiniLayout(layout)
+  )
+  ipcMain.handle('window:exitMini', () => exitMiniMode())
   ipcMain.handle('settings:getDefaultTab', () => getDefaultTab())
   ipcMain.handle('settings:setDefaultTab', (_event, tab: DefaultTab) => setDefaultTab(tab))
   ipcMain.handle('settings:getPinned', () => getPinnedPlaylists())
@@ -642,6 +656,9 @@ app.whenReady().then(async () => {
     // Locale-bound caches must be dropped so the next InnerTube call uses
     // the new hl/gl, not the cached one from the previous language.
     resetInnertube()
+    // Rebuild the tray menu — it caches the labels at create time, so
+    // the new lang only takes effect after a refresh.
+    rebuildTrayMenu(lang)
   })
   // Audio quality preset for new downloads — see formatSelectorFor() in
   // downloads.ts. Doesn't retroactively re-download anything.
@@ -698,7 +715,7 @@ app.whenReady().then(async () => {
   closeActionCache = await getCloseAction()
 
   await createWindow()
-  createTray()
+  await createTray()
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) void createWindow()
@@ -775,14 +792,34 @@ app.on('before-quit', () => {
 // truth. Tray itself is permanent — even when closeAction='quit', the tray
 // is still useful for quick access while the window is minimised.
 // ---------------------------------------------------------------------------
-function createTray(): void {
+
+// Per-language labels for the tray menu. Tray lives in main, can't reach
+// the renderer's i18n.ts; this small mirror is rebuilt on `setLang`.
+const TRAY_LABELS = {
+  ru: {
+    showHide: 'Показать / Скрыть',
+    playPause: 'Воспроизвести / Пауза',
+    prev: 'Предыдущий трек',
+    next: 'Следующий трек',
+    quit: 'Выйти'
+  },
+  en: {
+    showHide: 'Show / Hide',
+    playPause: 'Play / Pause',
+    prev: 'Previous',
+    next: 'Next',
+    quit: 'Quit'
+  }
+} as const
+
+async function createTray(): Promise<void> {
   const trayImage = nativeImage.createFromPath(icon)
   // Windows tray icons render at 16px; resize so the raccoon doesn't
   // get auto-downscaled by Windows with bad filtering.
   const resized = trayImage.resize({ width: 16, height: 16 })
   tray = new Tray(resized)
   tray.setToolTip('eCoda')
-  rebuildTrayMenu()
+  rebuildTrayMenu(await getLang())
   // Single-click on Windows = show + focus. Double-click is also wired
   // to the same handler so users with old Windows muscle-memory hit the
   // same outcome. On macOS, single click opens the menu by default —
@@ -793,8 +830,9 @@ function createTray(): void {
   }
 }
 
-function rebuildTrayMenu(): void {
+function rebuildTrayMenu(lang: Lang): void {
   if (!tray) return
+  const L = TRAY_LABELS[lang] ?? TRAY_LABELS.ru
   const menu = Menu.buildFromTemplate([
     {
       label: 'eCoda',
@@ -802,7 +840,7 @@ function rebuildTrayMenu(): void {
     },
     { type: 'separator' },
     {
-      label: 'Show / Hide',
+      label: L.showHide,
       click: () => {
         if (!mainWindow) return
         if (mainWindow.isVisible() && mainWindow.isFocused()) {
@@ -814,20 +852,20 @@ function rebuildTrayMenu(): void {
     },
     { type: 'separator' },
     {
-      label: 'Play / Pause',
+      label: L.playPause,
       click: () => sendTrayCommand('play-pause')
     },
     {
-      label: 'Previous',
+      label: L.prev,
       click: () => sendTrayCommand('prev')
     },
     {
-      label: 'Next',
+      label: L.next,
       click: () => sendTrayCommand('next')
     },
     { type: 'separator' },
     {
-      label: 'Quit',
+      label: L.quit,
       click: () => {
         forceQuit = true
         app.quit()
@@ -847,4 +885,73 @@ function showAndFocusWindow(): void {
 function sendTrayCommand(cmd: 'play-pause' | 'next' | 'prev'): void {
   if (!mainWindow || mainWindow.isDestroyed()) return
   mainWindow.webContents.send('tray:command', cmd)
+}
+
+// ---------------------------------------------------------------------------
+// MINI-PLAYER — same BrowserWindow, resized + always-on-top + reskinned by
+// the renderer. We stash the pre-mini bounds + minimum-size so exit can
+// snap back exactly. Two presets:
+//   compact (A): 420×96  — Spotify-style horizontal pill
+//   square  (B): 280×360 — cover-focused vertical card
+// The renderer switches its template based on a 'window:mini-changed'
+// push, so the OS-resize and the layout swap stay in sync.
+// ---------------------------------------------------------------------------
+const MINI_SIZES = {
+  compact: { width: 420, height: 96 },
+  square: { width: 280, height: 360 }
+} as const
+
+let preMiniBounds: { x: number; y: number; width: number; height: number } | null = null
+let preMiniMinSize: { width: number; height: number } | null = null
+let miniActive = false
+
+function enterMiniMode(layout: 'compact' | 'square'): void {
+  if (!mainWindow || miniActive) {
+    if (mainWindow && miniActive) setMiniLayout(layout)
+    return
+  }
+  // Unmaximize first so getBounds reports the restored rect (otherwise
+  // exit would snap back to the maximised dimensions = same as mini-
+  // size, defeating the restore).
+  if (mainWindow.isMaximized()) mainWindow.unmaximize()
+  preMiniBounds = mainWindow.getBounds()
+  preMiniMinSize = { width: 940, height: 560 }
+  // Drop the minimum so the resize below isn't clamped, then place the
+  // mini window in the bottom-right corner of the current display.
+  mainWindow.setMinimumSize(120, 80)
+  const dims = MINI_SIZES[layout]
+  const display = screen.getDisplayMatching(preMiniBounds).workArea
+  const x = display.x + display.width - dims.width - 24
+  const y = display.y + display.height - dims.height - 24
+  mainWindow.setBounds({ x, y, width: dims.width, height: dims.height }, false)
+  mainWindow.setAlwaysOnTop(true, 'normal')
+  miniActive = true
+  mainWindow.webContents.send('window:mini-changed', { active: true, layout })
+}
+
+function setMiniLayout(layout: 'compact' | 'square'): void {
+  if (!mainWindow || !miniActive) return
+  const dims = MINI_SIZES[layout]
+  // Keep the bottom-right corner anchored when swapping sizes so the
+  // mini-player doesn't seem to "jump" across the screen mid-toggle.
+  const cur = mainWindow.getBounds()
+  const x = cur.x + cur.width - dims.width
+  const y = cur.y + cur.height - dims.height
+  mainWindow.setBounds({ x, y, width: dims.width, height: dims.height }, false)
+  mainWindow.webContents.send('window:mini-changed', { active: true, layout })
+}
+
+function exitMiniMode(): void {
+  if (!mainWindow || !miniActive) return
+  miniActive = false
+  mainWindow.setAlwaysOnTop(false)
+  if (preMiniMinSize) {
+    mainWindow.setMinimumSize(preMiniMinSize.width, preMiniMinSize.height)
+  }
+  if (preMiniBounds) {
+    mainWindow.setBounds(preMiniBounds, false)
+  }
+  preMiniBounds = null
+  preMiniMinSize = null
+  mainWindow.webContents.send('window:mini-changed', { active: false, layout: 'compact' })
 }

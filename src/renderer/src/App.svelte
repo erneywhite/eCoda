@@ -36,6 +36,15 @@
   // titlebar's restore/maximize icon swap. Seeded on mount + kept in
   // sync via window:maximize-changed pushes from main.
   let windowMaximized = $state(false)
+  // Mini-player mode. When active, the main layout (header + sidebar
+  // + content + full player bar) is replaced by a compact draggable
+  // always-on-top widget. Two layouts: 'compact' (horizontal pill) +
+  // 'square' (cover-focused vertical card). Toggle button swaps
+  // between them; restore button exits back to full mode. State is
+  // mirrored from main via window:mini-changed pushes so the OS-side
+  // resize and the renderer-side layout swap stay in sync.
+  let miniMode = $state(false)
+  let miniLayout = $state<'compact' | 'square'>('compact')
   let browsers = $state<{ id: string; name: string }[]>([])
   let connecting = $state<string | null>(null)
   let connectError = $state('')
@@ -1409,6 +1418,10 @@
     // system menu) so the custom titlebar's icon stays accurate.
     void window.api.window.isMaximized().then((m) => (windowMaximized = m))
     const unsubWin = window.api.window.onMaximizeChanged((m) => (windowMaximized = m))
+    const unsubMini = window.api.window.onMiniChanged((state) => {
+      miniMode = state.active
+      miniLayout = state.layout
+    })
     // Tray menu commands — main forwards "play-pause" / "next" / "prev"
     // from the right-click tray menu items here.
     const unsubTray = window.api.tray.onCommand((cmd) => {
@@ -1546,6 +1559,7 @@
       unsubUpd()
       unsubAuth()
       unsubWin()
+      unsubMini()
       unsubTray()
       window.removeEventListener('mouseup', onMouse)
       window.removeEventListener('mousedown', onWindowMouseDown)
@@ -2355,8 +2369,9 @@
   }
 </script>
 
-<main>
-  <header>
+<main class:mini={miniMode}>
+  {#if !miniMode}
+    <header>
     <img class="wordmark" src={wordmark} alt="eCoda" />
     {#if connectedBrowser}
       <div class="history-nav">
@@ -3579,18 +3594,20 @@
         {/if}
       </section>
     </div>
+  {/if}
+  {/if}
 
     <!-- Resolving feedback moved onto the playing track's thumbnail (see
          .thumb.resolving in each row). The floating bar that used to
          live here was visually disconnected from anything the user
          clicked. Error stays as a banner since there's no row state to
          overlay it on. -->
-    {#if playStatus === 'error'}
+    {#if playStatus === 'error' && !miniMode}
       <div class="resolving-bar error">{t('player.error', { error: playError })}</div>
     {/if}
 
     {#if playing}
-      <div class="player-bar">
+      <div class="player-bar" style:display={miniMode ? 'none' : 'flex'}>
         <!-- Thin full-width progress strip flush to the top edge of the
              player bar (visually replaces the top border). Times live
              inline with the transport buttons below, the same way YT Music
@@ -3814,6 +3831,21 @@
                 {/if}
               </button>
             {/if}
+            <!-- Mini-player entry: same window resizes + goes always-on-top
+                 + swaps the renderer to the .mini-shell layout. Starts in
+                 compact (A) mode; user can toggle to square (B) from
+                 inside the mini-player. -->
+            <button
+              class="ctrl small mini-enter"
+              onclick={() => void window.api.window.enterMini('compact')}
+              aria-label={t('mini.enter')}
+              title={t('mini.enter')}
+            >
+              <!-- picture_in_picture_alt: signals "shrink to corner widget" -->
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
+                <path d="M19 11h-8v6h8v-6zm4 8V4.98C23 3.88 22.1 3 21 3H3c-1.1 0-2 .88-2 1.98V19c0 1.1.9 2 2 2h18c1.1 0 2-.9 2-2zm-2 .02H3V4.97h18v14.05z"/>
+              </svg>
+            </button>
           </div>
 
           <div class="volume">
@@ -3882,8 +3914,166 @@
         ></audio>
         {/if}
       </div>
+      {#if miniMode}
+        <!-- Mini-player shell. Same `playing` state as the full UI,
+             just rendered as either a horizontal pill (compact / A) or
+             a cover-focused card (square / B). The whole shell is the
+             drag region; interactive children (`.mini-btn`, the seek
+             input) opt out via -webkit-app-region: no-drag. Audio
+             element stays mounted inside the hidden player-bar above so
+             playback isn't interrupted across the mode toggle. -->
+        <div class="mini-shell" class:layout-square={miniLayout === 'square'}>
+          {#if miniLayout === 'compact'}
+            <!-- A: horizontal pill -->
+            <div
+              class="mini-cover-sm"
+              style:background-image={`url("${thumbnailFor(playing.id, playing.thumbnail)}")`}
+            ></div>
+            <div class="mini-meta">
+              <div class="mini-title" title={playing.title}>{playing.title}</div>
+              <div class="mini-artist" title={playing.artist}>{playing.artist}</div>
+            </div>
+            <div class="mini-controls">
+              <button class="mini-btn" onclick={() => void playPrev()} title={t('player.prev')}>
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M6 6h2v12H6zm3.5 6 8.5 6V6z"/></svg>
+              </button>
+              <button class="mini-btn mini-btn-primary" onclick={togglePlay} title={isPlaying ? t('player.pause') : t('player.play')}>
+                {#if isPlaying}
+                  <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M6 5h4v14H6zM14 5h4v14h-4z"/></svg>
+                {:else}
+                  <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M9 5v14l11-7z"/></svg>
+                {/if}
+              </button>
+              <button class="mini-btn" onclick={() => void playNext({ fromUserClick: true })} title={t('player.next')}>
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M6 18l8.5-6L6 6zM16 6h2v12h-2z"/></svg>
+              </button>
+              <button
+                class="mini-btn mini-btn-like"
+                class:liked={playingLiked}
+                onclick={() => void togglePlayingLikeFromBar()}
+                title={playingLiked ? t('like.remove') : t('like.add')}
+              >
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d={playingLiked ? CTX_ICONS.like : CTX_ICONS.unlike}/></svg>
+              </button>
+              <button
+                class="mini-btn"
+                onclick={() => void window.api.window.setMiniLayout('square')}
+                title={t('mini.switchToSquare')}
+              >
+                <!-- view_module: switch to square cover layout -->
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M4 11h6V5H4v6zm0 7h6v-6H4v6zm7 0h6v-6h-6v6zm7-13v6h-6V5h6zm-6 7h6v6h-6zm-7-7h6v6H4z" opacity="0"/><path d="M4 4h7v7H4zm9 0h7v7h-7zM4 13h7v7H4zm9 0h7v7h-7z"/></svg>
+              </button>
+              <button
+                class="mini-btn"
+                onclick={() => void window.api.window.exitMini()}
+                title={t('mini.exit')}
+              >
+                <!-- open_in_full: restore back to full window -->
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M5 5h6V3H3v8h2zm14 0h-6V3h8v8h-2zM5 19h6v2H3v-8h2zm14 0h-6v2h8v-8h-2z"/></svg>
+              </button>
+            </div>
+            <!-- Thin seek strip at the bottom edge — same role as the
+                 one on the full player bar. -->
+            <input
+              type="range"
+              class="mini-seek"
+              min="0"
+              max={Math.max(0, duration)}
+              step="0.1"
+              value={currentTime}
+              onpointerdown={() => (seeking = true)}
+              oninput={(e) => {
+                const v = parseFloat((e.currentTarget as HTMLInputElement).value)
+                if (Number.isFinite(v)) currentTime = v
+              }}
+              onchange={(e) => {
+                const v = parseFloat((e.currentTarget as HTMLInputElement).value)
+                if (Number.isFinite(v) && audioEl) audioEl.currentTime = v
+                seeking = false
+              }}
+            />
+          {:else}
+            <!-- B: square cover-focused -->
+            <div class="mini-square-top">
+              <button
+                class="mini-btn mini-btn-bare"
+                onclick={() => void window.api.window.setMiniLayout('compact')}
+                title={t('mini.switchToCompact')}
+              >
+                <!-- view_agenda: switch to compact layout -->
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M3 5h18v6H3zm0 8h18v6H3z"/></svg>
+              </button>
+              <button
+                class="mini-btn mini-btn-bare"
+                onclick={() => void window.api.window.exitMini()}
+                title={t('mini.exit')}
+              >
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M5 5h6V3H3v8h2zm14 0h-6V3h8v8h-2zM5 19h6v2H3v-8h2zm14 0h-6v2h8v-8h-2z"/></svg>
+              </button>
+            </div>
+            <button
+              class="mini-cover-lg"
+              onclick={togglePlay}
+              style:background-image={`url("${thumbnailFor(playing.id, playing.thumbnail)}")`}
+              title={isPlaying ? t('player.pause') : t('player.play')}
+            >
+              <span class="mini-cover-overlay" aria-hidden="true">
+                {#if isPlaying}
+                  <svg viewBox="0 0 24 24" width="32" height="32" fill="currentColor"><path d="M6 5h4v14H6zM14 5h4v14h-4z"/></svg>
+                {:else}
+                  <svg viewBox="0 0 24 24" width="32" height="32" fill="currentColor"><path d="M9 5v14l11-7z"/></svg>
+                {/if}
+              </span>
+            </button>
+            <div class="mini-meta-square">
+              <div class="mini-title" title={playing.title}>{playing.title}</div>
+              <div class="mini-artist" title={playing.artist}>{playing.artist}</div>
+            </div>
+            <div class="mini-controls mini-controls-square">
+              <button class="mini-btn" onclick={() => void playPrev()} title={t('player.prev')}>
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M6 6h2v12H6zm3.5 6 8.5 6V6z"/></svg>
+              </button>
+              <button class="mini-btn mini-btn-primary" onclick={togglePlay} title={isPlaying ? t('player.pause') : t('player.play')}>
+                {#if isPlaying}
+                  <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M6 5h4v14H6zM14 5h4v14h-4z"/></svg>
+                {:else}
+                  <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M9 5v14l11-7z"/></svg>
+                {/if}
+              </button>
+              <button class="mini-btn" onclick={() => void playNext({ fromUserClick: true })} title={t('player.next')}>
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M6 18l8.5-6L6 6zM16 6h2v12h-2z"/></svg>
+              </button>
+              <button
+                class="mini-btn mini-btn-like"
+                class:liked={playingLiked}
+                onclick={() => void togglePlayingLikeFromBar()}
+                title={playingLiked ? t('like.remove') : t('like.add')}
+              >
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d={playingLiked ? CTX_ICONS.like : CTX_ICONS.unlike}/></svg>
+              </button>
+            </div>
+            <input
+              type="range"
+              class="mini-seek mini-seek-square"
+              min="0"
+              max={Math.max(0, duration)}
+              step="0.1"
+              value={currentTime}
+              onpointerdown={() => (seeking = true)}
+              oninput={(e) => {
+                const v = parseFloat((e.currentTarget as HTMLInputElement).value)
+                if (Number.isFinite(v)) currentTime = v
+              }}
+              onchange={(e) => {
+                const v = parseFloat((e.currentTarget as HTMLInputElement).value)
+                if (Number.isFinite(v) && audioEl) audioEl.currentTime = v
+                seeking = false
+              }}
+            />
+          {/if}
+        </div>
+      {/if}
     {/if}
-  {/if}
 
   <!-- Floating context menu: rendered at the document root so its
        fixed-position offset (set from MouseEvent client coords)
@@ -4026,6 +4216,228 @@
     flex-direction: column;
     height: 100vh;
     overflow: hidden;
+  }
+  /* Tighter shell in mini-mode — kill the page padding so the mini
+     widget fills the tiny window edge-to-edge. */
+  main.mini {
+    overflow: hidden;
+  }
+
+  /* ---- mini-player ------------------------------------------------------- */
+
+  /* Container — also the OS-level drag region. Backdrop matches the
+     full player-bar so the visual identity stays consistent. */
+  .mini-shell {
+    position: fixed;
+    inset: 0;
+    background: rgba(20, 12, 36, 0.92);
+    backdrop-filter: blur(28px);
+    -webkit-backdrop-filter: blur(28px);
+    color: #ffffff;
+    -webkit-app-region: drag;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.45rem 0.7rem;
+    overflow: hidden;
+  }
+  /* Square (B) layout — switches to column flow + extra header strip
+     for the toggle/exit buttons. */
+  .mini-shell.layout-square {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.45rem;
+    padding: 0.45rem 0.6rem;
+  }
+
+  .mini-cover-sm {
+    flex: 0 0 auto;
+    width: 56px;
+    height: 56px;
+    border-radius: 9px;
+    background-color: #0e0a16;
+    background-position: center;
+    background-size: cover;
+    background-repeat: no-repeat;
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.45);
+  }
+  .mini-meta {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.1rem;
+  }
+  .mini-meta-square {
+    text-align: center;
+    padding: 0 0.4rem;
+  }
+  .mini-title {
+    color: #ffffff;
+    font-size: 0.86rem;
+    font-weight: 700;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .mini-artist {
+    color: #a99bc9;
+    font-size: 0.74rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .mini-controls {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    gap: 0.15rem;
+  }
+  .mini-controls-square {
+    justify-content: center;
+    gap: 0.35rem;
+  }
+
+  .mini-btn {
+    -webkit-app-region: no-drag;
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    border: none;
+    border-radius: 8px;
+    background: transparent;
+    color: #b9acd6;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.12s ease, color 0.12s ease, transform 0.1s ease;
+  }
+  .mini-btn:hover {
+    background: rgba(var(--accent-rgb), 0.18);
+    color: #ffffff;
+  }
+  .mini-btn:active {
+    transform: scale(0.9);
+  }
+  .mini-btn-bare {
+    width: 22px;
+    height: 22px;
+  }
+  .mini-btn-like.liked {
+    color: #ff5577;
+  }
+  .mini-btn-like:hover {
+    color: #ff7da0;
+    background: rgba(255, 90, 130, 0.18);
+  }
+  .mini-btn-primary {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, var(--accent), var(--accent-2));
+    color: #0a0612;
+    box-shadow: 0 4px 12px rgba(var(--accent-rgb), 0.45);
+  }
+  .mini-btn-primary:hover {
+    color: #0a0612;
+    filter: brightness(1.08);
+  }
+
+  .mini-seek {
+    -webkit-app-region: no-drag;
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    width: 100%;
+    height: 3px;
+    appearance: none;
+    background: rgba(255, 255, 255, 0.1);
+    cursor: pointer;
+    border: none;
+    outline: none;
+    padding: 0;
+  }
+  .mini-seek::-webkit-slider-thumb {
+    appearance: none;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--accent);
+    border: none;
+    cursor: pointer;
+  }
+  .mini-seek::-webkit-slider-runnable-track {
+    height: 3px;
+    background: linear-gradient(
+      to right,
+      var(--accent) 0%,
+      var(--accent) calc(var(--seek-pct, 0%)),
+      rgba(255, 255, 255, 0.12) calc(var(--seek-pct, 0%)),
+      rgba(255, 255, 255, 0.12) 100%
+    );
+  }
+  .mini-seek-square {
+    position: relative;
+    margin-top: -0.2rem;
+  }
+
+  /* Square layout-specific extras */
+  .mini-square-top {
+    -webkit-app-region: drag;
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.2rem;
+    height: 20px;
+    flex: 0 0 auto;
+  }
+  .mini-cover-lg {
+    -webkit-app-region: no-drag;
+    flex: 0 0 auto;
+    width: 100%;
+    aspect-ratio: 1 / 1;
+    border-radius: 12px;
+    background-color: #0e0a16;
+    background-position: center;
+    background-size: cover;
+    background-repeat: no-repeat;
+    box-shadow: 0 10px 28px rgba(0, 0, 0, 0.5);
+    cursor: pointer;
+    border: none;
+    padding: 0;
+    position: relative;
+    overflow: hidden;
+    transition: transform 0.2s ease;
+  }
+  .mini-cover-lg:hover {
+    transform: scale(1.01);
+  }
+  .mini-cover-overlay {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 0, 0, 0.35);
+    color: #ffffff;
+    opacity: 0;
+    transition: opacity 0.18s ease;
+  }
+  .mini-cover-lg:hover .mini-cover-overlay {
+    opacity: 1;
+  }
+
+  /* Entry button in the full player bar — same shape as .ctrl.small but
+     a touch quieter (no accent hue until hover). */
+  .ctrl.small.mini-enter {
+    margin-left: 0.25rem;
+    color: #b9acd6;
+  }
+  .ctrl.small.mini-enter:hover {
+    color: #ffffff;
+    background: rgba(var(--accent-rgb), 0.18);
   }
 
   header {

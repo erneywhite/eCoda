@@ -97,6 +97,8 @@ export type CloseAction = 'tray' | 'quit'
 
 export type TrayCommand = 'play-pause' | 'next' | 'prev'
 
+export type MiniLayout = 'compact' | 'square'
+
 export interface PlaylistOverride {
   order: string[]
   pinned: string[]
@@ -237,6 +239,12 @@ export interface EcodaApi {
     close: () => Promise<void>
     isMaximized: () => Promise<boolean>
     onMaximizeChanged: (cb: (isMax: boolean) => void) => () => void
+    enterMini: (layout: MiniLayout) => Promise<void>
+    setMiniLayout: (layout: MiniLayout) => Promise<void>
+    exitMini: () => Promise<void>
+    onMiniChanged: (
+      cb: (state: { active: boolean; layout: MiniLayout }) => void
+    ) => () => void
   }
   updater: {
     check: () => Promise<boolean>

@@ -28,6 +28,10 @@ const RU: Strings = {
   'window.maximize': 'Развернуть',
   'window.restore': 'Восстановить',
   'window.close': 'Закрыть',
+  'mini.enter': 'Мини-плеер',
+  'mini.exit': 'Развернуть в полный',
+  'mini.switchToSquare': 'Квадратный вид',
+  'mini.switchToCompact': 'Компактный вид',
 
   // Connect screen
   'connect.title': 'Подключить аккаунт YouTube',
@@ -235,6 +239,10 @@ const EN: Strings = {
   'window.maximize': 'Maximize',
   'window.restore': 'Restore',
   'window.close': 'Close',
+  'mini.enter': 'Mini-player',
+  'mini.exit': 'Restore full window',
+  'mini.switchToSquare': 'Square layout',
+  'mini.switchToCompact': 'Compact layout',
 
   'connect.title': 'Connect your YouTube account',
   'connect.hint':

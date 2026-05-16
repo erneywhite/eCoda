@@ -99,6 +99,21 @@ const api = {
       const wrapped = (_e: unknown, isMax: unknown): void => cb(!!isMax)
       ipcRenderer.on('window:maximize-changed', wrapped)
       return () => ipcRenderer.removeListener('window:maximize-changed', wrapped)
+    },
+    // Mini-player mode — same window, resized + always-on-top + the
+    // renderer swaps to the mini-shell layout (A compact / B square).
+    enterMini: (layout: 'compact' | 'square') =>
+      ipcRenderer.invoke('window:enterMini', layout),
+    setMiniLayout: (layout: 'compact' | 'square') =>
+      ipcRenderer.invoke('window:setMiniLayout', layout),
+    exitMini: () => ipcRenderer.invoke('window:exitMini'),
+    onMiniChanged: (
+      cb: (state: { active: boolean; layout: 'compact' | 'square' }) => void
+    ) => {
+      const wrapped = (_e: unknown, payload: unknown): void =>
+        cb(payload as { active: boolean; layout: 'compact' | 'square' })
+      ipcRenderer.on('window:mini-changed', wrapped)
+      return () => ipcRenderer.removeListener('window:mini-changed', wrapped)
     }
   },
   updater: {
