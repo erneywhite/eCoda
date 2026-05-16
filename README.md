@@ -2,7 +2,7 @@
 
 Desktop client for YouTube Music — your library, fast playback, Spotify-style offline cache, and a native UI you can theme. Talks to YouTube's InnerTube API directly: no embedded webview, no heavy web player.
 
-> **Status:** Phases 0–6 done as of 0.0.38. Custom frameless titlebar + motion polish on top. Lyrics intentionally cut from Phase 6 (not the right fit for a personal player). Phase 7 (tray + global media keys + mini-player) is next. Public 1.0 release still pending the artist's final brand assets.
+> **Status:** All planned phases (0–7) done as of 0.0.44. Lyrics intentionally cut from Phase 6 (not the right fit for a personal player). What's left before a public 1.0: the artist's final brand assets (wordmark + icon) and the macOS port (`.dmg` target + notarisation).
 
 ## Features
 
@@ -49,6 +49,12 @@ Desktop client for YouTube Music — your library, fast playback, Spotify-style 
 - **Per-track ↓ / per-playlist 📥** with a live percentage ring driven by yt-dlp's own progress output (no fake spinner). Audio + cover thumbnails are persisted to `<userData>/offline/` (*not* `cache/` — see "How it works" for why).
 - **Bulk download summary** — after a playlist run, a "Downloaded X of Y · N failed" panel appears with a Retry-failed button. Per-track failure reasons are surfaced from yt-dlp's stderr.
 - **Audio quality picker** — Settings → Download quality. **Best** (~160 kbps Opus, default), **Medium** (~128 kbps AAC), **Saver** (~70 kbps Opus). Picks the matching stream directly from YouTube — no local re-encoding, no ffmpeg.
+
+### System integration
+- **System tray icon** with a right-click menu (Show/Hide · Play-Pause · Previous · Next · Quit). Menu labels follow the UI language and rebuild on language change.
+- **Close-button action setting** — Settings → Behaviour lets you pick what the X does: "Minimize to tray" (default; music keeps playing in the background) or "Quit". Cmd+Q / Alt+F4 / tray-Quit always exit regardless of the setting.
+- **Global media keys, cross-platform** — Windows SMTC (lockscreen widget, volume flyout, F-key media buttons), macOS Now Playing, Linux MPRIS. Driven by the standard `navigator.mediaSession` API so it's the same code path on every platform — no native modules.
+- **Mini-player mode** — same window resizes + goes always-on-top + switches to a compact widget. Two presets: A (horizontal pill, 420×108) and B (square cover-focused, 280×320). Toggle button switches between them mid-playback; restore button brings the full window back. Entry button sits in the header next to the back/forward chips; only appears when something is playing. Window is locked from user-resize in mini mode (the two presets cover the use cases, and locking it keeps the seek strip clickable next to the window edge).
 
 ### Cosmetics & comfort
 - **Eight colour themes** (Purple, Cyber Cyan, Sunset, Forest, Crimson, Mono, Ocean, Neon Pink) — palette switches the accent colour, glow, player gradient and aurora in one shot.
@@ -139,7 +145,7 @@ mockups/                 standalone HTML mockups (A/B/C) used during UI redesign
 - **Phase 1 — streaming MVP** — ✅ done (search, home, playlist navigation, custom player UI)
 - **Phase 2 — offline** — ✅ done (per-track + per-playlist downloads, persistent cache, instant disk playback via `media://`)
 - **Phase 3 — polish** — ✅ done (sidebar pinned playlists, eight colour themes, language switch, mouse-side-button navigation, settings with cache/diagnostics/about/updates/donate, audio quality picker, Downloaded virtual playlist, live progress rings, total playlist duration, unavailable-row handling)
-- **Phase 4 — distribution** — ✅ done (`electron-builder` NSIS installer, `electron-updater` against GitHub Releases; current build cycle: 0.0.x, latest 0.0.38)
+- **Phase 4 — distribution** — ✅ done (`electron-builder` NSIS installer, `electron-updater` against GitHub Releases; current build cycle: 0.0.x, latest 0.0.44)
 - **Phase 5 — playback features** — ✅ done across 0.0.14 + 0.0.24–34:
   - ✅ shuffle + repeat modes (off / all / one), both persisted
   - ✅ queue management (separate from sourceList; Play next / Add to queue)
@@ -160,7 +166,10 @@ mockups/                 standalone HTML mockups (A/B/C) used during UI redesign
   - ✅ Album header polish: "Альбом · {Artist link} · {Year}" instead of generic "Playlist"
   - ✅ Clickable artist names in every track row (parser extracts each row's channelId)
   - ❌ Lyrics — intentionally cut (not the right fit for a personal player)
-- **Phase 7 — system integration (planned)** — system tray icon + minimal menu, global media keys (Play / Pause / Next / Prev that work when the app isn't focused), mini-player mode (slim always-on-top window).
+- **Phase 7 — system integration** — ✅ done in 0.0.39–44:
+  - ✅ System tray icon + localised right-click menu, configurable close-button behaviour (tray vs quit)
+  - ✅ Global media keys via `navigator.mediaSession` — Windows SMTC, macOS Now Playing, Linux MPRIS, no native modules
+  - ✅ Mini-player mode — same window, two fixed presets (A horizontal pill, B square cover), toggle button + restore, always-on-top
 - **Brand swap** — when the artist delivers the final wordmark + icon, drop them into `branding/` and rebuild.
 - **macOS port** — same codebase, `.dmg` target, needs Mac/CI + Apple notarisation. The custom titlebar will need a macOS branch (traffic lights on the left).
 
