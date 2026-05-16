@@ -185,7 +185,13 @@ async function createWindow(): Promise<void> {
     // handles + Aero-snap stay intact (Windows keeps them on a frameless
     // window because we use 'hidden' instead of `frame: false`).
     titleBarStyle: 'hidden',
-    backgroundColor: '#0c0816',
+    // Transparent window so the mini-player's rgba(…, 0.78) background
+    // actually reads as translucent. In full mode the renderer paints
+    // an opaque background on <main:not(.mini)> so the page still
+    // looks opaque — only the gap between window edges and visible
+    // content shows through, which is zero in full mode.
+    transparent: true,
+    backgroundColor: '#00000000',
     title: 'eCoda',
     icon,
     webPreferences: {
@@ -897,8 +903,14 @@ function sendTrayCommand(cmd: 'play-pause' | 'next' | 'prev'): void {
 // push, so the OS-resize and the layout swap stay in sync.
 // ---------------------------------------------------------------------------
 const MINI_SIZES = {
-  compact: { width: 420, height: 96 },
-  square: { width: 280, height: 360 }
+  // Sizes include the 4px inset on each side that the .mini-shell
+  // pulls inward (so the box-shadow has room to render outside the
+  // visible card). The shell's INNER content area is width-8 × height-8.
+  compact: { width: 432, height: 116 },
+  // 296×336 → ~288×328 inner: 14px seek + 26px top-bar + 180px cover
+  // + ~38px meta + ~50px transport row + paddings. The prior 360px
+  // window left ~60px of dead space below the transport row.
+  square: { width: 296, height: 336 }
 } as const
 
 let preMiniBounds: { x: number; y: number; width: number; height: number } | null = null

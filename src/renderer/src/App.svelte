@@ -4208,11 +4208,15 @@
     flex-direction: column;
     height: 100vh;
     overflow: hidden;
+    /* Opaque background ONLY in full mode — keeps the regular UI
+       solid even though the window itself is transparent (transparent
+       lets the mini-player's rgba show through, see app.css). In
+       mini mode this background is suppressed so the .mini-shell's
+       0.78-alpha purple is what the user actually sees. */
+    background-color: #0e0a16;
   }
-  /* Tighter shell in mini-mode — kill the page padding so the mini
-     widget fills the tiny window edge-to-edge. */
   main.mini {
-    overflow: hidden;
+    background-color: transparent;
   }
 
   /* ---- mini-player ------------------------------------------------------- */
@@ -4223,13 +4227,20 @@
      through. Heavy blur + a thin accent-tinted border keeps it legible
      against busy backgrounds anyway. */
   .mini-shell {
+    /* Inset by 4px so the rounded-corner card doesn't kiss the window
+       edge — leaves room for the box-shadow to render outside its
+       border. Frameless transparent windows on Windows lose the OS
+       drop shadow, so the inset + shadow is what gives the widget
+       its "floating" feel. */
     position: fixed;
-    inset: 0;
+    inset: 4px;
     background: rgba(20, 12, 36, 0.78);
     backdrop-filter: blur(28px) saturate(140%);
     -webkit-backdrop-filter: blur(28px) saturate(140%);
     border: 1px solid rgba(255, 255, 255, 0.06);
     border-radius: 14px;
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.55),
+      0 0 0 1px rgba(var(--accent-rgb), 0.12);
     color: #ffffff;
     -webkit-app-region: drag;
     display: flex;
@@ -4351,16 +4362,16 @@
     filter: brightness(1.08);
   }
 
-  /* Top-of-shell seek strip. Block element so it always renders at the
-     top edge regardless of layout — was absolute-positioned before
-     which made it invisible in some configurations. Progress fill is
-     a gradient with stops anchored to --seek-pct, which the renderer
-     updates via inline style on each timeupdate. */
+  /* Top-of-shell seek strip. The element is 14px tall to give the
+     mouse a comfortable click target; the VISIBLE track inside is
+     only 4px (centred via the negative thumb margin). Progress fill
+     is a gradient with stops anchored to --seek-pct, which the
+     renderer updates via inline style on each timeupdate. */
   .mini-seek {
     -webkit-app-region: no-drag;
     appearance: none;
     width: 100%;
-    height: 4px;
+    height: 14px;
     margin: 0;
     background: transparent;
     cursor: pointer;
@@ -4368,6 +4379,10 @@
     outline: none;
     padding: 0;
     flex: 0 0 auto;
+    /* Sits on top of any sibling so the click target isn't covered
+       by the row's hit-test area. */
+    position: relative;
+    z-index: 2;
   }
   .mini-seek::-webkit-slider-runnable-track {
     height: 4px;
@@ -4382,9 +4397,11 @@
   }
   .mini-seek::-webkit-slider-thumb {
     appearance: none;
-    width: 10px;
-    height: 10px;
-    margin-top: -3px;
+    width: 12px;
+    height: 12px;
+    /* Centre the thumb vertically on the 4px track. (12-4)/2 = 4px
+       above + 4px below; negative margin-top pulls the thumb up. */
+    margin-top: -4px;
     border-radius: 50%;
     background: var(--accent);
     border: none;
