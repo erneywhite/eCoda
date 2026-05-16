@@ -179,6 +179,18 @@ Updating an installed copy from one version to another doesn't refresh the deskt
 - For production: set `CSC_LINK` (.p12 cert) + `CSC_KEY_PASSWORD` env vars; electron-builder handles signing. For notarization, also set `APPLE_ID` + `APPLE_APP_SPECIFIC_PASSWORD` + `APPLE_TEAM_ID`.
 - Entitlements live in `build/entitlements.mac.plist` (network client + allow-jit for Deno + allow-unsigned-executable for our spawned binaries).
 
+**Adhoc codesign + Squirrel.Mac auto-updater (load-bearing — paid for in blood):**
+- We ship the `.app` ad-hoc-signed via `build/afterPack.js` (runs `codesign --force --deep --sign -` after electron-builder packs the bundle but before .dmg/.zip wrapping). Without this, Squirrel.Mac — the framework electron-updater drives for macOS auto-updates — fails to apply the downloaded update because there's no `_CodeSignature/CodeResources` manifest to validate (`SecStaticCodeCheckValidity` returns `errSecCSResourcesNotFound`).
+- `electron-builder`'s `identity: "-"` config does NOT mean ad-hoc; it's interpreted as a keychain identity *name*. There's no built-in way to ad-hoc sign through config. Hence the `afterPack` hook.
+- The hook does a `ditto --noextattr --norsrc` round-trip BEFORE codesign. Reason: codesign refuses to sign a bundle containing files with `com.apple.FinderInfo`, `com.apple.ResourceFork`, or (on macOS Sequoia+) `com.apple.provenance` / `com.apple.fileprovider.fpfs#P` xattrs. macOS Sequoia stamps `com.apple.provenance` on every executable fetched in postinstall (our yt-dlp + deno + python-mac); plain `xattr -c` silently no-ops on `com.apple.provenance` because it's a restricted system xattr. `ditto --noextattr --norsrc` copies the bundle WITHOUT any xattrs — the standard workaround.
+- The hook does NOT pass `--options runtime`. Hardened runtime forces dlopen'd libraries to share the outer binary's Team ID, and bundled standalone Python (resources/python-mac/) ships its own libs with python-build-standalone's Team ID. We tried `--options runtime` during the 0.0.47 mac port — Python.framework failed to load.
+
+**One-time auto-update breakage when switching FROM unsigned 0.0.47 TO adhoc-signed 1.0.0:**
+- Users still on a 0.0.47 install (which was unsigned because we then ran `CSC_IDENTITY_AUTO_DISCOVERY=false`) CANNOT auto-update to 1.0.0 even with the adhoc-sign fix above. Squirrel.Mac compares the downloaded .app's *designated requirement* against the currently-running .app's, and the unsigned → adhoc-signed transition fails with `errSecCSReqFailed` ("не удалось удовлетворить требованию к коду").
+- This is hardcoded in Squirrel.Mac (`SQRLCodeSignatureVerifier.m`) — security-by-design, not configurable via electron-updater. The only way past it is a manual reinstall of 1.0.0 from the .dmg.
+- **Going forward (1.0.0 → 1.0.1 → ...): auto-updates work** because both versions are adhoc-signed with the same identifier `com.erneywhite.ecoda` and matching designated requirements. So this is a one-time speed bump, not a permanent regression.
+- **Don't try to "fix" this by patching electron-updater to skip signature verification.** It does work as a workaround, but it removes a real (if narrow) integrity guard.
+
 **First-time Mac dev checklist:**
 1. Clone repo
 2. `npm install` (fetches darwin yt-dlp + deno automatically)
