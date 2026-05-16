@@ -826,16 +826,12 @@
     else audioEl.pause()
   }
 
-  // Two-handler seek interaction with DOM as the authoritative value
-  // source. We pulled `bind:value` because Svelte 5's bind on a range
-  // input plus our own oninput/onchange handlers produced undefined
-  // ordering — sometimes currentTime was still the pre-click value at
-  // the moment `onchange` ran, and audio committed to 0. Reading
-  // e.currentTarget.value directly side-steps the whole question.
-  //
-  // The `seeking` flag still gates timeupdate so the displayed thumb
-  // doesn't fight the user's drag (timeupdate would otherwise tick the
-  // value back to audio's actual position every ~250ms).
+  // Two-handler seek interaction: oninput updates state for visual
+  // thumb tracking + flips `seeking` to mute timeupdate's fight-back;
+  // onchange commits the final value from the DOM (authoritative) to
+  // audio. Reading e.currentTarget.value rather than relying on the
+  // bound `currentTime` sidesteps Svelte 5's undefined-ordering when
+  // bind:value runs alongside our own handlers.
   function onSeekInput(e: Event): void {
     seeking = true
     currentTime = Number((e.currentTarget as HTMLInputElement).value)
@@ -4370,6 +4366,7 @@
      Single live message floats above the player bar. Faded purple
      background; auto-dismiss timer lives in the script. Non-clickable
      and pointer-events:none so it never blocks underlying controls. */
+
   .toast {
     position: fixed;
     left: 50%;

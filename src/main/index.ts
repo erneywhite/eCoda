@@ -1,6 +1,7 @@
-import { app, shell, BrowserWindow, ipcMain, protocol, net, screen } from 'electron'
+import { app, shell, BrowserWindow, ipcMain, protocol, screen } from 'electron'
 import { join } from 'path'
-import { pathToFileURL } from 'node:url'
+import { createReadStream, statSync } from 'node:fs'
+import { Readable } from 'node:stream'
 import icon from '../../resources/icon.png?asset'
 import { verifyBrowserLogin } from './ytdlp'
 import {
@@ -261,6 +262,12 @@ app.whenReady().then(async () => {
   // Standard-scheme URLs lowercase their host (per URL spec). The kind
   // labels are all-lowercase so that's fine; the videoId lives in the
   // path which preserves case.
+  //
+  // We implement Range request handling ourselves rather than delegating
+  // to net.fetch(file:// ...). Without proper byte-range support the
+  // <audio> element sees `seekable = [0, 0]` and clamps any seek to 0 —
+  // the seek bar becomes a "restart" button. 206 Partial Content with
+  // Content-Range tells the player it can seek anywhere in the file.
   protocol.handle('media', (request) => {
     const u = new URL(request.url)
     const kind = u.hostname
@@ -272,7 +279,71 @@ app.whenReady().then(async () => {
       console.warn(`[media://] not found ${kind}/${videoId} (url=${request.url})`)
       return new Response('not found', { status: 404 })
     }
-    return net.fetch(pathToFileURL(path).toString())
+
+    let fileSize: number
+    try {
+      fileSize = statSync(path).size
+    } catch (err) {
+      console.warn(`[media://] stat failed for ${path}:`, err)
+      return new Response('not found', { status: 404 })
+    }
+
+    // Pick a MIME type the <audio>/<img> element will accept. yt-dlp's
+    // bestaudio for Premium is webm/Opus; medium falls back to m4a/AAC.
+    // Thumbnails are always saved as .jpg (we don't sniff source format).
+    const ext = path.split('.').pop()?.toLowerCase() ?? ''
+    const mime = kind === 'thumb'
+      ? 'image/jpeg'
+      : ext === 'webm' ? 'audio/webm'
+      : ext === 'm4a' || ext === 'mp4' ? 'audio/mp4'
+      : ext === 'opus' ? 'audio/ogg'
+      : ext === 'mp3' ? 'audio/mpeg'
+      : 'application/octet-stream'
+
+    const rangeHeader = request.headers.get('range')
+    if (!rangeHeader) {
+      // Full-file response, but advertise byte-range support so the
+      // first follow-up seek triggers a 206 path.
+      return new Response(Readable.toWeb(createReadStream(path)) as ReadableStream, {
+        status: 200,
+        headers: {
+          'Content-Length': String(fileSize),
+          'Content-Type': mime,
+          'Accept-Ranges': 'bytes'
+        }
+      })
+    }
+
+    // Range: bytes=START-END (END is optional). HTML5 audio sends these
+    // formats; we don't need to support multipart ranges.
+    const m = /^bytes=(\d+)-(\d*)$/.exec(rangeHeader.trim())
+    if (!m) {
+      return new Response('invalid range', {
+        status: 416,
+        headers: { 'Content-Range': `bytes */${fileSize}` }
+      })
+    }
+    const start = Number(m[1])
+    const end = m[2] ? Math.min(Number(m[2]), fileSize - 1) : fileSize - 1
+    if (Number.isNaN(start) || start >= fileSize || start > end) {
+      return new Response('range not satisfiable', {
+        status: 416,
+        headers: { 'Content-Range': `bytes */${fileSize}` }
+      })
+    }
+    const chunkSize = end - start + 1
+    return new Response(
+      Readable.toWeb(createReadStream(path, { start, end })) as ReadableStream,
+      {
+        status: 206,
+        headers: {
+          'Content-Length': String(chunkSize),
+          'Content-Range': `bytes ${start}-${end}/${fileSize}`,
+          'Content-Type': mime,
+          'Accept-Ranges': 'bytes'
+        }
+      }
+    )
   })
 
   ipcMain.handle('auth:browsers', () => detectBrowsers())
