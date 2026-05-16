@@ -928,6 +928,11 @@ function enterMiniMode(layout: 'compact' | 'square'): void {
   const y = display.y + display.height - dims.height - 24
   mainWindow.setBounds({ x, y, width: dims.width, height: dims.height }, false)
   mainWindow.setAlwaysOnTop(true, 'normal')
+  // Lock the window size — mini-player has two fixed-size presets
+  // (compact + square). User-resize would just stretch the layout
+  // weirdly, and the resize-edge hit area was eating clicks meant for
+  // the top-of-shell seek strip. The toggle button swaps presets.
+  mainWindow.setResizable(false)
   miniActive = true
   mainWindow.webContents.send('window:mini-changed', { active: true, layout })
 }
@@ -937,6 +942,7 @@ function setMiniLayout(layout: 'compact' | 'square'): void {
   const dims = MINI_SIZES[layout]
   // Keep the bottom-right corner anchored when swapping sizes so the
   // mini-player doesn't seem to "jump" across the screen mid-toggle.
+  // setBounds works programmatically even when resizable is locked.
   const cur = mainWindow.getBounds()
   const x = cur.x + cur.width - dims.width
   const y = cur.y + cur.height - dims.height
@@ -948,6 +954,9 @@ function exitMiniMode(): void {
   if (!mainWindow || !miniActive) return
   miniActive = false
   mainWindow.setAlwaysOnTop(false)
+  // Restore user-resize before restoring bounds + min size so the
+  // window's interactive feel goes back to exactly what it was.
+  mainWindow.setResizable(true)
   if (preMiniMinSize) {
     mainWindow.setMinimumSize(preMiniMinSize.width, preMiniMinSize.height)
   }
