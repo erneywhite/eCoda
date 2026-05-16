@@ -115,6 +115,12 @@ const RU: Strings = {
   'radio.title': 'Радиостанция · {title}',
   'radio.subtitle': 'Авто-радио по треку',
 
+  // Album / artist
+  'album.label': 'Альбом',
+  'artist.untitled': 'Исполнитель',
+  'artist.topSongs': 'Популярные песни',
+  'artist.shufflePlay': 'Перемешать и играть',
+
   // Toast messages
   'toast.playNextAdded': '«{title}» — следующим',
   'toast.queueAdded': '«{title}» — в очереди',
@@ -297,6 +303,11 @@ const EN: Strings = {
 
   'radio.title': 'Radio · {title}',
   'radio.subtitle': 'Auto-generated radio',
+
+  'album.label': 'Album',
+  'artist.untitled': 'Artist',
+  'artist.topSongs': 'Top songs',
+  'artist.shufflePlay': 'Shuffle play',
 
   'toast.playNextAdded': '"{title}" — playing next',
   'toast.queueAdded': '"{title}" — added to queue',

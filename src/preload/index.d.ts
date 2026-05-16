@@ -30,6 +30,10 @@ export interface SearchResult {
   // it); forced to true for Liked Music. Drives the inline heart
   // toggle in the renderer.
   liked?: boolean
+  // ChannelId ("UC…") of the primary artist on the row. Lets the
+  // renderer make the artist line a clickable link into the artist
+  // view. Absent on rows where YT didn't return a navigation endpoint.
+  artistId?: string
 }
 
 export type HomeItemType = 'playlist' | 'album' | 'song' | 'video' | 'artist'
@@ -52,6 +56,21 @@ export interface PlaylistView {
   subtitle: string
   thumbnail: string
   tracks: SearchResult[]
+  // Album-specific extras — present when the browseId resolved to an
+  // album (MPRE… / OLAK…). The renderer uses these for header polish
+  // (Album label, year line, clickable artist link).
+  isAlbum?: boolean
+  year?: string
+  artistName?: string
+  artistId?: string
+}
+
+export interface ArtistView {
+  title: string
+  subtitle: string
+  thumbnail: string
+  songs: SearchResult[]
+  sections: HomeSection[]
 }
 
 export interface PinnedPlaylist {
@@ -178,6 +197,7 @@ export interface EcodaApi {
     libraryPlaylists: () => Promise<HomeSection>
     like: (videoId: string, like: boolean) => Promise<boolean>
     radio: (videoId: string) => Promise<SearchResult[]>
+    artist: (channelId: string) => Promise<ArtistView>
   }
   library: {
     prepare: () => Promise<{ ok: true; cookies: number } | { ok: false; error: string }>

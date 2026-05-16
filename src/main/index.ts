@@ -50,7 +50,8 @@ import {
   getLibraryPlaylists,
   resetInnertube,
   likeTrack,
-  getRadioForTrack
+  getRadioForTrack,
+  getArtistView
 } from './metadata'
 import { resolveCached, queuePrefetch, clearResolverCache } from './resolver'
 import {
@@ -413,6 +414,9 @@ app.whenReady().then(async () => {
   // Radio for a track — yt.music.getUpNext(videoId). Returns the related
   // tracks as a fresh sourceList for the player.
   ipcMain.handle('metadata:radio', (_event, videoId: string) => getRadioForTrack(videoId))
+  // Artist page — /browse on a channelId. Returns header + top songs +
+  // album/single/related carousels for the new artist view.
+  ipcMain.handle('metadata:artist', (_event, channelId: string) => getArtistView(channelId))
   // Ensures the persist:music partition has fresh YouTube cookies before
   // the renderer mounts the Library <webview>. Idempotent.
   ipcMain.handle('library:prepare', async () => {

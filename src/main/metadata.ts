@@ -96,6 +96,13 @@ export interface SearchResult {
   // rows do), and forced to true for tracks served from Liked Music.
   // The renderer's inline heart toggle reads + writes this optimistically.
   liked?: boolean
+  // BrowseId (channelId, "UC…") of the primary artist on this row,
+  // when the page-proxy carries it (most playlist rows + artist-page
+  // top-songs do). Lets the renderer make the artist line a clickable
+  // link straight into the artist view. Missing on surfaces where YT
+  // doesn't return a navigation endpoint (some search rows, Home
+  // single-song cards, etc.) — the row then falls back to plain text.
+  artistId?: string
 }
 
 function fmtDuration(seconds: unknown): string {
@@ -466,6 +473,38 @@ function findPlaylistContinuationToken(data: unknown): string | null {
   return null
 }
 
+// Walks the subtitle column of a track row for the first run that
+// carries an artist-pointing browseEndpoint (browseId starts with "UC").
+// Returns the channelId for click-to-artist navigation, or null when
+// the row's artist line is plain text (no nav endpoint).
+function findArtistChannelId(item: Record<string, unknown>): string | null {
+  const cols = item.flexColumns as Array<Record<string, unknown>> | undefined
+  // Subtitle column. fall back to the first column if subtitle missing.
+  const col = cols?.[1] ?? cols?.[0]
+  if (!col) return null
+  const inner = (col as Record<string, unknown>)
+    .musicResponsiveListItemFlexColumnRenderer as Record<string, unknown> | undefined
+  const text = inner?.text as Record<string, unknown> | undefined
+  const runs = text?.runs as Array<Record<string, unknown>> | undefined
+  if (!Array.isArray(runs)) return null
+  for (const r of runs) {
+    const nav = r.navigationEndpoint as Record<string, unknown> | undefined
+    const browse = nav?.browseEndpoint as Record<string, unknown> | undefined
+    const id = browse?.browseId
+    if (typeof id !== 'string') continue
+    // Artist channels start with "UC". MPRE / OLAK are album browseIds,
+    // which we don't want here. Defensive: also accept the explicit
+    // pageType marker when present.
+    const cfg = (browse?.browseEndpointContextSupportedConfigs as Record<string, unknown>)
+      ?.browseEndpointContextMusicConfig as Record<string, unknown> | undefined
+    const pageType = cfg?.pageType
+    if (id.startsWith('UC') || pageType === 'MUSIC_PAGE_TYPE_ARTIST') {
+      return id
+    }
+  }
+  return null
+}
+
 // Deep-walks a row subtree looking for the row's like state. YT encodes
 // it in different shapes depending on the view: `likeStatus: 'LIKE'`
 // inside `likeButtonRenderer`, OR as a toggle-menu-item where the
@@ -580,6 +619,7 @@ function parseTrackRowsInto(
 
     const likeStatus = findLikeStatus(item)
     const liked = likeStatus === 'LIKE' ? true : undefined
+    const artistId = findArtistChannelId(item) ?? undefined
 
     if (hasPlayableId) {
       out.push({
@@ -589,7 +629,8 @@ function parseTrackRowsInto(
         duration,
         thumbnail: thumb,
         setVideoId: setVideoId || undefined,
-        liked
+        liked,
+        artistId
       })
     } else {
       // Synthetic id so Svelte's keyed iteration stays unique and the
@@ -602,10 +643,41 @@ function parseTrackRowsInto(
         thumbnail: thumb,
         unavailable: true,
         setVideoId: setVideoId || undefined,
-        liked
+        liked,
+        artistId
       })
     }
   }
+}
+
+// Walks any text renderer (`{ runs: [...] }`) looking for the first
+// run whose navigationEndpoint points at an artist (browseId starts
+// with "UC"). Used to make the artist line in an album header clickable
+// into the artist view.
+function findArtistRunInText(textObj: unknown): { name: string; id: string } | null {
+  if (!textObj || typeof textObj !== 'object') return null
+  const runs = (textObj as Record<string, unknown>).runs as
+    | Array<Record<string, unknown>>
+    | undefined
+  if (!Array.isArray(runs)) return null
+  for (const r of runs) {
+    const nav = r.navigationEndpoint as Record<string, unknown> | undefined
+    const browse = nav?.browseEndpoint as Record<string, unknown> | undefined
+    const id = browse?.browseId
+    if (typeof id === 'string' && id.startsWith('UC')) {
+      return { name: typeof r.text === 'string' ? r.text : '', id }
+    }
+  }
+  return null
+}
+
+// Pulls the first 4-digit year (19xx / 20xx) out of any text. Album
+// subtitles are locale-specific ("Album · 2024 · 12 songs" / "Альбом ·
+// 2024 · 12 песен"), so we scan the whole string rather than parse a
+// specific segment.
+function findYear(text: string): string {
+  const m = /\b(19|20)\d{2}\b/.exec(text)
+  return m ? m[0] : ''
 }
 
 export async function getPlaylistTracks(id: string): Promise<{
@@ -613,6 +685,15 @@ export async function getPlaylistTracks(id: string): Promise<{
   subtitle: string
   thumbnail: string
   tracks: SearchResult[]
+  // Album-specific extras: present when the browseId resolves to an
+  // album (MPRE…) or single/EP. The renderer uses these for header
+  // polish — display the year line, make the artist line a clickable
+  // link into the artist view, and prefer "Album" over the generic
+  // "Playlist" subtitle label.
+  isAlbum?: boolean
+  year?: string
+  artistName?: string
+  artistId?: string
 }> {
   // Playlist browse IDs need a "VL" prefix when fed through /browse —
   // YouTube treats VL<id> as "view this playlist as a page". Our Home /
@@ -626,6 +707,12 @@ export async function getPlaylistTracks(id: string): Promise<{
   let title = ''
   let subtitle = ''
   let thumbnail = ''
+  // Album-specific extras — populated below when the header carries
+  // the relevant runs / strings. The MPRE-prefix browseId is the
+  // primary "this is an album" signal; the renderer uses isAlbum to
+  // switch the header label.
+  let artistName = ''
+  let artistId = ''
   for (const h of findAll(data, 'musicDetailHeaderRenderer')) {
     title = runsText(h.title)
     subtitle = runsText(h.subtitle)
@@ -635,6 +722,11 @@ export async function getPlaylistTracks(id: string): Promise<{
         (h.thumbnail as Record<string, unknown>)?.musicThumbnailRenderer ??
         h.thumbnail
     )
+    const artistRun = findArtistRunInText(h.subtitle)
+    if (artistRun) {
+      artistName = artistRun.name
+      artistId = artistRun.id
+    }
     if (title) break
   }
   if (!title) {
@@ -644,9 +736,20 @@ export async function getPlaylistTracks(id: string): Promise<{
       thumbnail = thumbnailUrl(
         (h.thumbnail as Record<string, unknown>)?.musicThumbnailRenderer ?? h.thumbnail
       )
+      // straplineTextOne is where the artist link sits on the modern
+      // album header shape; subtitle is the fallback (sometimes carries
+      // it on older responses).
+      const artistRun =
+        findArtistRunInText(h.straplineTextOne) ?? findArtistRunInText(h.subtitle)
+      if (artistRun) {
+        artistName = artistRun.name
+        artistId = artistRun.id
+      }
       if (title) break
     }
   }
+  const isAlbum = id.startsWith('MPRE') || id.startsWith('OLAK')
+  const year = isAlbum ? findYear(subtitle) : ''
 
   const tracks: SearchResult[] = []
   const seenTrackIds = new Set<string>()
@@ -756,7 +859,16 @@ export async function getPlaylistTracks(id: string): Promise<{
     for (const t of tracks) t.liked = true
   }
 
-  return { title, subtitle, thumbnail, tracks }
+  return {
+    title,
+    subtitle,
+    thumbnail,
+    tracks,
+    isAlbum: isAlbum || undefined,
+    year: year || undefined,
+    artistName: artistName || undefined,
+    artistId: artistId || undefined
+  }
 }
 
 // ===========================================================================
@@ -915,4 +1027,133 @@ export async function getRadioForTrack(videoId: string): Promise<SearchResult[]>
     console.warn(`[radio] getUpNext failed for ${videoId}:`, err)
     return []
   }
+}
+
+// ===========================================================================
+// ARTIST VIEW — /browse on a channelId returns a stack of shelves:
+//   musicImmersiveHeaderRenderer (header, photo, subscriber count)
+//   musicShelfRenderer            (Top songs — 5 tracks usually)
+//   musicCarouselShelfRenderer    (Albums)
+//   musicCarouselShelfRenderer    (Singles, optional)
+//   musicCarouselShelfRenderer    (Featured on, optional)
+//   musicCarouselShelfRenderer    (Fans might also like — related artists)
+//   musicDescriptionShelfRenderer (About — bio + monthly listeners — skipped)
+// We expose the header, the top-songs as SearchResult[], and every
+// carousel as a HomeSection so the renderer can re-use its grid/tile.
+// ===========================================================================
+
+export interface ArtistView {
+  title: string
+  // Free text under the artist name — usually "<N> subscribers" in the
+  // user's locale. Best-effort: YT's response shape varies, so this is
+  // empty when we couldn't extract anything sensible.
+  subtitle: string
+  thumbnail: string
+  // Up to ~5 tracks from the artist's Top Songs shelf. Same shape as
+  // playlist tracks (carries setVideoId where YT supplies it, plus
+  // likeStatus + artistId), so they play through the existing player
+  // path and the inline heart / radio / queue actions all work.
+  songs: SearchResult[]
+  // Albums / Singles / Featured on / related-artist carousels — each
+  // an `HomeSection`, items are `HomeItem` cards. The renderer treats
+  // playlist/album items as "click to open the playlist view" and
+  // artist items as "click to navigate to that artist".
+  sections: HomeSection[]
+}
+
+export async function getArtistView(channelId: string): Promise<ArtistView> {
+  if (!channelId || !channelId.startsWith('UC')) {
+    throw new Error(`invalid channelId: ${channelId}`)
+  }
+  const data = await innertubeFetch('/browse', { browseId: channelId })
+
+  // Header parsing — try the immersive (big banner) shape first, then
+  // the visual one as fallback. Older responses may use a third shape
+  // (musicHeaderRenderer); we walk for runs deep enough to catch it.
+  let title = ''
+  let subtitle = ''
+  let thumbnail = ''
+  for (const h of findAll(data, 'musicImmersiveHeaderRenderer')) {
+    title = runsText(h.title) || title
+    thumbnail = findFirstThumbnail(h.thumbnail) || thumbnail
+    if (title) break
+  }
+  if (!title) {
+    for (const h of findAll(data, 'musicVisualHeaderRenderer')) {
+      title = runsText(h.title) || title
+      thumbnail =
+        findFirstThumbnail(h.foregroundThumbnail) ||
+        findFirstThumbnail(h.thumbnail) ||
+        thumbnail
+      if (title) break
+    }
+  }
+  // Subscriber count lives in different places depending on the header
+  // shape. Walk for any subscriberCountText anywhere in the response
+  // and take the first non-empty one.
+  for (const node of findAll(data, 'subscriberCountText')) {
+    const t = runsText(node)
+    if (t) {
+      subtitle = t
+      break
+    }
+  }
+  if (!subtitle) {
+    // Some immersive headers stash the count inside the subscribe button.
+    for (const node of findAll(data, 'subscribeButtonRenderer')) {
+      const t =
+        runsText(node.subscriberCountText) ||
+        runsText(node.longSubscriberCountText)
+      if (t) {
+        subtitle = t
+        break
+      }
+    }
+  }
+
+  // Top songs: the first musicShelfRenderer in the response that
+  // actually contains musicResponsiveListItemRenderer rows. Later
+  // shelves on an artist page are carousels (musicCarouselShelfRenderer),
+  // not list shelves, so this catches the right one.
+  const songs: SearchResult[] = []
+  const seen = new Set<string>()
+  for (const shelf of findAll(data, 'musicShelfRenderer')) {
+    let hasTracks = false
+    for (const _ of findAll(shelf, 'musicResponsiveListItemRenderer')) {
+      hasTracks = true
+      break
+    }
+    if (hasTracks) {
+      parseTrackRowsInto(shelf, seen, songs)
+      if (songs.length > 0) break
+    }
+  }
+
+  // Carousels: every musicCarouselShelfRenderer with a header title +
+  // musicTwoRowItemRenderer children. Header title is locale-specific
+  // ("Albums" / "Альбомы" / "Singles" / "Синглы" / etc.) — we just
+  // pass it through so the renderer shows whatever YT shows.
+  const sections: HomeSection[] = []
+  for (const shelf of findAll(data, 'musicCarouselShelfRenderer')) {
+    const header = shelf.header as Record<string, unknown> | undefined
+    const headerRenderer = header?.musicCarouselShelfBasicHeaderRenderer as
+      | Record<string, unknown>
+      | undefined
+    const shelfTitle = runsText(headerRenderer?.title)
+    const contents = shelf.contents as unknown[] | undefined
+    if (!Array.isArray(contents) || !shelfTitle) continue
+    const items: HomeItem[] = []
+    for (const c of contents) {
+      if (!c || typeof c !== 'object') continue
+      const renderer = (c as Record<string, unknown>).musicTwoRowItemRenderer as
+        | Record<string, unknown>
+        | undefined
+      if (!renderer) continue
+      const parsed = parseTwoRowItem(renderer)
+      if (parsed) items.push(parsed)
+    }
+    if (items.length > 0) sections.push({ title: shelfTitle, items })
+  }
+
+  return { title, subtitle, thumbnail, songs, sections }
 }

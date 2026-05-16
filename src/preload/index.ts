@@ -25,7 +25,8 @@ const api = {
     libraryPlaylists: () => ipcRenderer.invoke('metadata:library-playlists'),
     like: (videoId: string, like: boolean) =>
       ipcRenderer.invoke('metadata:like', videoId, like),
-    radio: (videoId: string) => ipcRenderer.invoke('metadata:radio', videoId)
+    radio: (videoId: string) => ipcRenderer.invoke('metadata:radio', videoId),
+    artist: (channelId: string) => ipcRenderer.invoke('metadata:artist', channelId)
   },
   library: {
     prepare: () => ipcRenderer.invoke('library:prepare')

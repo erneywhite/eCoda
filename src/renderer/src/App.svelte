@@ -11,6 +11,7 @@
   import wordmark from './assets/wordmark.png'
   import { translate, LANG_LABELS, type Lang } from './i18n'
   import type {
+    ArtistView,
     CacheVerifyResult,
     DownloadProgress,
     HomeItem,
@@ -26,7 +27,7 @@
     UpdaterEvent
   } from '../../preload/index.d'
 
-  type View = 'home' | 'search' | 'playlist' | 'library' | 'settings'
+  type View = 'home' | 'search' | 'playlist' | 'library' | 'settings' | 'artist'
   type PlayStatus = 'idle' | 'resolving' | 'playing' | 'error'
 
   // ---- auth state -----------------------------------------------------------
@@ -48,6 +49,7 @@
     | { kind: 'search' }
     | { kind: 'library' }
     | { kind: 'playlist'; id: string }
+    | { kind: 'artist'; id: string }
     | { kind: 'settings' }
 
   let view = $state<View>('home')
@@ -63,13 +65,18 @@
   // so re-clicking the active sidebar tab doesn't pile up dupes.
   function navigate(entry: HistoryEntry): void {
     const current = historyStack[historyIndex]
-    if (
-      current &&
-      current.kind === entry.kind &&
-      (entry.kind !== 'playlist' || current.kind === 'playlist' && current.id === entry.id)
-    ) {
-      applyEntry(entry)
-      return
+    // No-op when re-clicking the active tab/playlist/artist — re-pushing
+    // the same id would pile up dupes in the back-stack. The id check
+    // covers both playlist and artist (both carry one).
+    if (current && current.kind === entry.kind) {
+      const sameTarget =
+        (entry.kind !== 'playlist' && entry.kind !== 'artist') ||
+        ((current.kind === 'playlist' || current.kind === 'artist') &&
+          current.id === (entry as { id: string }).id)
+      if (sameTarget) {
+        applyEntry(entry)
+        return
+      }
     }
     historyStack = [...historyStack.slice(0, historyIndex + 1), entry]
     historyIndex = historyStack.length - 1
@@ -105,6 +112,13 @@
       if (entry.id === DOWNLOADED_ID || openPlaylistId !== entry.id) {
         void loadPlaylistData(entry.id)
       }
+    } else if (entry.kind === 'artist') {
+      // Refresh only when the channelId actually changed — the artist
+      // view's state (header + sections) is heavy enough that we don't
+      // want to rebuild it just to return after a back/forward hop.
+      if (openArtistId !== entry.id) {
+        void loadArtistData(entry.id)
+      }
     } else if (entry.kind === 'settings') {
       void loadSettings()
     }
@@ -135,6 +149,15 @@
   let playlistView = $state<PlaylistView | null>(null)
   let playlistLoading = $state(false)
   let playlistError = $state('')
+
+  // ---- artist view ----------------------------------------------------------
+  // Lives alongside playlist state so the renderer can show either
+  // independently. Cleared on auth disconnect alongside the other
+  // view caches.
+  let openArtistId = $state<string | null>(null)
+  let artistView = $state<ArtistView | null>(null)
+  let artistLoading = $state(false)
+  let artistError = $state('')
 
   // ---- per-playlist override state (reshuffle / pin / drag) --------------
   // Set of pinned row-ids in the currently-open playlist. Rows live in
@@ -1472,6 +1495,9 @@
     searched = false
     playlistView = null
     openPlaylistId = null
+    artistView = null
+    openArtistId = null
+    artistError = ''
     playing = null
     playStatus = 'idle'
     libraryPlaylists = null
@@ -1550,6 +1576,10 @@
       await openPlaylist(item.id, { fallbackTitle: item.title, fallbackThumbnail: item.thumbnail })
       return
     }
+    if (item.type === 'artist') {
+      openArtist(item.id)
+      return
+    }
     if (item.type === 'song' || item.type === 'video') {
       // No queue context — make a single-item list so the player still works.
       const synthetic: SearchResult = {
@@ -1562,7 +1592,61 @@
       await playTrack(synthetic, [synthetic])
       return
     }
-    // artists not supported yet
+  }
+
+  // ---- artist view ----------------------------------------------------------
+
+  // Push a 'artist' history entry. Reused from card clicks AND from
+  // clicks on artist names in track rows (when the row carries an
+  // artistId from the page-proxy response).
+  function openArtist(channelId: string): void {
+    if (!channelId) return
+    navigate({ kind: 'artist', id: channelId })
+  }
+
+  async function loadArtistData(id: string): Promise<void> {
+    openArtistId = id
+    artistLoading = true
+    artistError = ''
+    artistView = null
+    try {
+      artistView = await window.api.metadata.artist(id)
+      // Once songs land, refresh download status so the per-row chips
+      // render correctly on the artist's top-songs list.
+      void refreshDownloadStatus(artistView.songs)
+    } catch (e) {
+      artistError = e instanceof Error ? e.message : String(e)
+    } finally {
+      artistLoading = false
+    }
+  }
+
+  // Big Play + Shuffle on the artist header — both target the top-songs
+  // shelf since that's what's actually visible on the page. Play =
+  // start at song 0; Shuffle = enable shuffleMode (if off) + start at
+  // a random song. Matches Spotify's artist-page convention.
+  async function playArtistFromStart(): Promise<void> {
+    if (!artistView || artistView.songs.length === 0) return
+    const idx = findPlayableIndex(artistView.songs, 0, 1)
+    if (idx < 0) return
+    await playTrack(artistView.songs[idx], artistView.songs, {
+      id: undefined,
+      title: artistView.title
+    })
+  }
+  async function shufflePlayArtist(): Promise<void> {
+    if (!artistView || artistView.songs.length === 0) return
+    if (!shuffleMode) {
+      shuffleMode = true
+      await window.api.settings.setShuffleMode(true)
+    }
+    let idx = pickShuffleIndex(artistView.songs, '')
+    if (idx < 0) idx = findPlayableIndex(artistView.songs, 0, 1)
+    if (idx < 0) return
+    await playTrack(artistView.songs[idx], artistView.songs, {
+      id: undefined,
+      title: artistView.title
+    })
   }
 
   // ---- search ---------------------------------------------------------------
@@ -2468,7 +2552,26 @@
                     </div>
                     <div class="meta">
                       <div class="title">{r.title}</div>
-                      <div class="artist">{r.artist}</div>
+                      <div class="artist">
+                        {#if r.artistId}
+                          <span
+                            class="artist-link"
+                            role="link"
+                            tabindex="0"
+                            onclick={(e) => {
+                              e.stopPropagation()
+                              openArtist(r.artistId!)
+                            }}
+                            onkeydown={(e) => {
+                              if (e.key === 'Enter' || e.key === ' ') {
+                                e.preventDefault()
+                                openArtist(r.artistId!)
+                              }
+                            }}>{r.artist}</span>
+                        {:else}
+                          {r.artist}
+                        {/if}
+                      </div>
                     </div>
                   </button>
                   <button
@@ -2511,6 +2614,30 @@
                     {t('downloaded.subtitle')}
                   {:else if isRadioId(openPlaylistId)}
                     {t('radio.subtitle')}
+                  {:else if playlistView.isAlbum && playlistView.artistName}
+                    <!-- Album-specific layout: "Album · Artist (link)
+                         · 2024". Falls through to the YT-provided full
+                         subtitle when the artist info isn't extractable. -->
+                    {t('album.label')}
+                    {#if playlistView.artistId}
+                      ·
+                      <span
+                        class="artist-link"
+                        role="link"
+                        tabindex="0"
+                        onclick={() => openArtist(playlistView!.artistId!)}
+                        onkeydown={(e) => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault()
+                            openArtist(playlistView!.artistId!)
+                          }
+                        }}>{playlistView.artistName}</span>
+                    {:else}
+                      · {playlistView.artistName}
+                    {/if}
+                    {#if playlistView.year}
+                      · {playlistView.year}
+                    {/if}
                   {:else}
                     {playlistView.subtitle}
                   {/if}
@@ -2755,6 +2882,21 @@
                       <div class="artist">
                         {#if r.unavailable}
                           {t('track.unavailable')}
+                        {:else if r.artistId}
+                          <span
+                            class="artist-link"
+                            role="link"
+                            tabindex="0"
+                            onclick={(e) => {
+                              e.stopPropagation()
+                              openArtist(r.artistId!)
+                            }}
+                            onkeydown={(e) => {
+                              if (e.key === 'Enter' || e.key === ' ') {
+                                e.preventDefault()
+                                openArtist(r.artistId!)
+                              }
+                            }}>{r.artist}</span>
                         {:else}
                           {r.artist}
                         {/if}
@@ -2842,6 +2984,166 @@
                 </li>
               {/each}
             </ul>
+          {/if}
+        {:else if view === 'artist'}
+          {#if artistLoading && !artistView}
+            <div class="spinner"></div>
+          {/if}
+          {#if artistError}
+            <p class="status error">{t('home.error', { error: artistError })}</p>
+          {/if}
+          {#if artistView}
+            <div class="artist-header">
+              {#if artistView.thumbnail}
+                <div
+                  class="artist-photo"
+                  style:background-image={`url("${artistView.thumbnail}")`}
+                ></div>
+              {/if}
+              <div class="artist-info">
+                <div class="artist-name">{artistView.title || t('artist.untitled')}</div>
+                {#if artistView.subtitle}
+                  <div class="artist-sub">{artistView.subtitle}</div>
+                {/if}
+                {#if artistView.songs.length > 0}
+                  <div class="artist-actions">
+                    <button
+                      class="play-big"
+                      onclick={playArtistFromStart}
+                      aria-label={t('player.play')}
+                      title={t('player.play')}
+                    >
+                      <svg viewBox="0 0 24 24" width="28" height="28" fill="currentColor">
+                        <path d="M9 5v14l11-7z" />
+                      </svg>
+                    </button>
+                    <button
+                      class="dl-icon-btn"
+                      onclick={shufflePlayArtist}
+                      aria-label={t('artist.shufflePlay')}
+                      title={t('artist.shufflePlay')}
+                    >
+                      <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+                        <path d="M10.59 9.17 5.41 4 4 5.41l5.17 5.17 1.42-1.41zM14.5 4l2.04 2.04L4 18.59 5.41 20 17.96 7.46 20 9.5V4h-5.5zm.33 9.41-1.41 1.41 3.13 3.13L14.5 20H20v-5.5l-2.04 2.04-3.13-3.13z"/>
+                      </svg>
+                    </button>
+                  </div>
+                {/if}
+              </div>
+            </div>
+            {#if artistView.songs.length > 0}
+              <div class="section">
+                <h3>{t('artist.topSongs')}</h3>
+                <ul class="track-list">
+                  {#each artistView.songs as r, idx (`art-${idx}-${r.id}`)}
+                    <li class="track-li" class:unavailable={r.unavailable}>
+                      <button
+                        class="track-row"
+                        class:current={playing?.id === r.id}
+                        onclick={() => playTrack(r, artistView!.songs, { title: artistView!.title })}
+                        oncontextmenu={(e) => openCtxMenu(e, r, artistView!.songs, { title: artistView!.title })}
+                        disabled={r.unavailable}
+                        title={r.unavailable ? t('track.unavailable') : undefined}
+                      >
+                        <div
+                          class="thumb"
+                          class:resolving={resolvingId === r.id}
+                          style:background-image={`url("${thumbnailFor(r.id, r.thumbnail)}")`}
+                        >
+                          {#if resolvingId === r.id}
+                            <span class="thumb-spinner" aria-hidden="true"></span>
+                          {/if}
+                        </div>
+                        <div class="meta">
+                          <div class="title">{r.title}</div>
+                          <div class="artist">
+                            {#if r.unavailable}
+                              {t('track.unavailable')}
+                            {:else if r.artistId}
+                              <span
+                                class="artist-link"
+                                role="link"
+                                tabindex="0"
+                                onclick={(e) => {
+                                  e.stopPropagation()
+                                  openArtist(r.artistId!)
+                                }}
+                                onkeydown={(e) => {
+                                  if (e.key === 'Enter' || e.key === ' ') {
+                                    e.preventDefault()
+                                    openArtist(r.artistId!)
+                                  }
+                                }}>{r.artist}</span>
+                            {:else}
+                              {r.artist}
+                            {/if}
+                          </div>
+                        </div>
+                      </button>
+                      <button
+                        class="like-btn"
+                        class:liked={r.liked}
+                        onclick={() => void toggleTrackLike(r)}
+                        aria-label={r.liked ? t('like.remove') : t('like.add')}
+                        title={r.liked ? t('like.remove') : t('like.add')}
+                        disabled={r.unavailable}
+                      >
+                        <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
+                          <path d={r.liked ? CTX_ICONS.like : CTX_ICONS.unlike} />
+                        </svg>
+                      </button>
+                      <div class="duration">{r.duration}</div>
+                      <button
+                        class="dl-btn"
+                        class:done={downloadedIds.has(r.id)}
+                        class:busy={downloadingIds.has(r.id)}
+                        title={r.unavailable
+                          ? t('track.unavailable')
+                          : downloadedIds.has(r.id)
+                            ? t('track.dl.done')
+                            : downloadingIds.has(r.id)
+                              ? t('track.dl.cancel')
+                              : t('track.dl.idle')}
+                        onclick={() => toggleTrackDownload(r)}
+                        disabled={r.unavailable}
+                      >
+                        {#if downloadedIds.has(r.id)}
+                          ✓
+                        {:else if downloadingIds.has(r.id)}
+                          <span class="busy-content">
+                            <svg class="dl-ring" viewBox="0 0 36 36" width="18" height="18">
+                              <circle cx="18" cy="18" r="15.9" fill="none" stroke="rgba(255,255,255,0.18)" stroke-width="3" />
+                              <circle cx="18" cy="18" r="15.9" fill="none" stroke="currentColor" stroke-width="3" stroke-dasharray="{downloadPercent.get(r.id) ?? 0}, 100" transform="rotate(-90 18 18)" stroke-linecap="round" />
+                            </svg>
+                          </span>
+                          <span class="cancel-x" aria-hidden="true">✕</span>
+                        {:else}
+                          ↓
+                        {/if}
+                      </button>
+                    </li>
+                  {/each}
+                </ul>
+              </div>
+            {/if}
+            {#each artistView.sections as section (section.title)}
+              <div class="section">
+                <h3>{section.title}</h3>
+                <div class="card-grid">
+                  {#each section.items as item (item.id)}
+                    <button class="card-tile" onclick={() => openCard(item)}>
+                      <div
+                        class="tile-thumb"
+                        class:circle={item.type === 'artist'}
+                        style:background-image={item.thumbnail ? `url("${item.thumbnail}")` : 'none'}
+                      ></div>
+                      <div class="tile-title">{item.title}</div>
+                      <div class="tile-subtitle">{item.subtitle}</div>
+                    </button>
+                  {/each}
+                </div>
+              </div>
+            {/each}
           {/if}
         {:else if view === 'settings'}
           <div class="settings-page">
@@ -5065,6 +5367,73 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+
+  /* Clickable artist name inside a track row's artist line. Hover
+     reveals the underline + lightens the colour, signalling it's
+     navigable. Lives inside a button (.track-row) so the click handler
+     stopPropagations to avoid triggering playback on the parent. */
+  .artist-link {
+    color: inherit;
+    cursor: pointer;
+    transition: color 0.15s ease;
+  }
+  .artist-link:hover,
+  .artist-link:focus {
+    color: #ffffff;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+    outline: none;
+  }
+
+  /* ---- artist view ------------------------------------------------------- */
+
+  .artist-header {
+    display: flex;
+    gap: 1.4rem;
+    align-items: flex-end;
+    padding: 1.5rem 0 1.2rem;
+    margin-bottom: 0.4rem;
+  }
+  .artist-photo {
+    flex: 0 0 auto;
+    width: 168px;
+    height: 168px;
+    border-radius: 50%;
+    background-color: #0e0a16;
+    background-position: center;
+    background-size: cover;
+    background-repeat: no-repeat;
+    box-shadow: 0 18px 44px rgba(0, 0, 0, 0.55),
+      0 0 0 1px rgba(var(--accent-rgb), 0.22);
+  }
+  .artist-info {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+    min-width: 0;
+  }
+  .artist-name {
+    color: #ffffff;
+    font-size: 2.4rem;
+    font-weight: 800;
+    line-height: 1.05;
+    letter-spacing: -0.02em;
+  }
+  .artist-sub {
+    color: #a99bc9;
+    font-size: 0.92rem;
+  }
+  .artist-actions {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+    margin-top: 0.6rem;
+  }
+  /* Round tile-thumbs (used for the "related artists" carousel items
+     so artist faces read as faces, not as album squares). */
+  .tile-thumb.circle {
+    border-radius: 50%;
   }
 
   .duration {
