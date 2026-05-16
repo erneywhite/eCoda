@@ -4856,17 +4856,20 @@
 
   /* Wordmark image is the eCoda lettering — no need for a separate
      text "eCoda" alongside it.
-     The slot is sized to exactly the sidebar width (200px, see
-     .layout's grid-template-columns) so the lettering's visual centre
-     lines up with the sidebar's centre below — single vertical axis
-     down the left side of the window. `object-fit: contain` centres
-     the raccoon+lettering inside that box without distorting the
-     aspect ratio, regardless of the source PNG dimensions. drop-shadow
-     gives the same neon halo we used to draw on the old raccoon
-     avatar. */
+     The slot is exactly the sidebar width (200px, see .layout's
+     grid-template-columns) so the lettering's visual centre lines up
+     with the sidebar's centre below — one vertical axis down the
+     left side of the window. `object-fit: contain` centres the
+     raccoon+lettering inside that box without distorting the aspect
+     ratio. Height kept modest (52px) so the logo doesn't dwarf the
+     small sidebar nav items right under it — the current wordmark.png
+     has a checker-pattern "fake transparency" baked in, which renders
+     as a solid pale frame at large sizes and dominates the corner.
+     Shrinking it back-pressures the visual weight. drop-shadow gives
+     the same neon halo we used to draw on the old raccoon avatar. */
   .wordmark {
     width: 200px;
-    height: 64px;
+    height: 52px;
     object-fit: contain;
     object-position: center;
     display: block;
