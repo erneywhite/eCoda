@@ -2,7 +2,7 @@
 
 Desktop client for YouTube Music — your library, fast playback, Spotify-style offline cache, and a native UI you can theme. Talks to YouTube's InnerTube API directly: no embedded webview, no heavy web player.
 
-> **Status:** Phase 4 done; Phase 5 first slice + streamer bundle shipped in 0.0.28. Like / unlike + radio-by-track are the only remaining Phase 5 backlog. Public 1.0 release still pending the artist's final brand assets.
+> **Status:** Phases 0–5 done as of 0.0.34. Custom frameless titlebar added on top. Phase 6 (artist + album views, lyrics) and Phase 7 (tray + global media keys + mini-player) are next. Public 1.0 release still pending the artist's final brand assets.
 
 ## Features
 
@@ -24,8 +24,14 @@ Desktop client for YouTube Music — your library, fast playback, Spotify-style 
 - **Source-list-aware next/prev** — skipping follows whichever list you launched the track from (search results vs playlist vs Downloaded), preserved across track changes.
 - **Background prefetch** — while one track plays, the next few in the active list are resolved in the background, so the next click is instant.
 - **Resume where you left off** — last track + queue + position restored on launch as a paused, ready-to-play state in the player bar. First Play click resolves the stream and continues from the saved second; no auto-blast on Windows boot.
-- **Right-click context menu** on every track row (playlist + search): `▶ Play next`, `≡ Add to queue`, plus the streamer-bundle actions below. Material-style icons next to each label.
+- **Right-click context menu** on every track row (playlist + search): `▶ Play next`, `≡ Add to queue`, `📻 Start radio`, plus the streamer-bundle actions below. Material-style icons next to each label.
 - **Explicit queue** (separate from sourceList) — "Play next" prepends, "Add to queue" appends; the queue takes priority over normal sourceList traversal at end-of-track. Toast feedback on every queue action.
+- **Mid-resolve clicks switch tracks** — clicking a different row while one is resolving cancels the in-flight resolve (the spinner overlay jumps to the new row), so you're never stuck waiting on a decision you've already changed your mind about.
+
+### Likes & radio
+- **Inline heart on every row** — filled red = liked, outlined = not. One click toggles via the page-proxy `/like/like` + `/like/removelike` endpoints; optimistic UI flips the heart immediately and reverts on failure. The currently-playing track also has its own heart in the player bar.
+- **Liked Music state propagates back** — playlist rows render with the correct heart state on first paint (page-proxy parses each row's `likeStatus`), and Liked Music's own contents are force-marked liked. Removing a like from inside the Liked Music view drops the row immediately.
+- **Radio by track** — context-menu `📻 Start radio` opens a synthesised "Радиостанция · {seed}" view with the seed + YouTube's Up-next list visible, then auto-plays the seed. The radio is just another playlist as far as prev / next / shuffle / queue are concerned, with reshuffle / pin / drag intentionally hidden because radio is ephemeral.
 
 ### Track-list editing (the "streamer bundle")
 - **Reshuffle button** in the playlist header — one click reorders the playlist into a fresh random sequence; each click is a different arrangement. Different from the player-bar's continuous shuffle: this PERMANENTLY rewrites the saved order until you click again, so an OBS source can show the same plan you set up.
@@ -43,6 +49,7 @@ Desktop client for YouTube Music — your library, fast playback, Spotify-style 
 - **Eight colour themes** (Purple, Cyber Cyan, Sunset, Forest, Crimson, Mono, Ocean, Neon Pink) — palette switches the accent colour, glow, player gradient and aurora in one shot.
 - **Language switch** — Russian / English UI, persisted per-user. YouTube responses are fetched in the matching locale so section titles + auto-playlist names also flip when you toggle.
 - **Default tab on launch** — pick Home, Search or Library.
+- **Custom frameless titlebar** — native window chrome is hidden; the header is the drag region with our own minimize / maximize-restore / close buttons styled to match the rest of the app. Aero snap, edge-resize, and double-click-to-maximize all still work.
 - **Remembers the window** — size, position, and maximized state persist across launches, with on-screen validation so a disconnected monitor doesn't strand the window off-screen.
 
 ### Distribution & diagnostics
@@ -127,8 +134,8 @@ mockups/                 standalone HTML mockups (A/B/C) used during UI redesign
 - **Phase 1 — streaming MVP** — ✅ done (search, home, playlist navigation, custom player UI)
 - **Phase 2 — offline** — ✅ done (per-track + per-playlist downloads, persistent cache, instant disk playback via `media://`)
 - **Phase 3 — polish** — ✅ done (sidebar pinned playlists, eight colour themes, language switch, mouse-side-button navigation, settings with cache/diagnostics/about/updates/donate, audio quality picker, Downloaded virtual playlist, live progress rings, total playlist duration, unavailable-row handling)
-- **Phase 4 — distribution** — ✅ done (`electron-builder` NSIS installer, `electron-updater` against GitHub Releases; current build cycle: 0.0.x, latest 0.0.28)
-- **Phase 5 — playback features** — mostly done in 0.0.14 + 0.0.24–28:
+- **Phase 4 — distribution** — ✅ done (`electron-builder` NSIS installer, `electron-updater` against GitHub Releases; current build cycle: 0.0.x, latest 0.0.34)
+- **Phase 5 — playback features** — ✅ done across 0.0.14 + 0.0.24–34:
   - ✅ shuffle + repeat modes (off / all / one), both persisted
   - ✅ queue management (separate from sourceList; Play next / Add to queue)
   - ✅ right-click context menu on tracks with Material-style icons
@@ -138,12 +145,14 @@ mockups/                 standalone HTML mockups (A/B/C) used during UI redesign
   - ✅ Smart YT-side merge (append for normal playlists, prepend for LM + Downloaded)
   - ✅ Reset-to-default-order button
   - ✅ In-app confirm dialog (replaces native Windows prompt)
-  - 🔜 "Radio by track" via `yt.music.getUpNext`
-  - 🔜 Like / unlike via page-proxy `/like/like` + `/like/removelike`
+  - ✅ Like / unlike — inline heart on every row + heart on the player bar; page-proxy `/like/like` + `/like/removelike`
+  - ✅ "Radio by track" via `yt.music.getUpNext` — opens as a synthesised playlist view, not just a hijacked queue
+  - ✅ Mid-resolve clicks switch tracks instead of being blocked
+- **Custom frameless titlebar** — ✅ done in 0.0.33–34 (minimize / maximize-restore / close in our palette, drag region on the header, Aero snap kept intact)
 - **Phase 6 — deeper navigation (planned)** — artist + album views, lyrics panel via `yt.music.getLyrics`.
 - **Phase 7 — system integration (planned)** — system tray icon + minimal menu, global media keys (Play / Pause / Next / Prev that work when the app isn't focused), mini-player mode (slim always-on-top window).
 - **Brand swap** — when the artist delivers the final wordmark + icon, drop them into `branding/` and rebuild.
-- **macOS port** — same codebase, `.dmg` target, needs Mac/CI + Apple notarisation.
+- **macOS port** — same codebase, `.dmg` target, needs Mac/CI + Apple notarisation. The custom titlebar will need a macOS branch (traffic lights on the left).
 
 ## Disclaimer
 
