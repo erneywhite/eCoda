@@ -27,6 +27,8 @@ import {
   setRepeatMode,
   getCloseAction,
   setCloseAction,
+  getCrossfadeDuration,
+  setCrossfadeDuration,
   getPlaylistOverride,
   setPlaylistOverride,
   getWindowState,
@@ -707,6 +709,12 @@ app.whenReady().then(async () => {
     // the new value without a restart.
     closeActionCache = action
   })
+  // Crossfade duration in seconds — 0 disables. Renderer reads on
+  // mount and any time the user moves the Settings slider.
+  ipcMain.handle('settings:getCrossfadeDuration', () => getCrossfadeDuration())
+  ipcMain.handle('settings:setCrossfadeDuration', (_event, seconds: number) =>
+    setCrossfadeDuration(seconds)
+  )
 
   // Seed the in-memory closeAction BEFORE the window is created — the
   // close handler reads from this synchronously and we don't want a

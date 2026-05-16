@@ -272,6 +272,8 @@ export interface EcodaApi {
     setPlaylistOverride: (id: string, override: PlaylistOverride | null) => Promise<void>
     getCloseAction: () => Promise<CloseAction>
     setCloseAction: (action: CloseAction) => Promise<void>
+    getCrossfadeDuration: () => Promise<number>
+    setCrossfadeDuration: (seconds: number) => Promise<void>
   }
   tray: {
     onCommand: (cb: (cmd: TrayCommand) => void) => () => void

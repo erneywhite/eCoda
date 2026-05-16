@@ -262,6 +262,10 @@ interface Config {
   shuffleMode?: boolean
   repeatMode?: RepeatMode
   closeAction?: CloseAction
+  // Seconds of crossfade between natural track transitions. 0 disables
+  // — the next track starts the instant the previous ends. Settings
+  // slider exposes 0 to 12 seconds.
+  crossfadeDuration?: number
   pinnedPlaylists?: PinnedPlaylist[]
   playlistOverrides?: Record<string, PlaylistOverride>
   windowState?: WindowState
@@ -370,6 +374,19 @@ export async function getCloseAction(): Promise<CloseAction> {
 
 export async function setCloseAction(action: CloseAction): Promise<void> {
   await writeConfig({ ...(await readConfig()), closeAction: action })
+}
+
+// Crossfade duration in seconds for natural track transitions. 0
+// disables; clamped to [0, 12] on write so a corrupted config can't
+// leave the player with a 60-second fade.
+export async function getCrossfadeDuration(): Promise<number> {
+  const v = (await readConfig()).crossfadeDuration
+  return typeof v === 'number' && Number.isFinite(v) ? Math.max(0, Math.min(12, v)) : 0
+}
+
+export async function setCrossfadeDuration(seconds: number): Promise<void> {
+  const clamped = Math.max(0, Math.min(12, Math.round(seconds)))
+  await writeConfig({ ...(await readConfig()), crossfadeDuration: clamped })
 }
 
 // Per-playlist override (custom track order + pinned set). null result

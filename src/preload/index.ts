@@ -153,7 +153,10 @@ const api = {
       ipcRenderer.invoke('settings:setPlaylistOverride', id, override),
     getCloseAction: () => ipcRenderer.invoke('settings:getCloseAction'),
     setCloseAction: (action: 'tray' | 'quit') =>
-      ipcRenderer.invoke('settings:setCloseAction', action)
+      ipcRenderer.invoke('settings:setCloseAction', action),
+    getCrossfadeDuration: () => ipcRenderer.invoke('settings:getCrossfadeDuration'),
+    setCrossfadeDuration: (seconds: number) =>
+      ipcRenderer.invoke('settings:setCrossfadeDuration', seconds)
   },
   // Tray menu commands flow from main → renderer. The renderer
   // subscribes once at mount and dispatches the command string ('play-

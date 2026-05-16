@@ -182,6 +182,11 @@ const RU: Strings = {
   'settings.quality.mediumSub': '~128 kbps · 3.8 MB/4 мин',
   'settings.quality.low': 'Экономия',
   'settings.quality.lowSub': '~70 kbps · 2 MB/4 мин',
+  'settings.crossfade.title': 'Кросс-фейд между треками',
+  'settings.crossfade.off': 'Выключено',
+  'settings.crossfade.seconds': '{n} сек',
+  'settings.crossfade.hint':
+    'Плавное затухание конца одного трека и нарастание следующего. Работает только при автопереходе — ручное переключение прыгает мгновенно. 0 = выключено.',
   'settings.updates.title': 'Обновления',
   'settings.updates.current': 'Текущая версия:',
   'settings.updates.idleHint':
@@ -378,6 +383,11 @@ const EN: Strings = {
   'settings.quality.mediumSub': '~128 kbps · 3.8 MB/4 min',
   'settings.quality.low': 'Saver',
   'settings.quality.lowSub': '~70 kbps · 2 MB/4 min',
+  'settings.crossfade.title': 'Track-to-track crossfade',
+  'settings.crossfade.off': 'Off',
+  'settings.crossfade.seconds': '{n} s',
+  'settings.crossfade.hint':
+    'Smooth fade-out of the ending track + fade-in of the next one. Only applies to auto-progression — manual prev/next switches instantly. 0 disables.',
   'settings.updates.title': 'Updates',
   'settings.updates.current': 'Current version:',
   'settings.updates.idleHint':

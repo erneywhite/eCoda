@@ -560,11 +560,18 @@
     defaultTab = await window.api.settings.getDefaultTab()
     audioQuality = await window.api.settings.getAudioQuality()
     closeAction = await window.api.settings.getCloseAction()
+    crossfadeDuration = await window.api.settings.getCrossfadeDuration()
   }
 
   async function changeCloseAction(action: 'tray' | 'quit'): Promise<void> {
     closeAction = action
     await window.api.settings.setCloseAction(action)
+  }
+
+  async function changeCrossfadeDuration(seconds: number): Promise<void> {
+    const clamped = Math.max(0, Math.min(12, Math.round(seconds)))
+    crossfadeDuration = clamped
+    await window.api.settings.setCrossfadeDuration(clamped)
   }
 
   async function changeAudioQuality(q: 'best' | 'medium' | 'low'): Promise<void> {
@@ -841,7 +848,23 @@
   // actively resolving — distinct from `playing.id` which still points
   // at the previously-playing track during a resolve.
   let resolvingId = $state<string | null>(null)
-  let audioEl = $state<HTMLAudioElement>()
+  // Two audio elements so we can crossfade between tracks. Their
+  // "role" (active vs inactive) flips on each crossfade; `audioEl`
+  // below is a derived alias for the currently-active one so the
+  // rest of the playback machinery (togglePlay / seek / volume /
+  // onCanPlay listener) doesn't need to know which one is which.
+  let audioElA = $state<HTMLAudioElement>()
+  let audioElB = $state<HTMLAudioElement>()
+  let audioASrc = $state('')
+  let audioBSrc = $state('')
+  let activeAudioKey = $state<'a' | 'b'>('a')
+  // Per-audio gain multiplier (0..1). The $effect at the bottom of
+  // this block applies `volume * gain*` to the audio element so the
+  // user-controlled master volume + the per-audio fade level
+  // combine into the actual element.volume.
+  let gainA = $state(1)
+  let gainB = $state(0)
+  const audioEl = $derived(activeAudioKey === 'a' ? audioElA : audioElB)
   // Mirror these from the <audio> element so the custom UI can render
   // controls. Bound via on:play/pause/timeupdate/etc.
   let isPlaying = $state(false)
@@ -858,6 +881,35 @@
   // user actually hits Play (which kicks off resolve + seek + start). The
   // saved position lives in pendingResumeTime; canplay reads it and seeks.
   let pendingResumeTime = $state<number | null>(null)
+
+  // ---- crossfade ---------------------------------------------------------
+  // User-configurable in Settings → "Crossfade duration". 0 = disabled
+  // (next track starts the instant the previous ends). When > 0, the
+  // last `crossfadeDuration` seconds of one track overlap with the
+  // start of the next via gain ramps on both audio elements.
+  let crossfadeDuration = $state(0)
+  // True while a fade is actively ramping gains. Set on fade start,
+  // cleared on fade end OR if the fade is cancelled (manual prev/next).
+  let crossfadeActive = $state(false)
+  // Latches at fade-start to prevent timeupdate from re-triggering the
+  // same fade on every tick. Resets on natural-end-of-fade + on every
+  // manual track switch (so the NEXT track's end can fade as well).
+  let crossfadeTriggered = $state(false)
+  let crossfadeRaf: number | null = null
+
+  // Sync element volume with master + per-audio gain. Runs whenever
+  // volume, muted, or either gain changes — the simplest way to keep
+  // crossfade ramps audible without manually poking each audio.
+  $effect(() => {
+    if (audioElA) {
+      audioElA.volume = Math.max(0, Math.min(1, volume * gainA))
+      audioElA.muted = muted
+    }
+    if (audioElB) {
+      audioElB.volume = Math.max(0, Math.min(1, volume * gainB))
+      audioElB.muted = muted
+    }
+  })
 
   // Keep navigator.mediaSession in sync with the current track + play
   // state. Chromium forwards this to OS-level media controls (Windows
@@ -1107,18 +1159,13 @@
   function onVolumeInput(e: Event): void {
     const v = Number((e.target as HTMLInputElement).value)
     volume = v
-    if (audioEl) {
-      audioEl.volume = v
-      if (v > 0 && muted) {
-        audioEl.muted = false
-        muted = false
-      }
-    }
+    // Dragging the slider up while muted unmutes — matches how every
+    // other music player behaves. The $effect higher up applies the
+    // new volume + mute state to both audio elements.
+    if (v > 0 && muted) muted = false
   }
   function toggleMute(): void {
-    if (!audioEl) return
-    audioEl.muted = !audioEl.muted
-    muted = audioEl.muted
+    muted = !muted
   }
 
   async function toggleShuffle(): Promise<void> {
@@ -1526,6 +1573,7 @@
       // correct mode.
       shuffleMode = await window.api.settings.getShuffleMode()
       repeatMode = await window.api.settings.getRepeatMode()
+      crossfadeDuration = await window.api.settings.getCrossfadeDuration()
       browsers = await window.api.auth.browsers()
       connectedBrowser = await window.api.auth.status()
       if (connectedBrowser) {
@@ -1610,6 +1658,11 @@
     ctxMenu = null
     toast = null
     radioSeedCache = new Map()
+    // Tear down any in-flight crossfade + clear both audio srcs so the
+    // disconnected user doesn't hear leftover playback on next login.
+    cancelCrossfade()
+    audioASrc = ''
+    audioBSrc = ''
     historyStack = [{ kind: 'home' }]
     historyIndex = 0
     view = 'home'
@@ -1989,6 +2042,10 @@
         pushHistory(snapshot)
       }
     }
+    // Manual playTrack cancels any in-flight crossfade so the new
+    // selection takes over immediately instead of getting overlapped
+    // by a track the user already moved past.
+    cancelCrossfade()
     playStatus = 'resolving'
     playError = ''
     // The track we're about to resolve isn't `playing` yet — `playing`
@@ -2025,11 +2082,13 @@
       // fires the actual seek.
       currentTime = pendingResumeTime && pendingResumeTime > 1 ? pendingResumeTime : 0
       duration = 0
+      // Load the new track onto the active audio element, full gain,
+      // and silence the inactive one. The $effect above re-applies
+      // volume/mute based on gain.
+      loadOnActive(r.streamUrl)
       await tick()
       const el = audioEl
       if (el) {
-        el.volume = volume
-        el.muted = muted
         const onCanPlay = (): void => {
           el.removeEventListener('canplay', onCanPlay)
           // Resume from the position saved before the previous app close.
@@ -2189,6 +2248,266 @@
       }
     }
     void playNext()
+  }
+
+  // ---- per-audio event handlers ------------------------------------------
+  // Both audio elements share the same handler set, parametrised by 'a'/'b'.
+  // We only update UI state when the event came from the CURRENTLY-active
+  // audio — the fading-out audio during a crossfade continues to fire its
+  // own timeupdate / ended, and we don't want those touching the seek bar
+  // or kicking off another track.
+
+  function onAudioElementPlay(key: 'a' | 'b'): void {
+    if (key === activeAudioKey) isPlaying = true
+  }
+  function onAudioElementPause(key: 'a' | 'b'): void {
+    if (key !== activeAudioKey) return
+    isPlaying = false
+    persistSession()
+  }
+  function onAudioElementSeeked(key: 'a' | 'b'): void {
+    if (key === activeAudioKey) persistSession()
+  }
+  function onAudioElementLoaded(key: 'a' | 'b'): void {
+    if (key !== activeAudioKey) return
+    const a = key === 'a' ? audioElA : audioElB
+    duration = a?.duration ?? 0
+  }
+  function onAudioElementTimeUpdate(key: 'a' | 'b'): void {
+    if (key !== activeAudioKey) return
+    const a = key === 'a' ? audioElA : audioElB
+    if (!seeking && a) currentTime = a.currentTime
+    maybePersistSessionOnTime()
+    maybeStartCrossfade()
+  }
+  function onAudioElementEnded(key: 'a' | 'b'): void {
+    // The fading-out audio's natural end during a crossfade is
+    // expected — the new track on the other element is already
+    // playing. Only act on the ACTIVE audio's end.
+    if (key !== activeAudioKey) return
+    // If a crossfade is in progress, the active audio IS the
+    // incoming track, which shouldn't have reached its end yet —
+    // but if it somehow did, the fade will resolve normally.
+    if (crossfadeActive) return
+    onAudioEnded()
+  }
+
+  // ---- crossfade helpers -------------------------------------------------
+
+  // Load a stream URL onto whichever audio is currently active, with
+  // full gain. Silences and clears the inactive one. Used by playTrack
+  // (manual selection) — instant load, no fade.
+  function loadOnActive(streamUrl: string): void {
+    if (activeAudioKey === 'a') {
+      audioASrc = streamUrl
+      audioBSrc = ''
+      gainA = 1
+      gainB = 0
+    } else {
+      audioBSrc = streamUrl
+      audioASrc = ''
+      gainB = 1
+      gainA = 0
+    }
+  }
+
+  // Tear down any in-progress crossfade. After this, the currently-
+  // active audio holds the canonical track at full gain; the other one
+  // is silenced + cleared. Called from playTrack so a manual selection
+  // never inherits a fade halfway through.
+  function cancelCrossfade(): void {
+    if (crossfadeRaf != null) {
+      cancelAnimationFrame(crossfadeRaf)
+      crossfadeRaf = null
+    }
+    crossfadeActive = false
+    crossfadeTriggered = false
+    // Pause + clear whichever audio is currently inactive (during a
+    // fade that's whichever one was the OLD outgoing track).
+    if (activeAudioKey === 'a') {
+      audioElB?.pause()
+      audioBSrc = ''
+      gainB = 0
+      gainA = 1
+    } else {
+      audioElA?.pause()
+      audioASrc = ''
+      gainA = 0
+      gainB = 1
+    }
+  }
+
+  // Picks the next track using the SAME rules playNext uses (queue
+  // first, then shuffle/sequential with repeat-all wrap). Returns the
+  // track + whether picking it should consume a queue entry — the
+  // consume happens once we've actually committed (resolved + swapped),
+  // so a resolve failure doesn't strand the user's queued item.
+  function peekNextTrack(): { track: SearchResult; consumeQueue: boolean } | null {
+    if (!playing) return null
+    if (userQueue.length > 0) return { track: userQueue[0], consumeQueue: true }
+    const list = playing.sourceList
+    if (shuffleMode) {
+      const idx = pickShuffleIndex(list, playing.id)
+      if (idx >= 0) return { track: list[idx], consumeQueue: false }
+      if (repeatMode === 'all') {
+        const fb = findPlayableIndex(list, 0, 1)
+        if (fb >= 0) return { track: list[fb], consumeQueue: false }
+      }
+      return null
+    }
+    const idx = list.findIndex((r) => r.id === playing!.id)
+    if (idx < 0) return null
+    let nextIdx = findPlayableIndex(list, idx + 1, 1)
+    if (nextIdx < 0 && repeatMode === 'all') nextIdx = findPlayableIndex(list, 0, 1)
+    if (nextIdx < 0) return null
+    return { track: list[nextIdx], consumeQueue: false }
+  }
+
+  // Called from onAudioElementTimeUpdate on the ACTIVE audio. Decides
+  // whether the current track is close enough to its end to start
+  // overlapping the next one. Bails when crossfade is disabled, already
+  // triggered, repeat-one (which restarts the same track), or there's
+  // no candidate next track.
+  function maybeStartCrossfade(): void {
+    if (crossfadeDuration <= 0) return
+    if (crossfadeTriggered) return
+    if (repeatMode === 'one') return
+    if (!playing) return
+    const a = audioEl
+    if (!a) return
+    const dur = a.duration
+    if (!Number.isFinite(dur) || dur <= 0) return
+    const remaining = dur - a.currentTime
+    if (!Number.isFinite(remaining)) return
+    // Outside the fade window — wait.
+    if (remaining > crossfadeDuration) return
+    // Already past the end — let the natural ended handler take over.
+    if (remaining < 0.05) return
+    void startCrossfade()
+  }
+
+  async function startCrossfade(): Promise<void> {
+    if (crossfadeTriggered) return
+    crossfadeTriggered = true
+    const picked = peekNextTrack()
+    if (!picked) {
+      crossfadeTriggered = false
+      return
+    }
+    const { track, consumeQueue } = picked
+    if (track.unavailable) {
+      crossfadeTriggered = false
+      return
+    }
+    let r: { title: string; format: string; streamUrl: string }
+    try {
+      r = await window.api.resolveAudio(track.id)
+    } catch {
+      crossfadeTriggered = false
+      return
+    }
+    // Commit — consume the queue entry now that we have a real URL.
+    if (consumeQueue) userQueue = userQueue.slice(1)
+    // Push the outgoing track into history (deduped) so shuffle-prev
+    // can walk back to it.
+    if (playing && playing.streamUrl && playing.id !== track.id) {
+      const last = playHistory[playHistory.length - 1]
+      if (!last || last.id !== playing.id) {
+        pushHistory({
+          id: playing.id,
+          title: playing.title,
+          artist: playing.artist,
+          duration: '',
+          thumbnail: playing.thumbnail
+        })
+      }
+    }
+    // Swap roles: the previously inactive audio is now "active" (will
+    // hold the new track at full gain after the fade completes).
+    const fadingKey = activeAudioKey
+    const newKey: 'a' | 'b' = activeAudioKey === 'a' ? 'b' : 'a'
+    activeAudioKey = newKey
+    // Set src on the new active. The fading audio keeps its old src
+    // and continues playing the outgoing track during the fade.
+    if (newKey === 'a') {
+      audioASrc = r.streamUrl
+      gainA = 0
+      gainB = 1
+    } else {
+      audioBSrc = r.streamUrl
+      gainB = 0
+      gainA = 1
+    }
+    // Update playing for UI consumers — seek bar, cover, MediaSession,
+    // mini-player etc. all read from playing.
+    playing = {
+      id: track.id,
+      title: track.title || r.title,
+      artist: track.artist,
+      format: r.format,
+      streamUrl: r.streamUrl,
+      thumbnail: track.thumbnail,
+      sourceList: playing!.sourceList,
+      sourceListId: playing!.sourceListId,
+      sourceListTitle: playing!.sourceListTitle
+    }
+    currentTime = 0
+    duration = 0
+    await tick()
+    const newAudio = newKey === 'a' ? audioElA : audioElB
+    if (newAudio) {
+      const onCanPlay = (): void => {
+        newAudio.removeEventListener('canplay', onCanPlay)
+        const ids = nextIdsFrom(track.id, playing!.sourceList)
+        if (ids.length > 0) void window.api.prefetchAudio(ids)
+      }
+      newAudio.addEventListener('canplay', onCanPlay)
+      newAudio.play().catch(() => {})
+    }
+    persistSession(0)
+    runFadeAnimation(fadingKey, newKey)
+  }
+
+  function runFadeAnimation(fadingKey: 'a' | 'b', newKey: 'a' | 'b'): void {
+    crossfadeActive = true
+    const start = performance.now()
+    const durMs = Math.max(100, crossfadeDuration * 1000)
+    const step = (): void => {
+      if (!crossfadeActive) return
+      const elapsed = performance.now() - start
+      const t = Math.max(0, Math.min(1, elapsed / durMs))
+      // Linear amplitude ramp — perceptually close enough to equal-
+      // power for typical music crossfade, and dead simple.
+      const fadingGain = 1 - t
+      const newGain = t
+      if (fadingKey === 'a') gainA = fadingGain
+      else gainB = fadingGain
+      if (newKey === 'a') gainA = newGain
+      else gainB = newGain
+      if (t < 1) {
+        crossfadeRaf = requestAnimationFrame(step)
+      } else {
+        finishCrossfade(fadingKey, newKey)
+      }
+    }
+    crossfadeRaf = requestAnimationFrame(step)
+  }
+
+  function finishCrossfade(fadingKey: 'a' | 'b', newKey: 'a' | 'b'): void {
+    crossfadeRaf = null
+    crossfadeActive = false
+    crossfadeTriggered = false
+    if (fadingKey === 'a') {
+      audioElA?.pause()
+      audioASrc = ''
+      gainA = 0
+    } else {
+      audioElB?.pause()
+      audioBSrc = ''
+      gainB = 0
+    }
+    if (newKey === 'a') gainA = 1
+    else gainB = 1
   }
 
   // Is a track from the currently-open playlist what's playing? Drives
@@ -3377,6 +3696,31 @@
             </section>
 
             <section class="settings-card">
+              <h4>{t('settings.crossfade.title')}</h4>
+              <div class="crossfade-row">
+                <input
+                  type="range"
+                  class="crossfade-slider"
+                  min="0"
+                  max="12"
+                  step="1"
+                  value={crossfadeDuration}
+                  oninput={(e) =>
+                    void changeCrossfadeDuration(
+                      Number((e.currentTarget as HTMLInputElement).value)
+                    )}
+                  style:--p="{(crossfadeDuration / 12) * 100}%"
+                />
+                <span class="crossfade-value">
+                  {crossfadeDuration === 0
+                    ? t('settings.crossfade.off')
+                    : t('settings.crossfade.seconds', { n: crossfadeDuration })}
+                </span>
+              </div>
+              <p class="settings-hint">{t('settings.crossfade.hint')}</p>
+            </section>
+
+            <section class="settings-card">
               <h4>{t('settings.cache.title')}</h4>
               {#if cacheStats}
                 <p class="settings-line">
@@ -3882,38 +4226,31 @@
           </div>
         </div>
 
-        <!-- Audio element only mounts once we have a real stream URL.
-             A deferred-resume entry sets playing.streamUrl='' so the
-             player bar appears without trying to load anything; togglePlay
-             then triggers a real playTrack which fills in streamUrl. -->
-        {#if playing.streamUrl}
+        <!-- Two audio elements so we can crossfade between tracks.
+             `activeAudioKey` says which one is the logical "current"
+             player; the other is silent unless a fade is in progress.
+             Both are always mounted (no {#if playing.streamUrl})
+             because tearing one down mid-fade would chop the audio. -->
         <audio
-          bind:this={audioEl}
-          src={playing.streamUrl}
-          onended={onAudioEnded}
-          onplay={() => (isPlaying = true)}
-          onpause={() => {
-            isPlaying = false
-            // Catch the exact position the user paused at — the throttled
-            // timeupdate save might be up to 5s behind it.
-            persistSession()
-          }}
-          onseeked={() => persistSession()}
-          onloadedmetadata={() => (duration = audioEl?.duration ?? 0)}
-          ontimeupdate={() => {
-            if (!seeking && audioEl) currentTime = audioEl.currentTime
-            // Throttled save so a long song still rescues "where I left
-            // off" if the OS kills us without a clean shutdown.
-            maybePersistSessionOnTime()
-          }}
-          onvolumechange={() => {
-            if (audioEl) {
-              volume = audioEl.volume
-              muted = audioEl.muted
-            }
-          }}
+          bind:this={audioElA}
+          src={audioASrc}
+          onended={() => onAudioElementEnded('a')}
+          onplay={() => onAudioElementPlay('a')}
+          onpause={() => onAudioElementPause('a')}
+          onseeked={() => onAudioElementSeeked('a')}
+          onloadedmetadata={() => onAudioElementLoaded('a')}
+          ontimeupdate={() => onAudioElementTimeUpdate('a')}
         ></audio>
-        {/if}
+        <audio
+          bind:this={audioElB}
+          src={audioBSrc}
+          onended={() => onAudioElementEnded('b')}
+          onplay={() => onAudioElementPlay('b')}
+          onpause={() => onAudioElementPause('b')}
+          onseeked={() => onAudioElementSeeked('b')}
+          onloadedmetadata={() => onAudioElementLoaded('b')}
+          ontimeupdate={() => onAudioElementTimeUpdate('b')}
+        ></audio>
       </div>
       {#if miniMode}
         <!-- Mini-player shell. Same `playing` state as the full UI,
@@ -5191,6 +5528,48 @@
     gap: 0.5rem;
     flex-wrap: wrap;
     margin: 0.3rem 0 0.5rem;
+  }
+
+  /* Crossfade slider row — slider stretches, value label sits to the
+     right with tabular-nums so "0s / 4s / 12s" don't shift width. */
+  .crossfade-row {
+    display: flex;
+    align-items: center;
+    gap: 0.9rem;
+    margin: 0.4rem 0 0.5rem;
+  }
+  .crossfade-slider {
+    flex: 1;
+    appearance: none;
+    height: 6px;
+    border-radius: 4px;
+    background: linear-gradient(
+      to right,
+      var(--accent) 0%,
+      var(--accent) var(--p, 0%),
+      rgba(255, 255, 255, 0.12) var(--p, 0%),
+      rgba(255, 255, 255, 0.12) 100%
+    );
+    cursor: pointer;
+    outline: none;
+  }
+  .crossfade-slider::-webkit-slider-thumb {
+    appearance: none;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: var(--accent);
+    border: 2px solid #ffffff;
+    cursor: pointer;
+    box-shadow: 0 0 6px rgba(var(--accent-rgb), 0.6);
+  }
+  .crossfade-value {
+    min-width: 70px;
+    text-align: right;
+    color: #d4c9e8;
+    font-size: 0.88rem;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
   }
   .quality-btn {
     flex: 1 1 130px;
