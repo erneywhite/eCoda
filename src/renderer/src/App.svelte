@@ -226,6 +226,16 @@
     }
     hasPlaylistOverride = false
     playlistPinned = new Set()
+    // Snapshot the currently-visible cover + title into playlistFallback
+    // before the re-fetch. Otherwise Liked Music — whose /browse header
+    // sometimes doesn't carry a thumbnail — would render with a blank
+    // cover for the second between reset and the next user navigation.
+    if (playlistView) {
+      playlistFallback = {
+        title: playlistView.title,
+        thumbnail: playlistView.thumbnail
+      }
+    }
     // Force loadPlaylistData to re-fetch (it short-circuits when
     // openPlaylistId matches the id arg, but the Downloaded virtual
     // playlist always re-fetches anyway and YT playlists are cheap
