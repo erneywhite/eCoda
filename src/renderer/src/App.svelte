@@ -231,6 +231,7 @@
     // enough on the page-proxy).
     openPlaylistId = null
     await loadPlaylistData(id)
+    syncPlayingSourceList()
   }
 
   // Fisher-Yates over the non-pinned subset, then reassemble with
@@ -1792,6 +1793,17 @@
 
   // ---- streamer bundle (reshuffle / pin / drag) --------------------------
 
+  // After any operation that swaps playlistView.tracks for a new array
+  // (reshuffle / drag-reorder / reset-to-default), the player's
+  // sourceList still references the OLD array — so prev/next walk the
+  // pre-change order. Re-point sourceList at the live array so the
+  // very next track click reflects the new arrangement.
+  function syncPlayingSourceList(): void {
+    if (!playing || !playlistView || !openPlaylistId) return
+    if (playing.sourceListId !== openPlaylistId) return
+    playing = { ...playing, sourceList: playlistView.tracks }
+  }
+
   // One-shot reshuffle of the current playlist. Pinned rows stay where
   // they are; Fisher-Yates randomises the rest. Saves the new order so
   // the next open shows the same arrangement.
@@ -1799,6 +1811,7 @@
     if (!playlistView || playlistView.tracks.length < 2) return
     const next = reshuffleTracks(playlistView.tracks, playlistPinned)
     playlistView = { ...playlistView, tracks: next }
+    syncPlayingSourceList()
     await savePlaylistOverride()
   }
 
@@ -1847,6 +1860,7 @@
     const dest = from < idx ? idx - 1 : idx
     next.splice(dest, 0, moved)
     playlistView = { ...playlistView, tracks: next }
+    syncPlayingSourceList()
     await savePlaylistOverride()
   }
   function onRowDragEnd(): void {
