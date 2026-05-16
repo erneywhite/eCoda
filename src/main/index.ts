@@ -163,6 +163,11 @@ async function createWindow(): Promise<void> {
     minHeight: 560,
     show: false,
     autoHideMenuBar: true,
+    // Hide the native chrome — our header doubles as the titlebar, with
+    // a drag region + custom minimize/maximize/close buttons. Resize
+    // handles + Aero-snap stay intact (Windows keeps them on a frameless
+    // window because we use 'hidden' instead of `frame: false`).
+    titleBarStyle: 'hidden',
     backgroundColor: '#0c0816',
     title: 'eCoda',
     icon,
@@ -206,6 +211,12 @@ async function createWindow(): Promise<void> {
   mainWindow.on('move', scheduleSaveWindowState)
   mainWindow.on('maximize', scheduleSaveWindowState)
   mainWindow.on('unmaximize', scheduleSaveWindowState)
+  // Push the maximized flag to the renderer so the custom titlebar's
+  // maximize/restore button can swap its icon when the user uses Aero
+  // snap, the system menu, or a double-click on the drag region —
+  // anything that toggles the state without going through our buttons.
+  mainWindow.on('maximize', () => mainWindow?.webContents.send('window:maximize-changed', true))
+  mainWindow.on('unmaximize', () => mainWindow?.webContents.send('window:maximize-changed', false))
   mainWindow.on('close', () => {
     if (saveStateTimer) {
       clearTimeout(saveStateTimer)
@@ -572,6 +583,19 @@ app.whenReady().then(async () => {
     if (err) console.warn('[app:openPath] failed:', target, err)
     return err === ''
   })
+  // Custom-titlebar window controls — the native chrome is hidden, so
+  // the renderer's header buttons drive these via IPC. isMaximized is
+  // read on mount; maximize-changed is pushed so the icon stays in
+  // sync with the OS-side Aero-snap / double-click-titlebar gestures.
+  ipcMain.handle('window:minimize', () => mainWindow?.minimize())
+  ipcMain.handle('window:toggleMaximize', () => {
+    if (!mainWindow) return false
+    if (mainWindow.isMaximized()) mainWindow.unmaximize()
+    else mainWindow.maximize()
+    return mainWindow.isMaximized()
+  })
+  ipcMain.handle('window:close', () => mainWindow?.close())
+  ipcMain.handle('window:isMaximized', () => mainWindow?.isMaximized() ?? false)
   ipcMain.handle('settings:getDefaultTab', () => getDefaultTab())
   ipcMain.handle('settings:setDefaultTab', (_event, tab: DefaultTab) => setDefaultTab(tab))
   ipcMain.handle('settings:getPinned', () => getPinnedPlaylists())

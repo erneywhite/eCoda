@@ -24,6 +24,10 @@ const RU: Strings = {
   'downloaded.summary': '{n} треков · {size}',
   'nav.back': 'Назад',
   'nav.forward': 'Вперёд',
+  'window.minimize': 'Свернуть',
+  'window.maximize': 'Развернуть',
+  'window.restore': 'Восстановить',
+  'window.close': 'Закрыть',
 
   // Connect screen
   'connect.title': 'Подключить аккаунт YouTube',
@@ -215,6 +219,10 @@ const EN: Strings = {
   'downloaded.summary': '{n} tracks · {size}',
   'nav.back': 'Back',
   'nav.forward': 'Forward',
+  'window.minimize': 'Minimize',
+  'window.maximize': 'Maximize',
+  'window.restore': 'Restore',
+  'window.close': 'Close',
 
   'connect.title': 'Connect your YouTube account',
   'connect.hint':

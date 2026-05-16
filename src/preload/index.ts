@@ -84,6 +84,22 @@ const api = {
     info: () => ipcRenderer.invoke('app:info'),
     openPath: (target: string) => ipcRenderer.invoke('app:openPath', target)
   },
+  // Frameless-window controls. The native chrome is hidden in main,
+  // so the renderer's custom titlebar buttons drive these.
+  window: {
+    minimize: () => ipcRenderer.invoke('window:minimize'),
+    toggleMaximize: () => ipcRenderer.invoke('window:toggleMaximize'),
+    close: () => ipcRenderer.invoke('window:close'),
+    isMaximized: () => ipcRenderer.invoke('window:isMaximized'),
+    // Push from main on maximize/unmaximize (including OS-driven
+    // changes like Aero snap or double-click on the drag region) so
+    // the maximize/restore button can swap its icon.
+    onMaximizeChanged: (cb: (isMax: boolean) => void) => {
+      const wrapped = (_e: unknown, isMax: unknown): void => cb(!!isMax)
+      ipcRenderer.on('window:maximize-changed', wrapped)
+      return () => ipcRenderer.removeListener('window:maximize-changed', wrapped)
+    }
+  },
   updater: {
     check: () => ipcRenderer.invoke('update:check'),
     download: () => ipcRenderer.invoke('update:download'),

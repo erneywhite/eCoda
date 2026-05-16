@@ -23,6 +23,10 @@
 
   // ---- auth state -----------------------------------------------------------
   let connectedBrowser = $state<string | null>(null)
+  // True when the OS-level window is maximized — drives the custom
+  // titlebar's restore/maximize icon swap. Seeded on mount + kept in
+  // sync via window:maximize-changed pushes from main.
+  let windowMaximized = $state(false)
   let browsers = $state<{ id: string; name: string }[]>([])
   let connecting = $state<string | null>(null)
   let connectError = $state('')
@@ -1313,6 +1317,11 @@
     const unsubPct = window.api.downloads.onTrackProgress(handleTrackProgress)
     // Auto-updater event stream — drives the "Обновления" Settings card.
     const unsubUpd = window.api.updater.onEvent(handleUpdaterEvent)
+    // Window maximize/restore state — seed for the initial paint, then
+    // mirror OS-driven changes (Aero snap, double-click drag region,
+    // system menu) so the custom titlebar's icon stays accurate.
+    void window.api.window.isMaximized().then((m) => (windowMaximized = m))
+    const unsubWin = window.api.window.onMaximizeChanged((m) => (windowMaximized = m))
     // Silent reconnect just refreshed cookies in main — drop the
     // logged-in-required caches and re-fetch whatever the user is
     // currently looking at. Stops the "empty Library on first launch
@@ -1423,6 +1432,7 @@
       unsubPct()
       unsubUpd()
       unsubAuth()
+      unsubWin()
       window.removeEventListener('mouseup', onMouse)
       window.removeEventListener('mousedown', onWindowMouseDown)
       window.removeEventListener('keydown', onWindowKeyDown)
@@ -2195,6 +2205,54 @@
         </button>
       </div>
     {/if}
+    <!-- Custom window controls. Native chrome is hidden (titleBarStyle:
+         'hidden' in main); these three drive the same actions. The
+         maximize/restore icon swaps based on `windowMaximized`, which
+         is seeded on mount and re-synced via window:maximize-changed
+         so Aero snap / OS gestures stay reflected. -->
+    <div class="window-controls">
+      <button
+        class="win-ctrl"
+        onclick={() => void window.api.window.minimize()}
+        aria-label={t('window.minimize')}
+        title={t('window.minimize')}
+      >
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
+          <line x1="5" y1="13" x2="19" y2="13" />
+        </svg>
+      </button>
+      <button
+        class="win-ctrl"
+        onclick={async () => {
+          windowMaximized = await window.api.window.toggleMaximize()
+        }}
+        aria-label={windowMaximized ? t('window.restore') : t('window.maximize')}
+        title={windowMaximized ? t('window.restore') : t('window.maximize')}
+      >
+        {#if windowMaximized}
+          <!-- Restore icon: two overlapping rectangles -->
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="7" y="4" width="13" height="13" rx="1" />
+            <path d="M4 7v13h13" />
+          </svg>
+        {:else}
+          <!-- Maximize icon: single rounded rectangle -->
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="5" y="5" width="14" height="14" rx="1" />
+          </svg>
+        {/if}
+      </button>
+      <button
+        class="win-ctrl close"
+        onclick={() => void window.api.window.close()}
+        aria-label={t('window.close')}
+        title={t('window.close')}
+      >
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M6 6l12 12M18 6L6 18" />
+        </svg>
+      </button>
+    </div>
   </header>
 
   {#if !connectedBrowser}
@@ -3553,10 +3611,26 @@
     align-items: center;
     gap: 1rem;
     /* Asymmetric padding: match .layout — header should sit above the
-       sidebar with the same 1rem left gutter, while the right side keeps
-       the original 2rem so the back/forward chips don't hug the window. */
-    padding: 1.2rem 2rem 1.2rem 1rem;
+       sidebar with the same 1rem left gutter. Right side has zero
+       padding because the window controls (.window-controls) hug the
+       window's actual right edge; the right gutter is built into the
+       controls' own internal padding. */
+    padding: 1.2rem 0 1.2rem 1rem;
     flex-shrink: 0;
+    /* Whole header is the drag region for the frameless window —
+       grab anywhere in the empty space to move the window. Interactive
+       children (.hist, .win-ctrl) opt out via -webkit-app-region:no-drag
+       below. Double-clicking the drag region toggles maximize, which
+       is the standard OS expectation. */
+    -webkit-app-region: drag;
+  }
+
+  /* All interactive header elements must opt out of the drag region —
+     otherwise clicks land as drag attempts and the buttons feel dead. */
+  .wordmark,
+  .hist,
+  .win-ctrl {
+    -webkit-app-region: no-drag;
   }
 
   /* Wordmark image is the eCoda lettering — no need for a separate text
@@ -3611,6 +3685,48 @@
   .hist:disabled {
     opacity: 0.4;
     cursor: default;
+  }
+
+  /* Custom window controls (minimize / maximize / close). Sit flush to
+     the right edge of the window — matches the Windows native bar's
+     position. Close gets a red hover so the destructive action is
+     immediately readable; the other two get the standard accent tint. */
+  .window-controls {
+    display: flex;
+    align-self: stretch;
+    margin-left: 0.6rem;
+  }
+  .win-ctrl {
+    width: 46px;
+    /* align-self:stretch + height:auto would push it to header's natural
+       height; explicit 100% fills the entire vertical drag region so the
+       buttons mirror the OS taskbar feel. */
+    height: 100%;
+    min-height: 40px;
+    padding: 0;
+    border: none;
+    border-radius: 0;
+    background: transparent;
+    color: #b9acd6;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: background 0.12s ease, color 0.12s ease;
+  }
+  .win-ctrl:hover {
+    background: rgba(255, 255, 255, 0.08);
+    color: #ffffff;
+  }
+  .win-ctrl.close:hover {
+    background: #e81123;
+    color: #ffffff;
+  }
+  .win-ctrl:active {
+    background: rgba(255, 255, 255, 0.04);
+  }
+  .win-ctrl.close:active {
+    background: #c50f1f;
   }
 
   .ghost:disabled {
@@ -4907,7 +5023,11 @@
     -webkit-backdrop-filter: blur(28px);
     border: 1px solid rgba(255, 255, 255, 0.07);
     border-radius: 18px;
-    margin: 0 1.5rem 1.2rem;
+    /* Match .layout's horizontal padding so the player's left edge
+       sits flush with the sidebar's left edge and the right edge sits
+       flush with the content column's right edge — visually one column
+       of UI all the way down instead of three subtly mis-aligned ones. */
+    margin: 0 2rem 1.2rem 1rem;
     box-shadow: 0 8px 30px rgba(0, 0, 0, 0.4);
     flex-shrink: 0;
     overflow: hidden;

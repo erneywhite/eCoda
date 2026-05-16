@@ -207,6 +207,13 @@ export interface EcodaApi {
     }>
     openPath: (target: string) => Promise<boolean>
   }
+  window: {
+    minimize: () => Promise<void>
+    toggleMaximize: () => Promise<boolean>
+    close: () => Promise<void>
+    isMaximized: () => Promise<boolean>
+    onMaximizeChanged: (cb: (isMax: boolean) => void) => () => void
+  }
   updater: {
     check: () => Promise<boolean>
     download: () => Promise<void>
