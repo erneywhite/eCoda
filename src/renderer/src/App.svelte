@@ -469,10 +469,20 @@
   }
 
   async function toggleTrackDownload(track: SearchResult): Promise<void> {
-    // Clicking ↓ while it's already downloading = cancel. Kills the
-    // underlying yt-dlp; the IPC promise still rejects (caught in the
-    // catch below) and the finally clears the in-flight badge.
+    // Clicking ↓ while it's already downloading = cancel. Clear the
+    // busy + percent state IMMEDIATELY so the chip flips back to the
+    // idle ↓ without waiting for yt-dlp's kill→close round-trip (which
+    // takes 100-300ms and was making the cancel feel laggy). The IPC
+    // call kills the process; the eventual reject lands in the catch
+    // below and is harmless because finally is a no-op on already-clear
+    // state.
     if (downloadingIds.has(track.id)) {
+      setDownloading(track.id, false)
+      if (downloadPercent.has(track.id)) {
+        const next = new Map(downloadPercent)
+        next.delete(track.id)
+        downloadPercent = next
+      }
       void window.api.downloads.cancel(track.id)
       return
     }
@@ -509,8 +519,15 @@
   // Cancel the in-flight bulk download (playlist Download N). Tells main
   // to kill the running yt-dlp + stop dispatching more tracks. Already-
   // downloaded ones stay; the progress chip's "cancel" tooltip explains.
+  // Clears bulkProgress + the per-track percent stream IMMEDIATELY for
+  // instant UI feedback — the bulk IPC promise still completes in the
+  // background (after the kill takes effect) and writes bulkResult with
+  // whatever partial count it got, but the user doesn't have to wait
+  // 100-300ms staring at a spinner they're trying to dismiss.
   function cancelBulkDownload(): void {
     void window.api.downloads.cancelAll()
+    bulkProgress = null
+    downloadPercent = new Map()
   }
 
   async function downloadCurrentPlaylist(): Promise<void> {
@@ -809,15 +826,26 @@
     else audioEl.pause()
   }
 
-  // With bind:value below, Svelte handles the input→state write. Our
-  // job here is just to flip the `seeking` flag so timeupdate stops
-  // fighting the drag, AND to commit the seek to the audio element on
-  // mouseup (`change` event).
-  function onSeekInput(): void {
+  // Two-handler seek interaction with DOM as the authoritative value
+  // source. We pulled `bind:value` because Svelte 5's bind on a range
+  // input plus our own oninput/onchange handlers produced undefined
+  // ordering — sometimes currentTime was still the pre-click value at
+  // the moment `onchange` ran, and audio committed to 0. Reading
+  // e.currentTarget.value directly side-steps the whole question.
+  //
+  // The `seeking` flag still gates timeupdate so the displayed thumb
+  // doesn't fight the user's drag (timeupdate would otherwise tick the
+  // value back to audio's actual position every ~250ms).
+  function onSeekInput(e: Event): void {
     seeking = true
+    currentTime = Number((e.currentTarget as HTMLInputElement).value)
   }
-  function onSeekCommit(): void {
-    if (audioEl) audioEl.currentTime = currentTime
+  function onSeekCommit(e: Event): void {
+    const v = Number((e.currentTarget as HTMLInputElement).value)
+    if (audioEl && Number.isFinite(v)) {
+      audioEl.currentTime = v
+      currentTime = v
+    }
     seeking = false
   }
   function onVolumeInput(e: Event): void {
@@ -2456,19 +2484,18 @@
              player bar (visually replaces the top border). Times live
              inline with the transport buttons below, the same way YT Music
              arranges them. -->
-        <!-- bind:value keeps the input and currentTime in sync without
-             Svelte re-applying the `value` attribute every render — which
-             during heavy re-render bursts (e.g. download progress events
-             ticking ~10/sec) was racing the user's seek-bar click and
-             snapping the thumb back, making the audio commit to the
-             pre-click position.
-
-             The wrapper has a fixed visual height; the input is absolutely
+        <!-- The wrapper has a fixed visual height; the input is absolutely
              positioned and extends 10px above + below into the wrapper's
              padding so the clickable zone is ~25px without expanding the
              layout footprint. On hover the track grows a couple of px and
              the thumb fades in — all of that happens INSIDE the absolute
-             input so nothing above or below shifts. -->
+             input so nothing above or below shifts.
+
+             No bind:value — onSeekInput / onSeekCommit read input.value
+             from the DOM directly. Svelte 5's bind:value plus our own
+             input/change handlers had undefined interleaving, which on
+             a click (not drag) was committing the pre-click value to
+             audioEl.currentTime and snapping playback to 0:00. -->
         <div class="seek-wrap">
           <input
             type="range"
@@ -2476,7 +2503,7 @@
             min="0"
             max={duration || 0}
             step="0.5"
-            bind:value={currentTime}
+            value={currentTime}
             oninput={onSeekInput}
             onchange={onSeekCommit}
             disabled={!duration}
