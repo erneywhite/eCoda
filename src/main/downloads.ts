@@ -16,7 +16,10 @@ const isWin = process.platform === 'win32'
 const binDir = app.isPackaged
   ? join(process.resourcesPath, 'app.asar.unpacked', 'resources')
   : join(app.getAppPath(), 'resources')
-const ytdlpPath = join(binDir, isWin ? 'yt-dlp.exe' : 'yt-dlp')
+// Deno is a native binary so it stays platform-named; yt-dlp itself
+// goes through ytdlpInvocation() (which handles the zipapp + bundled
+// Python plumbing for us), so we don't need a yt-dlp path constant
+// here any more.
 const denoPath = join(binDir, isWin ? 'deno.exe' : 'deno')
 
 // Map<videoId, ChildProcess> of in-flight yt-dlp downloads so cancel

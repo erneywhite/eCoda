@@ -22,23 +22,27 @@ const binDir = app.isPackaged
 // Apple-signed) → no amfid overhead, ~0.05s startup. Trade-off: macOS
 // users need Python 3.10+ installed (Homebrew or python.org). See
 // macPython3Path() below for the search order.
-const ytdlpPath = join(binDir, isWin ? 'yt-dlp.exe' : 'yt-dlp')
+// Both platforms now ship the yt-dlp Python zipapp (no `.exe` /
+// `_macos` suffix — same file on every OS). The daemon imports
+// `yt_dlp` from it via zipimport; per-call fallback runs it through
+// bundled standalone Python.
+const ytdlpPath = join(binDir, 'yt-dlp')
 const denoPath = join(binDir, isWin ? 'deno.exe' : 'deno')
 
 const run = promisify(execFile)
 
-// Finds a usable Python 3.10+ interpreter on macOS. Priority:
-//   1. Bundled standalone Python (resources/python-mac/) — what every
-//      shipped .app uses. Fetched at `npm install` time by
-//      scripts/fetch-python-mac.mjs.
-//   2. Homebrew fallbacks — only relevant on a dev machine where the
-//      bundled fetch has been skipped (rare) or for ad-hoc debugging.
-// `/usr/bin/python3` is excluded because the Apple-shipped stub is
-// Python 3.9 on every macOS version yt-dlp supports, and yt-dlp
-// requires 3.10+. Throws with a fix hint if nothing usable is found.
-const bundledPython = join(binDir, 'python-mac', 'bin', 'python3')
+// Finds a usable Python 3.10+ interpreter. We always prefer the
+// bundled standalone Python (python-build-standalone) shipped in the
+// installer — it's the same release on Mac and Windows for lock-step
+// behaviour. Homebrew paths are a dev fallback for the rare case where
+// the postinstall fetch was skipped on a development machine.
+//
+// `/usr/bin/python3` on macOS is excluded because Apple's stub is
+// Python 3.9 on every supported macOS version, and yt-dlp requires
+// 3.10+. On Windows there's no system-Python fallback — bundled is
+// required.
 const MAC_PYTHON_CANDIDATES = [
-  bundledPython,
+  join(binDir, 'python-mac', 'bin', 'python3'),
   '/opt/homebrew/bin/python3',
   '/opt/homebrew/opt/python@3.13/bin/python3',
   '/opt/homebrew/opt/python@3.14/bin/python3',
@@ -46,33 +50,38 @@ const MAC_PYTHON_CANDIDATES = [
   '/usr/local/opt/python@3.13/bin/python3',
   '/usr/local/opt/python@3.14/bin/python3'
 ]
+// Windows layout from python-build-standalone is flat: python.exe sits
+// at the top level of the extracted folder (NOT under bin/). pythonw
+// is the windowed variant — fine for our use but we prefer console
+// python for clearer stderr in dev.
+const WIN_PYTHON_CANDIDATES = [join(binDir, 'python-win', 'python.exe')]
 let cachedPython3: string | null = null
-function macPython3Path(): string {
+function bundledPython3Path(): string {
   if (cachedPython3) return cachedPython3
-  for (const p of MAC_PYTHON_CANDIDATES) {
+  const candidates = isWin ? WIN_PYTHON_CANDIDATES : MAC_PYTHON_CANDIDATES
+  for (const p of candidates) {
     if (existsSync(p)) {
       cachedPython3 = p
       return p
     }
   }
   throw new Error(
-    'Bundled Python missing at resources/python-mac/. Re-run `npm install` to fetch it.'
+    `Bundled Python missing at resources/python-${isWin ? 'win' : 'mac'}/. Re-run \`npm install\` to fetch it.`
   )
 }
 
 // Returns the [command, args] tuple to spawn yt-dlp with the given
-// user-supplied args. On macOS we prepend the Python interpreter and
-// the zipapp path; on Windows/Linux we invoke the PyInstaller binary
-// directly.
+// user-supplied args. Always: bundled Python + the zipapp.
 export function ytdlpInvocation(userArgs: string[]): [string, string[]] {
-  if (isMac) return [macPython3Path(), [ytdlpPath, ...userArgs]]
-  return [ytdlpPath, userArgs]
+  return [bundledPython3Path(), [ytdlpPath, ...userArgs]]
 }
 
-// Persistent yt-dlp worker pool — only used on macOS where the zipapp
-// + bundled Python pipeline lives. On Windows we keep the per-call
-// spawn (yt-dlp.exe cold start is ~0.5s, not worth the daemon
-// complexity).
+// Persistent yt-dlp worker pool. Same code path on macOS and Windows
+// now — both ship the zipapp + bundled Python, both benefit from
+// amortising Python interpreter init (~1.5-2s) and YoutubeDL
+// construction (~2-3s) across the lifetime of the app. Cold-resolve
+// benchmark on Windows 0.0.48 (per-call spawn): ~6.8s; with the pool
+// after first click: ~3s.
 //
 // POOL_SIZE = 2: enough to keep one foreground user click and one
 // background prefetch running concurrently without queueing. Bumping
@@ -81,16 +90,22 @@ export function ytdlpInvocation(userArgs: string[]): [string, string[]] {
 const POOL_SIZE = 2
 let daemonPool: YtdlpDaemonPool | null = null
 function getYtdlpDaemonPool(): YtdlpDaemonPool | null {
-  if (!isMac) return null
   if (daemonPool) return daemonPool
   const daemonScript = join(binDir, 'yt-dlp-daemon.py')
   if (!existsSync(daemonScript)) {
     console.warn('[ytdlp] daemon script missing, falling back to per-call spawn')
     return null
   }
+  let python: string
+  try {
+    python = bundledPython3Path()
+  } catch (err) {
+    console.warn('[ytdlp] no bundled Python available, daemon disabled:', err)
+    return null
+  }
   daemonPool = new YtdlpDaemonPool(
     POOL_SIZE,
-    () => new YtdlpDaemon(macPython3Path(), daemonScript, ytdlpPath, ytdlpEnv)
+    () => new YtdlpDaemon(python, daemonScript, ytdlpPath, ytdlpEnv)
   )
   daemonPool.start()
   return daemonPool

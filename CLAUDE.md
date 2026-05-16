@@ -89,38 +89,30 @@ Implementation:
 
 **Persistent daemon pool (macOS, 0.0.47):** `resources/yt-dlp-daemon.py` is a Python worker that imports `yt_dlp` once and processes newline-delimited JSON over stdin/stdout. `src/main/ytdlp-daemon.ts` is the Node wrapper; `YtdlpDaemonPool` runs **two** daemons so a foreground user click can land on the idle one while a background prefetch occupies the other (pool size 1 caused 10s clicks because requests queued behind prefetches). Pool starts after `silentReconnect` succeeds; `stopYtdlpDaemon()` runs on `before-quit`. **No warmup-on-start** — we tried it and it actively queued ahead of the user's first real click. Per-call spawn stays as a fallback if the daemon script is missing or the bundled Python can't be found.
 
-## TODO: port the same yt-dlp pipeline to Windows
+## Windows yt-dlp pipeline (0.0.49 — same machinery as macOS)
 
-Status: planned but not implemented. Windows still spawns `yt-dlp.exe` per call (~4-5s cold resolve). Bringing the macOS pipeline (zipapp + bundled Python + daemon pool) over should drop that to ~2-3s. Cost: NSIS installer grows from ~139 MB to ~200 MB (+65 MB for standalone Python).
+Windows now ships the same zipapp + bundled Python + daemon pool that macOS does. Single code path in `ytdlp.ts`, single fetch script for Python, lockstep Python version across both OSes.
 
-**Files to change (concrete diff):**
+Measured on Windows (5 cold resolves, firefox cookies, 0.0.48 vs 0.0.49):
 
-1. **`scripts/fetch-python-mac.mjs`** → generalise (rename to `fetch-python.mjs` and branch on `process.platform`, or create a parallel `fetch-python-win.mjs`). Windows asset name from python-build-standalone: `cpython-3.13.13+20260510-x86_64-pc-windows-msvc-install_only_stripped.tar.gz`. Windows layout is **flat, not Unix-style** — after `tar -xzf`, `python/` contains `python.exe`, `pythonw.exe`, `python313.dll`, `DLLs/`, `Lib/`, `Scripts/`, `tcl/`. Destination is `resources/python-win/python.exe` (no `bin/` subdirectory). Same `RELEASE` + `PY_VERSION` constants as macOS so the two stay in lockstep.
+| Path | min | p50 | avg | p95 |
+| --- | --- | --- | --- | --- |
+| Per-call spawn (old, `yt-dlp.exe`) | 6572 | 6710 | 6800 | 7162 |
+| Daemon pool (new, zipapp + bundled Python) | 5017 | 5342 | 5594 | 6397 |
 
-2. **`scripts/fetch-ytdlp.mjs`** — switch Windows to the zipapp too. Currently fetches `yt-dlp.exe` and saves as `resources/yt-dlp.exe`. Change to fetch the `yt-dlp` zipapp on Windows as well, saved as `resources/yt-dlp` (no extension). All three platforms then use the same zipapp + Python combo.
+**Avg saving: ~1.2 s per cold resolve. p50 saving: ~1.4 s.** First call still pays YoutubeDL construction (~6.4 s); 2nd-and-later calls steady at ~5.0-5.3 s once the cache is warm. Network + Deno n-sig solve is the irreducible remainder.
 
-3. **`package.json`:** postinstall calls `fetch-python.mjs` (handles both platforms); `asarUnpack` adds `resources/python-win/**/*` and `resources/yt-dlp-daemon.py` (daemon script must live on disk for spawn, can't be inside the asar archive).
+**Installer size barely moved**: 132.7 MB → 132.9 MB (+0.3 MB). NSIS compresses Python's `Lib/` aggressively, and the ~30 MB of standalone Python net almost exactly cancels the ~30 MB we used to ship as `yt-dlp.exe` (PyInstaller bundle). The bundle on disk *unpacked* grew ~+30 MB.
 
-4. **`.gitignore`:** add `resources/python-win/`.
+**Anti-checklist (don't undo these):**
+- Don't bring back `yt-dlp.exe` — it's slower per call (PyInstaller startup) and roughly the same size, with no upside.
+- Don't ship Python 3.14 — keep 3.13.13 + the `RELEASE='20260510'` constant in `scripts/fetch-python.mjs` matching macOS for lockstep behaviour.
+- Don't try to share `resources/python/` between mac and win (layouts differ — Mac has `bin/python3`, Windows has flat `python.exe`).
+- Don't pre-warm via a fake resolve at startup (tried on mac in 0.0.47 dev, hurt first-click latency by queueing ahead of the user).
+- Don't set `POOL_SIZE` higher than 2 without measuring — each daemon = ~70 MB resident.
+- Don't drop `process.env.SystemRoot/System32/tar.exe` for the Windows tar in `fetch-python.mjs` — Git-Bash's GNU tar misinterprets `C:` in `-C` paths as a remote host.
 
-5. **`src/main/ytdlp.ts`:**
-   - `ytdlpPath` becomes `join(binDir, 'yt-dlp')` on all platforms (no `.exe` suffix now that Windows uses the zipapp).
-   - Add `winPython3Path()` mirroring `macPython3Path()` — candidate list `[join(binDir, 'python-win', 'python.exe')]`.
-   - `ytdlpInvocation()`: `if (isWin) return [winPython3Path(), [ytdlpPath, ...userArgs]]`.
-   - `getYtdlpDaemonPool()`: drop the `if (!isMac) return null` gate; spawn with `isMac ? macPython3Path() : winPython3Path()`.
-
-6. **`src/main/downloads.ts`:** no change — it already routes through `ytdlpInvocation()`.
-
-7. **`resources/yt-dlp-daemon.py`:** no change — cross-platform as-is. The protocol works identically; `sys.stdout.flush()` after every write guards against Windows non-interactive line-buffering.
-
-**Verify on a Windows machine:** clean `resources/{yt-dlp,yt-dlp.exe,python-win,python-mac}` → `npm install` (postinstall pulls zipapp + deno.exe + standalone Python; verify `resources/python-win/python.exe --version` prints 3.13.13) → `npm run typecheck` → `npm run dev`, click a fresh track, watch `[resolver] yt-dlp <id> in <ms>ms` go from 4-5s to ~3s after the first click warms one daemon → `npm run build:win`, confirm installer at ~200 MB.
-
-**Anti-checklist for Windows side:**
-- Don't codesign Python or yt-dlp (no amfid on Windows; signature games can only break SmartScreen).
-- Don't ship Python 3.14 — keep 3.13.13 + the same `RELEASE` constant as macOS.
-- Don't try to share `resources/python/` across mac and win (layouts differ).
-- Don't pre-warm via a fake resolve at startup (tried on mac in 0.0.47 dev, hurt first-click latency).
-- Don't set pool size higher than 2 without measuring — each daemon = ~70 MB resident.
+**Single source of truth:** `ytdlpInvocation()` in `ytdlp.ts` now returns `[bundledPython3Path(), [ytdlpPath, ...args]]` on every platform. Downloads + resolve both flow through it. Linux is not yet shipped; if/when we add it, postinstall will need a Linux Python branch (likely also python-build-standalone).
 
 ## Build commands
 
