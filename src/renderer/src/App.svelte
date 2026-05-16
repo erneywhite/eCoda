@@ -1123,7 +1123,13 @@
     // push_pin — slanted thumbtack (pinned indicator)
     pin: 'M16 9V4l1-1V1H7v2l1 1v5l-2 2v2h5v7l1 1 1-1v-7h5v-2l-2-2z',
     // push_pin outline — same pin shape but outline-only
-    unpin: 'M14 4v5l2 2v2h-5v7l-1 1-1-1v-7H4v-2l2-2V4H4V2h14v2h-2zm-2 0H8v5l-2 2h10l-2-2V4z'
+    unpin: 'M14 4v5l2 2v2h-5v7l-1 1-1-1v-7H4v-2l2-2V4H4V2h14v2h-2zm-2 0H8v5l-2 2h10l-2-2V4z',
+    // favorite (filled heart) — like
+    like: 'M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z',
+    // favorite_border (outline heart) — unlike
+    unlike: 'M16.5 3c-1.74 0-3.41.81-4.5 2.09C10.91 3.81 9.24 3 7.5 3 4.42 3 2 5.42 2 8.5c0 3.78 3.4 6.86 8.55 11.54L12 21.35l1.45-1.32C18.6 15.36 22 12.28 22 8.5 22 5.42 19.58 3 16.5 3zm-4.4 15.55l-.1.1-.1-.1C7.14 14.24 4 11.39 4 8.5 4 6.5 5.5 5 7.5 5c1.54 0 3.04.99 3.57 2.36h1.87C13.46 5.99 14.96 5 16.5 5c2 0 3.5 1.5 3.5 3.5 0 2.89-3.14 5.74-7.9 10.05z',
+    // radio — broadcast tower with dot
+    radio: 'M3.24 6.15C2.51 6.43 2 7.17 2 8v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8c0-1.1-.9-2-2-2H8.3l8.26-3.34L15.88 1 3.24 6.15zM7 20c-1.66 0-3-1.34-3-3s1.34-3 3-3 3 1.34 3 3-1.34 3-3 3zm13-8h-2v-2h-2v2H4V8h16v4z'
   }
 
   // Builds the context menu items for a track. sourceList lets actions
@@ -1147,6 +1153,18 @@
       onSelect: () => queueAppend(track),
       disabled: track.unavailable
     })
+    items.push({
+      label: t('ctx.startRadio'),
+      iconPath: CTX_ICONS.radio,
+      onSelect: () => void startRadioFromTrack(track),
+      disabled: track.unavailable
+    })
+    items.push({
+      label: t('ctx.addToLiked'),
+      iconPath: CTX_ICONS.like,
+      onSelect: () => void likeTrackAction(track, true),
+      disabled: track.unavailable
+    })
     // Pin / unpin only makes sense in a playlist view (search results
     // aren't a list with persistent order). Detect by: openPlaylistId
     // is set AND this menu was opened on a row from the playlist view.
@@ -1163,7 +1181,63 @@
         onSelect: () => void togglePinTrack(track)
       })
     }
+    // Inside Liked Music playlist itself, expose "Remove from Liked"
+    // as an inverse. (Calls /like/removelike.)
+    if (isLikedMusicId(openPlaylistId)) {
+      items.push({
+        label: t('ctx.removeFromLiked'),
+        iconPath: CTX_ICONS.unlike,
+        onSelect: () => void likeTrackAction(track, false),
+        danger: true
+      })
+    }
     return items
+  }
+
+  // ---- Like + Radio actions ---------------------------------------------
+
+  async function likeTrackAction(track: SearchResult, like: boolean): Promise<void> {
+    if (!track.id || track.unavailable) return
+    showToast(like ? t('toast.likeSending') : t('toast.unlikeSending'))
+    const ok = await window.api.metadata.like(track.id, like)
+    if (ok) {
+      showToast(like ? t('toast.liked', { title: track.title }) : t('toast.unliked', { title: track.title }))
+      // When the user removes a like from inside the Liked Music view,
+      // drop the row immediately so the count + list reflect reality.
+      // The next visit will re-fetch and confirm.
+      if (!like && isLikedMusicId(openPlaylistId) && playlistView) {
+        const next = playlistView.tracks.filter((t) => t.id !== track.id)
+        playlistView = { ...playlistView, tracks: next }
+        syncPlayingSourceList()
+      }
+    } else {
+      showToast(t('toast.likeFailed'))
+    }
+  }
+
+  // Starts radio from a track: pulls related songs via yt.music.getUpNext,
+  // builds a sourceList of [seed, ...related] and starts playback. The
+  // sticky prev/next then walks the radio list. Toast + spinner-ish
+  // toast feedback because the IPC takes ~300-800ms.
+  async function startRadioFromTrack(track: SearchResult): Promise<void> {
+    if (!track.id || track.unavailable) return
+    showToast(t('toast.radioStarting', { title: track.title }))
+    let related: SearchResult[] = []
+    try {
+      related = await window.api.metadata.radio(track.id)
+    } catch (err) {
+      console.warn('radio fetch failed', err)
+    }
+    if (related.length === 0) {
+      showToast(t('toast.radioEmpty'))
+      return
+    }
+    const sourceList = [track, ...related]
+    await playTrack(track, sourceList, {
+      id: undefined,
+      title: t('radio.title', { title: track.title })
+    })
+    showToast(t('toast.radioStarted', { n: related.length }))
   }
 
   function openCtxMenu(

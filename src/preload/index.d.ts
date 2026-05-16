@@ -171,6 +171,8 @@ export interface EcodaApi {
     home: () => Promise<HomeSection[]>
     playlist: (id: string) => Promise<PlaylistView>
     libraryPlaylists: () => Promise<HomeSection>
+    like: (videoId: string, like: boolean) => Promise<boolean>
+    radio: (videoId: string) => Promise<SearchResult[]>
   }
   library: {
     prepare: () => Promise<{ ok: true; cookies: number } | { ok: false; error: string }>

@@ -795,3 +795,80 @@ export async function extractStreamUrlViaPage(videoId: string): Promise<Resolved
 // yt-dlp handles this for us — it generates po_token via its own Deno-run
 // JS challenges. See probe-music.json + probe-format.json in repo root for
 // the empirical evidence that drove this decision.
+
+// ===========================================================================
+// LIKE / UNLIKE — POST /like/like + /like/removelike via the page proxy.
+// The page-proxy supplies the SAPISIDHASH triple-auth + cookies + visitor
+// data for us, so this is a one-liner POST per action. Track shows up in
+// the user's Liked Music auto-playlist after a like.
+// ===========================================================================
+
+export async function likeTrack(videoId: string, like: boolean): Promise<boolean> {
+  if (!videoId || !/^[\w-]{11}$/.test(videoId)) return false
+  try {
+    await innertubeFetch(like ? '/like/like' : '/like/removelike', {
+      target: { videoId }
+    })
+    return true
+  } catch (err) {
+    console.warn(`[like] ${like ? 'like' : 'removelike'} failed for ${videoId}:`, err)
+    return false
+  }
+}
+
+// ===========================================================================
+// RADIO — yt.music.getUpNext(videoId) returns YT's "Up next" radio for a
+// track. We parse it into SearchResult[] so the renderer can drop the
+// items straight into the player's sourceList or the user queue.
+// ===========================================================================
+
+export async function getRadioForTrack(videoId: string): Promise<SearchResult[]> {
+  if (!videoId || !/^[\w-]{11}$/.test(videoId)) return []
+  const yt = await getInnertube()
+  try {
+    const raw = (await yt.music.getUpNext(videoId)) as unknown
+    const obj = raw as Record<string, unknown>
+    // Walk the response defensively — youtubei.js exposes UpNext under
+    // a few different shapes across versions. `items` is the common one;
+    // `contents` is the raw renderer shape.
+    const rawItems: unknown[] = Array.isArray(obj.items)
+      ? (obj.items as unknown[])
+      : Array.isArray(obj.contents)
+        ? (obj.contents as unknown[])
+        : []
+    const out: SearchResult[] = []
+    const seen = new Set<string>()
+    for (const it of rawItems) {
+      if (!it || typeof it !== 'object') continue
+      const item = it as Record<string, unknown>
+      const id =
+        typeof item.id === 'string'
+          ? item.id
+          : typeof item.video_id === 'string'
+            ? item.video_id
+            : ''
+      if (!id || !/^[\w-]{11}$/.test(id)) continue
+      if (seen.has(id)) continue
+      seen.add(id)
+      const title = asText(item.title) || asText(item.name)
+      if (!title) continue
+      const duration =
+        item.duration && typeof item.duration === 'object'
+          ? fmtDuration((item.duration as Record<string, unknown>).seconds)
+          : ''
+      out.push({
+        id,
+        title,
+        artist: pickArtist(item),
+        duration,
+        thumbnail: pickThumbnail(item)
+      })
+    }
+    // Strip the seed track if YT included it (it sometimes does — we
+    // play the seed ourselves and don't want a duplicate at the top).
+    return out.filter((t) => t.id !== videoId)
+  } catch (err) {
+    console.warn(`[radio] getUpNext failed for ${videoId}:`, err)
+    return []
+  }
+}

@@ -22,7 +22,10 @@ const api = {
     search: (query: string) => ipcRenderer.invoke('metadata:search', query),
     home: () => ipcRenderer.invoke('metadata:home'),
     playlist: (id: string) => ipcRenderer.invoke('metadata:playlist', id),
-    libraryPlaylists: () => ipcRenderer.invoke('metadata:library-playlists')
+    libraryPlaylists: () => ipcRenderer.invoke('metadata:library-playlists'),
+    like: (videoId: string, like: boolean) =>
+      ipcRenderer.invoke('metadata:like', videoId, like),
+    radio: (videoId: string) => ipcRenderer.invoke('metadata:radio', videoId)
   },
   library: {
     prepare: () => ipcRenderer.invoke('library:prepare')

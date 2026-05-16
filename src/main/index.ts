@@ -48,7 +48,9 @@ import {
   getHomeSections,
   getPlaylistTracks,
   getLibraryPlaylists,
-  resetInnertube
+  resetInnertube,
+  likeTrack,
+  getRadioForTrack
 } from './metadata'
 import { resolveCached, queuePrefetch, clearResolverCache } from './resolver'
 import {
@@ -391,6 +393,15 @@ app.whenReady().then(async () => {
   // Native library (Phase B) — single section of the user's playlists,
   // fetched via the page-proxy so the server treats us as logged-in.
   ipcMain.handle('metadata:library-playlists', () => getLibraryPlaylists())
+  // Like / remove like (POST /like/like + /like/removelike via page-proxy).
+  // Renderer sends boolean for the desired state; backend returns true if
+  // YT accepted the action.
+  ipcMain.handle('metadata:like', (_event, videoId: string, like: boolean) =>
+    likeTrack(videoId, like)
+  )
+  // Radio for a track — yt.music.getUpNext(videoId). Returns the related
+  // tracks as a fresh sourceList for the player.
+  ipcMain.handle('metadata:radio', (_event, videoId: string) => getRadioForTrack(videoId))
   // Ensures the persist:music partition has fresh YouTube cookies before
   // the renderer mounts the Library <webview>. Idempotent.
   ipcMain.handle('library:prepare', async () => {

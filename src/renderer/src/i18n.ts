@@ -92,6 +92,9 @@ const RU: Strings = {
   // Context menu (right-click on a track row)
   'ctx.playNext': 'Играть следующим',
   'ctx.addToQueue': 'Добавить в очередь',
+  'ctx.startRadio': 'Радио по треку',
+  'ctx.addToLiked': 'В понравившиеся',
+  'ctx.removeFromLiked': 'Убрать из понравившихся',
   'ctx.pinPosition': 'Закрепить позицию',
   'ctx.unpinPosition': 'Открепить позицию',
   'ctx.pinnedHint': 'Закреплён — остаётся на месте при перемешке',
@@ -102,9 +105,20 @@ const RU: Strings = {
   'playlist.resetConfirm':
     'Сбросить порядок треков к исходному с YouTube? Все закрепления и пользовательский порядок будут утеряны.',
 
+  // Radio (auto-generated sourceList header)
+  'radio.title': 'Радио · {title}',
+
   // Toast messages
   'toast.playNextAdded': '«{title}» — следующим',
   'toast.queueAdded': '«{title}» — в очереди',
+  'toast.likeSending': 'Лайкаю…',
+  'toast.unlikeSending': 'Убираю лайк…',
+  'toast.liked': '«{title}» — в понравившихся',
+  'toast.unliked': '«{title}» — больше не в понравившихся',
+  'toast.likeFailed': 'Не получилось обновить лайк',
+  'toast.radioStarting': 'Собираю радио по «{title}»…',
+  'toast.radioEmpty': 'YouTube не вернул похожих треков',
+  'toast.radioStarted': 'Радио запущено — {n} похожих треков',
 
   // Confirm dialog (in-app replacement for native confirm)
   'confirm.ok': 'Подтвердить',
@@ -264,6 +278,9 @@ const EN: Strings = {
 
   'ctx.playNext': 'Play next',
   'ctx.addToQueue': 'Add to queue',
+  'ctx.startRadio': 'Start radio',
+  'ctx.addToLiked': 'Add to Liked Music',
+  'ctx.removeFromLiked': 'Remove from Liked Music',
   'ctx.pinPosition': 'Pin position',
   'ctx.unpinPosition': 'Unpin position',
   'ctx.pinnedHint': 'Pinned — stays put on reshuffle',
@@ -273,8 +290,18 @@ const EN: Strings = {
   'playlist.resetConfirm':
     'Reset track order to YouTube’s default? All pins and custom ordering will be lost.',
 
+  'radio.title': 'Radio · {title}',
+
   'toast.playNextAdded': '"{title}" — playing next',
   'toast.queueAdded': '"{title}" — added to queue',
+  'toast.likeSending': 'Liking…',
+  'toast.unlikeSending': 'Removing like…',
+  'toast.liked': '"{title}" — added to Liked Music',
+  'toast.unliked': '"{title}" — removed from Liked Music',
+  'toast.likeFailed': 'Couldn’t update like',
+  'toast.radioStarting': 'Building radio from "{title}"…',
+  'toast.radioEmpty': 'YouTube returned no related tracks',
+  'toast.radioStarted': 'Radio started — {n} related tracks',
 
   'confirm.ok': 'Confirm',
   'confirm.cancel': 'Cancel',
