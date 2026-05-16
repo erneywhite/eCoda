@@ -10,6 +10,7 @@
     LastSession,
     PinnedPlaylist,
     PlaylistView,
+    RepeatMode,
     SearchResult,
     SessionTrack,
     Theme,
@@ -615,6 +616,24 @@
   // saved position lives in pendingResumeTime; canplay reads it and seeks.
   let pendingResumeTime = $state<number | null>(null)
 
+  // ---- shuffle / repeat / queue ------------------------------------------
+  // Persisted in config so the streamer use case ("set my modes once, leave
+  // them") survives restarts. Loaded from window.api.settings on mount.
+  let shuffleMode = $state(false)
+  let repeatMode = $state<RepeatMode>('off')
+  // Explicit "play next / add to queue" list, EPHEMERAL — lives only in the
+  // current session. When the current track ends we shift the head off
+  // this queue before falling through to playNext on the sourceList. Same
+  // queue is used regardless of where tracks were queued from (playlist,
+  // search, downloaded). Reset on auth disconnect along with other player
+  // state.
+  let userQueue = $state<SearchResult[]>([])
+  // Recent-played stack for shuffle prev — without it, shuffle-prev would
+  // pick another random track which feels arbitrary. Capped at 50 to
+  // avoid unbounded growth on long listening sessions.
+  let playHistory = $state<SearchResult[]>([])
+  const PLAY_HISTORY_CAP = 50
+
   // Throttle for "save session on timeupdate" — every 5 seconds while
   // playing is enough to recover within striking distance of where the
   // user actually left off. We piggy-back on the timeupdate handler so
@@ -802,6 +821,108 @@
     muted = audioEl.muted
   }
 
+  async function toggleShuffle(): Promise<void> {
+    shuffleMode = !shuffleMode
+    await window.api.settings.setShuffleMode(shuffleMode)
+  }
+
+  async function cycleRepeat(): Promise<void> {
+    repeatMode = repeatMode === 'off' ? 'all' : repeatMode === 'all' ? 'one' : 'off'
+    await window.api.settings.setRepeatMode(repeatMode)
+  }
+
+  // ---- queue actions ------------------------------------------------------
+  // Tracks landed via these two go to the user's explicit queue, which
+  // takes priority over sourceList traversal in playNext(). Both call
+  // showToast so the user gets confirmation that the action landed.
+  function queuePlayNext(track: SearchResult): void {
+    if (track.unavailable) return
+    userQueue = [track, ...userQueue]
+    showToast(t('toast.playNextAdded', { title: track.title }))
+  }
+
+  function queueAppend(track: SearchResult): void {
+    if (track.unavailable) return
+    userQueue = [...userQueue, track]
+    showToast(t('toast.queueAdded', { title: track.title }))
+  }
+
+  // ---- toast notifications -----------------------------------------------
+  // Single live toast at a time; new toast replaces the old. Auto-dismisses
+  // after 2.5s. Used for queue actions; later phases can re-use it for
+  // like/dislike feedback etc.
+  let toast = $state<{ msg: string; ts: number } | null>(null)
+  let toastTimer: ReturnType<typeof setTimeout> | null = null
+  function showToast(msg: string): void {
+    toast = { msg, ts: Date.now() }
+    if (toastTimer) clearTimeout(toastTimer)
+    toastTimer = setTimeout(() => {
+      toast = null
+      toastTimer = null
+    }, 2500)
+  }
+
+  // ---- context menu ------------------------------------------------------
+  // Floating right-click menu on track rows. Single shared state — at
+  // most one menu open at a time. Closes on outside-click / ESC / item
+  // pick. The menu's items are computed per-track (per call site) and
+  // passed in via openCtxMenu so the same component handles playlist /
+  // search / Downloaded / future surfaces.
+  interface CtxMenuItem {
+    label: string
+    icon?: string
+    danger?: boolean
+    disabled?: boolean
+    onSelect: () => void
+  }
+  interface CtxMenuState {
+    x: number
+    y: number
+    items: CtxMenuItem[]
+  }
+  let ctxMenu = $state<CtxMenuState | null>(null)
+
+  // Builds the context menu items for a track. sourceList lets actions
+  // like "play next" find their position; sourceContext carries the
+  // playlist id / title for the player bar's source-list tracking.
+  function buildTrackMenu(
+    track: SearchResult,
+    _sourceList: SearchResult[],
+    _sourceContext: { id?: string; title?: string }
+  ): CtxMenuItem[] {
+    const items: CtxMenuItem[] = []
+    items.push({
+      label: t('ctx.playNext'),
+      onSelect: () => queuePlayNext(track),
+      disabled: track.unavailable
+    })
+    items.push({
+      label: t('ctx.addToQueue'),
+      onSelect: () => queueAppend(track),
+      disabled: track.unavailable
+    })
+    return items
+  }
+
+  function openCtxMenu(
+    event: MouseEvent,
+    track: SearchResult,
+    sourceList: SearchResult[],
+    sourceContext: { id?: string; title?: string } = {}
+  ): void {
+    event.preventDefault()
+    event.stopPropagation()
+    ctxMenu = {
+      x: event.clientX,
+      y: event.clientY,
+      items: buildTrackMenu(track, sourceList, sourceContext)
+    }
+  }
+
+  function closeCtxMenu(): void {
+    ctxMenu = null
+  }
+
   // onMount stays synchronous so we can return a proper cleanup closure
   // (Svelte 5 typedef requires `() => () => void | Promise<never>` — an
   // async onMount that returns a teardown would violate the Promise<never>
@@ -852,6 +973,25 @@
     }
     window.addEventListener('mouseup', onMouse)
 
+    // Context-menu dismissal: any click outside the menu OR an ESC press
+    // closes it. The menu itself stops propagation on its own clicks so
+    // picking an item doesn't immediately re-close before the action
+    // fires (handler order: item onSelect → closeCtxMenu inside the
+    // item-click handler in the menu DOM).
+    const onWindowMouseDown = (e: MouseEvent): void => {
+      if (!ctxMenu) return
+      const el = e.target as HTMLElement | null
+      if (el && el.closest('.ctx-menu')) return
+      closeCtxMenu()
+    }
+    const onWindowKeyDown = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape' && ctxMenu) {
+        closeCtxMenu()
+      }
+    }
+    window.addEventListener('mousedown', onWindowMouseDown)
+    window.addEventListener('keydown', onWindowKeyDown)
+
     void (async () => {
       // Load + apply the saved theme as the very first thing so the user
       // doesn't see purple flash before their preferred palette kicks in.
@@ -860,6 +1000,12 @@
       // Load saved language so labels render in the right locale on first
       // paint. Fallback is 'ru' (handled by the IPC default).
       lang = await window.api.settings.getLang()
+      // Restore the player's mode toggles so the user doesn't have to
+      // flip shuffle / repeat every launch. Loaded before any track
+      // could conceivably play so the first onAudioEnded uses the
+      // correct mode.
+      shuffleMode = await window.api.settings.getShuffleMode()
+      repeatMode = await window.api.settings.getRepeatMode()
       browsers = await window.api.auth.browsers()
       connectedBrowser = await window.api.auth.status()
       if (connectedBrowser) {
@@ -893,6 +1039,8 @@
       unsubUpd()
       unsubAuth()
       window.removeEventListener('mouseup', onMouse)
+      window.removeEventListener('mousedown', onWindowMouseDown)
+      window.removeEventListener('keydown', onWindowKeyDown)
     }
   })
 
@@ -930,6 +1078,11 @@
     // user can no longer resolve. Drop the pending seek so the next
     // resolved track plays from 0:00.
     pendingResumeTime = null
+    // Player ephemeral state — queue, history, transient UI bits.
+    userQueue = []
+    playHistory = []
+    ctxMenu = null
+    toast = null
     historyStack = [{ kind: 'home' }]
     historyIndex = 0
     view = 'home'
@@ -1161,6 +1314,21 @@
     // state. UI also disables the click handler on these rows, so this
     // is belt-and-suspenders.
     if (track.unavailable) return
+    // Push whatever was just playing into the history stack BEFORE we
+    // overwrite `playing`. Used by shuffle-prev to walk back through
+    // actually-played tracks rather than picking another random one.
+    // Skip the initial deferred-resume hydrate (empty streamUrl) so
+    // we don't pollute history with a placeholder entry.
+    if (playing && playing.streamUrl && playing.id !== track.id) {
+      const snapshot: SearchResult = {
+        id: playing.id,
+        title: playing.title,
+        artist: playing.artist,
+        duration: '',
+        thumbnail: playing.thumbnail
+      }
+      pushHistory(snapshot)
+    }
     playStatus = 'resolving'
     playError = ''
     try {
@@ -1217,15 +1385,83 @@
     }
   }
 
-  async function playNext(): Promise<void> {
+  // Picks a random playable track from `list` that's not `currentId`.
+  // Returns the index, or -1 if the list has no playable alternative
+  // (e.g. single-track list, or every other row is unavailable).
+  function pickShuffleIndex(list: SearchResult[], currentId: string): number {
+    const candidates: number[] = []
+    for (let i = 0; i < list.length; i++) {
+      if (list[i].id !== currentId && !list[i].unavailable) candidates.push(i)
+    }
+    if (candidates.length === 0) return -1
+    return candidates[Math.floor(Math.random() * candidates.length)]
+  }
+
+  // Wraps adding to the history stack with the size cap. Older entries
+  // fall off the bottom when the user has been listening for a while.
+  function pushHistory(track: SearchResult): void {
+    const next = playHistory.length >= PLAY_HISTORY_CAP
+      ? playHistory.slice(playHistory.length - PLAY_HISTORY_CAP + 1)
+      : playHistory.slice()
+    next.push(track)
+    playHistory = next
+  }
+
+  async function playNext(opts: { fromUserClick?: boolean } = {}): Promise<void> {
     if (!playing) return
+    // The user explicitly hit Next → bypass repeat-one (that mode only
+    // triggers on a track that naturally ended). Auto-end uses the
+    // separate onAudioEnded path which honours repeat-one before this.
+    void opts.fromUserClick
+
+    // Queue takes priority over sourceList traversal — anything the user
+    // explicitly queued plays before the natural next track.
+    if (userQueue.length > 0) {
+      const next = userQueue[0]
+      userQueue = userQueue.slice(1)
+      await playTrack(next, playing.sourceList, {
+        id: playing.sourceListId,
+        title: playing.sourceListTitle
+      })
+      return
+    }
+
     const list = playing.sourceList
+    if (shuffleMode) {
+      const idx = pickShuffleIndex(list, playing.id)
+      if (idx < 0) {
+        // Single-track or all-unavailable list — only repeat-all could
+        // reasonably wrap us back to the same track; otherwise nothing
+        // to do.
+        if (repeatMode === 'all') {
+          const fallback = findPlayableIndex(list, 0, 1)
+          if (fallback >= 0) {
+            await playTrack(list[fallback], list, {
+              id: playing.sourceListId,
+              title: playing.sourceListTitle
+            })
+          }
+        }
+        return
+      }
+      await playTrack(list[idx], list, {
+        id: playing.sourceListId,
+        title: playing.sourceListTitle
+      })
+      return
+    }
+
     const idx = list.findIndex((r) => r.id === playing!.id)
     if (idx < 0) return
     // Skip unavailable rows so the user doesn't hit a no-op when YT
     // left a deleted track in the middle of the playlist.
-    const nextIdx = findPlayableIndex(list, idx + 1, 1)
-    if (nextIdx < 0) return
+    let nextIdx = findPlayableIndex(list, idx + 1, 1)
+    if (nextIdx < 0) {
+      // End of list — repeat-all wraps to the first playable; otherwise
+      // playback simply stops at the current track.
+      if (repeatMode === 'all') nextIdx = findPlayableIndex(list, 0, 1)
+      if (nextIdx < 0) return
+    }
     await playTrack(list[nextIdx], list, {
       id: playing.sourceListId,
       title: playing.sourceListTitle
@@ -1234,6 +1470,20 @@
 
   async function playPrev(): Promise<void> {
     if (!playing) return
+    // In shuffle mode, "prev" walks back through what we actually played,
+    // not the original list order — otherwise it would feel arbitrary.
+    if (shuffleMode && playHistory.length > 0) {
+      const next = playHistory[playHistory.length - 1]
+      // Drop the entry we're about to play AND the current one (which
+      // sits at the top of history) so the next Prev keeps walking.
+      const remaining = playHistory.slice(0, -1)
+      playHistory = remaining
+      await playTrack(next, playing.sourceList, {
+        id: playing.sourceListId,
+        title: playing.sourceListTitle
+      })
+      return
+    }
     const list = playing.sourceList
     const idx = list.findIndex((r) => r.id === playing!.id)
     if (idx <= 0) return
@@ -1243,6 +1493,22 @@
       id: playing.sourceListId,
       title: playing.sourceListTitle
     })
+  }
+
+  // Fired when the <audio> element finishes a track naturally. Respects
+  // repeat-one (replay the same track), then falls through to playNext
+  // which handles queue + shuffle + repeat-all + sequential.
+  function onAudioEnded(): void {
+    if (repeatMode === 'one' && audioEl) {
+      try {
+        audioEl.currentTime = 0
+        void audioEl.play().catch(() => {})
+        return
+      } catch {
+        // fall through to playNext if seek failed
+      }
+    }
+    void playNext()
   }
 
   // Is a track from the currently-open playlist what's playing? Drives
@@ -1277,9 +1543,15 @@
 
   async function playPlaylistFromStart(): Promise<void> {
     if (!playlistView || playlistView.tracks.length === 0) return
-    // First *playable* track — a playlist whose first row is unavailable
-    // would otherwise just bounce back to idle.
-    const idx = findPlayableIndex(playlistView.tracks, 0, 1)
+    // Match YT Music: shuffle ON + Play All → start at a random playable
+    // track rather than position 0. Off → first playable as before.
+    let idx: number
+    if (shuffleMode) {
+      idx = pickShuffleIndex(playlistView.tracks, '')
+      if (idx < 0) idx = findPlayableIndex(playlistView.tracks, 0, 1)
+    } else {
+      idx = findPlayableIndex(playlistView.tracks, 0, 1)
+    }
     if (idx < 0) return
     await playTrack(playlistView.tracks[idx], playlistView.tracks, {
       id: openPlaylistId ?? undefined,
@@ -1532,6 +1804,7 @@
                     class="track-row"
                     class:current={playing?.id === r.id}
                     onclick={() => playTrack(r, searchResults)}
+                    oncontextmenu={(e) => openCtxMenu(e, r, searchResults)}
                     disabled={playStatus === 'resolving'}
                   >
                     <div
@@ -1735,6 +2008,11 @@
                     class:current={playing?.id === r.id}
                     onclick={() =>
                       playTrack(r, playlistView!.tracks, {
+                        id: openPlaylistId ?? undefined,
+                        title: playlistView!.title
+                      })}
+                    oncontextmenu={(e) =>
+                      openCtxMenu(e, r, playlistView!.tracks, {
                         id: openPlaylistId ?? undefined,
                         title: playlistView!.title
                       })}
@@ -2184,14 +2462,37 @@
           </div>
 
           <div class="transport-buttons">
-            <button class="ctrl" onclick={playPrev} aria-label="Предыдущий">
+            <!-- Shuffle toggle: leftmost, like YT Music. Active = accent
+                 tint + filled dot under the icon. Persists across launches. -->
+            <button
+              class="ctrl small mode"
+              class:active={shuffleMode}
+              onclick={toggleShuffle}
+              aria-label={t('player.shuffle')}
+              title={t('player.shuffle')}
+            >
+              <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+                <path
+                  d="M10.59 9.17 5.41 4 4 5.41l5.17 5.17 1.42-1.41zM14.5 4l2.04 2.04L4 18.59 5.41 20 17.96 7.46 20 9.5V4h-5.5zm.33 9.41-1.41 1.41 3.13 3.13L14.5 20H20v-5.5l-2.04 2.04-3.13-3.13z"
+                />
+              </svg>
+              {#if shuffleMode}
+                <span class="mode-dot"></span>
+              {/if}
+            </button>
+            <button class="ctrl" onclick={playPrev} aria-label={t('player.prev')} title={t('player.prev')}>
               <!-- skip_previous (material): vertical bar + leftward triangle -->
               <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor">
                 <path d="M6 6h2v12H6z" />
                 <path d="M9.5 12 18 6v12z" />
               </svg>
             </button>
-            <button class="ctrl play" onclick={togglePlay} aria-label={isPlaying ? 'Пауза' : 'Играть'}>
+            <button
+              class="ctrl play"
+              onclick={togglePlay}
+              aria-label={isPlaying ? t('player.pause') : t('player.play')}
+              title={isPlaying ? t('player.pause') : t('player.play')}
+            >
               {#if isPlaying}
                 <!-- pause: two bars -->
                 <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor">
@@ -2205,12 +2506,42 @@
                 </svg>
               {/if}
             </button>
-            <button class="ctrl" onclick={playNext} aria-label="Следующий">
+            <button
+              class="ctrl"
+              onclick={() => playNext({ fromUserClick: true })}
+              aria-label={t('player.next')}
+              title={t('player.next')}
+            >
               <!-- skip_next (material): rightward triangle + vertical bar -->
               <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor">
                 <path d="M6 6v12l8.5-6z" />
                 <path d="M16 6h2v12h-2z" />
               </svg>
+            </button>
+            <!-- Repeat cycle: off → all → one → off. Icon changes per
+                 state; the small dot underneath shows non-off active. -->
+            <button
+              class="ctrl small mode"
+              class:active={repeatMode !== 'off'}
+              onclick={cycleRepeat}
+              aria-label={t('player.repeat.' + repeatMode)}
+              title={t('player.repeat.' + repeatMode)}
+            >
+              {#if repeatMode === 'one'}
+                <!-- repeat_one: loop arrows + "1" inside -->
+                <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+                  <path d="M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4z"/>
+                  <path d="M13 15V9h-1l-2 1v1h1.5v4H13z"/>
+                </svg>
+              {:else}
+                <!-- repeat: loop arrows -->
+                <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+                  <path d="M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4z"/>
+                </svg>
+              {/if}
+              {#if repeatMode !== 'off'}
+                <span class="mode-dot"></span>
+              {/if}
             </button>
             <span class="time-inline">
               {fmtTime(currentTime)} / {fmtTime(duration)}
@@ -2324,7 +2655,7 @@
         <audio
           bind:this={audioEl}
           src={playing.streamUrl}
-          onended={playNext}
+          onended={onAudioEnded}
           onplay={() => (isPlaying = true)}
           onpause={() => {
             isPlaying = false
@@ -2350,6 +2681,40 @@
         {/if}
       </div>
     {/if}
+  {/if}
+
+  <!-- Floating context menu: rendered at the document root so its
+       fixed-position offset (set from MouseEvent client coords)
+       isn't clipped by a parent's overflow:hidden. Outside-click
+       and ESC dismissal live in onMount. -->
+  {#if ctxMenu}
+    <div
+      class="ctx-menu"
+      role="menu"
+      style:left="{ctxMenu.x}px"
+      style:top="{ctxMenu.y}px"
+    >
+      {#each ctxMenu.items as item}
+        <button
+          class="ctx-item"
+          class:danger={item.danger}
+          disabled={item.disabled}
+          onclick={() => {
+            item.onSelect()
+            closeCtxMenu()
+          }}
+        >
+          {#if item.icon}<span class="ctx-icon">{item.icon}</span>{/if}
+          <span class="ctx-label">{item.label}</span>
+        </button>
+      {/each}
+    </div>
+  {/if}
+
+  <!-- Toast: bottom-centre, above the player bar. Single live message,
+       auto-dismisses after 2.5s. Used for "Added to queue" etc. -->
+  {#if toast}
+    <div class="toast" role="status">{toast.msg}</div>
   {/if}
 </main>
 
@@ -3727,6 +4092,29 @@
     height: 30px;
   }
 
+  /* Shuffle / repeat mode buttons in the player bar. Plain icon when
+     off; accent-tinted with a small dot underneath when active. The dot
+     is the only thing that visually differentiates "on" from "hovered"
+     so the user can see state at a glance even without colour-vision
+     contrast. */
+  .ctrl.mode {
+    position: relative;
+  }
+  .ctrl.mode.active {
+    color: var(--accent);
+  }
+  .ctrl.mode .mode-dot {
+    position: absolute;
+    bottom: 3px;
+    left: 50%;
+    width: 4px;
+    height: 4px;
+    border-radius: 50%;
+    background: var(--accent);
+    transform: translateX(-50%);
+    box-shadow: 0 0 6px rgba(var(--accent-rgb), 0.6);
+  }
+
   /* Download chip in the player bar — uses .ctrl.small as the base
      (compact round icon button) and only overrides what's distinctive:
      a softer hover and the green "✓ already downloaded" state so the
@@ -3771,6 +4159,94 @@
     font-variant-numeric: tabular-nums;
     margin-left: 0.6rem;
     white-space: nowrap;
+  }
+
+  /* ---- floating context menu (right-click on tracks) ----
+     Fixed-positioned at the user's cursor; dismissed on outside-click
+     or ESC (wired in onMount). Renders at the document root so it can
+     punch out of any overflow:hidden ancestor. */
+  .ctx-menu {
+    position: fixed;
+    z-index: 1000;
+    min-width: 200px;
+    padding: 0.3rem;
+    background: rgba(26, 18, 44, 0.96);
+    backdrop-filter: blur(18px);
+    -webkit-backdrop-filter: blur(18px);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 10px;
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.55);
+    display: flex;
+    flex-direction: column;
+    gap: 0.1rem;
+  }
+  .ctx-item {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    width: 100%;
+    padding: 0.5rem 0.7rem;
+    border: none;
+    border-radius: 6px;
+    background: transparent;
+    color: #d4c9e8;
+    font-size: 0.85rem;
+    font-weight: 500;
+    text-align: left;
+    cursor: pointer;
+  }
+  .ctx-item:hover:not(:disabled) {
+    background: rgba(var(--accent-rgb), 0.18);
+    color: #ffffff;
+  }
+  .ctx-item:disabled {
+    opacity: 0.4;
+    cursor: default;
+  }
+  .ctx-item.danger {
+    color: #ff8db5;
+  }
+  .ctx-item.danger:hover:not(:disabled) {
+    background: rgba(255, 60, 120, 0.18);
+    color: #ffffff;
+  }
+  .ctx-icon {
+    flex: 0 0 auto;
+    width: 14px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .ctx-label {
+    flex: 1;
+  }
+
+  /* ---- toast (transient notification) ----
+     Single live message floats above the player bar. Faded purple
+     background; auto-dismiss timer lives in the script. Non-clickable
+     and pointer-events:none so it never blocks underlying controls. */
+  .toast {
+    position: fixed;
+    left: 50%;
+    bottom: 110px;
+    transform: translateX(-50%);
+    z-index: 999;
+    padding: 0.6rem 1.1rem;
+    background: rgba(40, 26, 70, 0.92);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    border: 1px solid rgba(var(--accent-rgb), 0.35);
+    border-radius: 999px;
+    color: #ffffff;
+    font-size: 0.85rem;
+    font-weight: 500;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+    pointer-events: none;
+    animation: toast-in 0.18s ease-out;
+  }
+  @keyframes toast-in {
+    from { opacity: 0; transform: translateX(-50%) translateY(8px); }
+    to { opacity: 1; transform: translateX(-50%) translateY(0); }
   }
 
   /* ---- range sliders (seek + volume) ----

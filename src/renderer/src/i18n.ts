@@ -76,12 +76,24 @@ const RU: Strings = {
   'player.pause': 'Пауза',
   'player.mute': 'Выключить звук',
   'player.unmute': 'Включить звук',
+  'player.shuffle': 'Перемешать (вкл/выкл)',
+  'player.repeat.off': 'Повтор выключен',
+  'player.repeat.all': 'Повтор плейлиста',
+  'player.repeat.one': 'Повтор трека',
 
   // Track-row download badges
   'track.dl.idle': 'Скачать',
   'track.dl.busy': 'Скачиваю…',
   'track.dl.done': 'Удалить с устройства',
   'track.unavailable': 'Трек недоступен',
+
+  // Context menu (right-click on a track row)
+  'ctx.playNext': 'Играть следующим',
+  'ctx.addToQueue': 'Добавить в очередь',
+
+  // Toast messages
+  'toast.playNextAdded': '«{title}» — следующим',
+  'toast.queueAdded': '«{title}» — в очереди',
 
   // Settings page
   'settings.title': 'Настройки',
@@ -223,11 +235,21 @@ const EN: Strings = {
   'player.pause': 'Pause',
   'player.mute': 'Mute',
   'player.unmute': 'Unmute',
+  'player.shuffle': 'Shuffle (toggle)',
+  'player.repeat.off': 'Repeat off',
+  'player.repeat.all': 'Repeat playlist',
+  'player.repeat.one': 'Repeat track',
 
   'track.dl.idle': 'Download',
   'track.dl.busy': 'Downloading…',
   'track.dl.done': 'Remove from device',
   'track.unavailable': 'Track unavailable',
+
+  'ctx.playNext': 'Play next',
+  'ctx.addToQueue': 'Add to queue',
+
+  'toast.playNextAdded': '"{title}" — playing next',
+  'toast.queueAdded': '"{title}" — added to queue',
 
   'settings.title': 'Settings',
   'settings.account.title': 'Account',

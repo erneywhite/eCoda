@@ -169,6 +169,12 @@ export type Lang = 'ru' | 'en'
 //   - 'medium' → bestaudio[abr<=128]      (~128 kbps AAC,  ~3.8 MB / 4 min)
 //   - 'low'    → bestaudio[abr<=80]       (~70 kbps Opus,  ~2 MB / 4 min)
 export type AudioQuality = 'best' | 'medium' | 'low'
+// Repeat mode persists between launches — the streamer use case wants
+// "once I've set my modes, they stay set across restarts".
+//   - 'off'  → at end-of-list, playback stops
+//   - 'one'  → re-seek to 0 and replay the current track forever
+//   - 'all'  → wrap to the start of the current sourceList at end
+export type RepeatMode = 'off' | 'one' | 'all'
 export type Theme =
   | 'purple'
   | 'cyan'
@@ -226,6 +232,8 @@ interface Config {
   theme?: Theme
   lang?: Lang
   audioQuality?: AudioQuality
+  shuffleMode?: boolean
+  repeatMode?: RepeatMode
   pinnedPlaylists?: PinnedPlaylist[]
   windowState?: WindowState
   lastSession?: LastSession
@@ -304,6 +312,24 @@ export async function getAudioQuality(): Promise<AudioQuality> {
 
 export async function setAudioQuality(q: AudioQuality): Promise<void> {
   await writeConfig({ ...(await readConfig()), audioQuality: q })
+}
+
+// Shuffle / repeat are persisted because the streamer use case wants
+// "once I've set my modes, they stay set across restarts".
+export async function getShuffleMode(): Promise<boolean> {
+  return (await readConfig()).shuffleMode ?? false
+}
+
+export async function setShuffleMode(on: boolean): Promise<void> {
+  await writeConfig({ ...(await readConfig()), shuffleMode: on })
+}
+
+export async function getRepeatMode(): Promise<RepeatMode> {
+  return (await readConfig()).repeatMode ?? 'off'
+}
+
+export async function setRepeatMode(m: RepeatMode): Promise<void> {
+  await writeConfig({ ...(await readConfig()), repeatMode: m })
 }
 
 // InnerTube locale tuple derived from the user's UI language. Used by

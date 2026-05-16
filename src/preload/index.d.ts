@@ -61,6 +61,8 @@ export type Lang = 'ru' | 'en'
 
 export type AudioQuality = 'best' | 'medium' | 'low'
 
+export type RepeatMode = 'off' | 'one' | 'all'
+
 export type Theme =
   | 'purple'
   | 'cyan'
@@ -202,6 +204,10 @@ export interface EcodaApi {
     setLang: (lang: Lang) => Promise<void>
     getAudioQuality: () => Promise<AudioQuality>
     setAudioQuality: (q: AudioQuality) => Promise<void>
+    getShuffleMode: () => Promise<boolean>
+    setShuffleMode: (on: boolean) => Promise<void>
+    getRepeatMode: () => Promise<RepeatMode>
+    setRepeatMode: (m: RepeatMode) => Promise<void>
   }
   session: {
     get: () => Promise<LastSession | null>

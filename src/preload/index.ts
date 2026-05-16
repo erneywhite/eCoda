@@ -104,7 +104,12 @@ const api = {
     setLang: (lang: 'ru' | 'en') => ipcRenderer.invoke('settings:setLang', lang),
     getAudioQuality: () => ipcRenderer.invoke('settings:getAudioQuality'),
     setAudioQuality: (q: 'best' | 'medium' | 'low') =>
-      ipcRenderer.invoke('settings:setAudioQuality', q)
+      ipcRenderer.invoke('settings:setAudioQuality', q),
+    getShuffleMode: () => ipcRenderer.invoke('settings:getShuffleMode'),
+    setShuffleMode: (on: boolean) => ipcRenderer.invoke('settings:setShuffleMode', on),
+    getRepeatMode: () => ipcRenderer.invoke('settings:getRepeatMode'),
+    setRepeatMode: (m: 'off' | 'one' | 'all') =>
+      ipcRenderer.invoke('settings:setRepeatMode', m)
   },
   // Last-playing track + queue + position. Resume-on-launch is wired
   // around these three IPCs.

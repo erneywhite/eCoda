@@ -20,12 +20,17 @@ import {
   setLang,
   getAudioQuality,
   setAudioQuality,
+  getShuffleMode,
+  setShuffleMode,
+  getRepeatMode,
+  setRepeatMode,
   getWindowState,
   setWindowState,
   getLastSession,
   setLastSession,
   clearLastSession,
   type AudioQuality,
+  type RepeatMode,
   type DefaultTab,
   type Lang,
   type LastSession,
@@ -493,6 +498,12 @@ app.whenReady().then(async () => {
   // downloads.ts. Doesn't retroactively re-download anything.
   ipcMain.handle('settings:getAudioQuality', () => getAudioQuality())
   ipcMain.handle('settings:setAudioQuality', (_event, q: AudioQuality) => setAudioQuality(q))
+  // Shuffle + repeat persist across launches so the streamer can set
+  // them once and not have to flip them every session.
+  ipcMain.handle('settings:getShuffleMode', () => getShuffleMode())
+  ipcMain.handle('settings:setShuffleMode', (_event, on: boolean) => setShuffleMode(on))
+  ipcMain.handle('settings:getRepeatMode', () => getRepeatMode())
+  ipcMain.handle('settings:setRepeatMode', (_event, m: RepeatMode) => setRepeatMode(m))
 
   // Last-playing track + queue + position. Renderer pushes a snapshot on
   // every track change / pause / throttled timeupdate; we restore it on
