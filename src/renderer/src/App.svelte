@@ -997,6 +997,23 @@
     return `${minutes} ${minWord}`
   }
 
+  // Artist subscriber line normaliser. YT returns one of two shapes:
+  //   "1.2K subscribers" / "1.2 тыс. подписчиков"  — already complete
+  //   "1.2K" / "138"                              — bare count, no unit
+  // We tack on a localised "subscribers" suffix only when the second
+  // case is detected (no letter past the count in our locale's set).
+  function formatSubscriberLine(raw: string, lng: Lang): string {
+    if (!raw) return ''
+    const trimmed = raw.trim()
+    // Already carries word characters past the count → assume complete.
+    // Cyrillic "тыс." / "млн" + Latin "K"/"M" thousand-suffixes don't
+    // count as the word — actual subscriber word is e.g. "subscribers"
+    // / "подписчиков", which is always >3 letters. Detect that.
+    const wordMatch = /[A-Za-zА-Яа-яЁё]{4,}/.exec(trimmed)
+    if (wordMatch) return trimmed
+    return `${trimmed} ${t('artist.subscribers')}`
+  }
+
   function togglePlay(): void {
     // Deferred-resume state: playing is hydrated but streamUrl is empty
     // (session restored on launch). First Play click kicks off the actual
@@ -3003,7 +3020,7 @@
               <div class="artist-info">
                 <div class="artist-name">{artistView.title || t('artist.untitled')}</div>
                 {#if artistView.subtitle}
-                  <div class="artist-sub">{artistView.subtitle}</div>
+                  <div class="artist-sub">{formatSubscriberLine(artistView.subtitle, lang)}</div>
                 {/if}
                 {#if artistView.songs.length > 0}
                   <div class="artist-actions">
@@ -3129,7 +3146,7 @@
             {#each artistView.sections as section (section.title)}
               <div class="section">
                 <h3>{section.title}</h3>
-                <div class="card-grid">
+                <div class="grid">
                   {#each section.items as item (item.id)}
                     <button class="card-tile" onclick={() => openCard(item)}>
                       <div

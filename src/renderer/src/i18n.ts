@@ -120,6 +120,7 @@ const RU: Strings = {
   'artist.untitled': 'Исполнитель',
   'artist.topSongs': 'Популярные песни',
   'artist.shufflePlay': 'Перемешать и играть',
+  'artist.subscribers': 'подписчиков',
 
   // Toast messages
   'toast.playNextAdded': '«{title}» — следующим',
@@ -308,6 +309,7 @@ const EN: Strings = {
   'artist.untitled': 'Artist',
   'artist.topSongs': 'Top songs',
   'artist.shufflePlay': 'Shuffle play',
+  'artist.subscribers': 'subscribers',
 
   'toast.playNextAdded': '"{title}" — playing next',
   'toast.queueAdded': '"{title}" — added to queue',

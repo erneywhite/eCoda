@@ -1089,21 +1089,39 @@ export async function getArtistView(channelId: string): Promise<ArtistView> {
     }
   }
   // Subscriber count lives in different places depending on the header
-  // shape. Walk for any subscriberCountText anywhere in the response
-  // and take the first non-empty one.
-  for (const node of findAll(data, 'subscriberCountText')) {
-    const t = runsText(node)
-    if (t) {
-      subtitle = t
+  // shape. Prefer the long form ("1.2K subscribers") when available so
+  // the unit is in the user's locale; fall back to the short ("1.2K")
+  // and the renderer will tack on a localised "subscribers" suffix.
+  for (const node of findAll(data, 'subscribeButtonRenderer')) {
+    const long = runsText(node.longSubscriberCountText)
+    if (long) {
+      subtitle = long
       break
     }
   }
   if (!subtitle) {
-    // Some immersive headers stash the count inside the subscribe button.
+    for (const node of findAll(data, 'longSubscriberCountText')) {
+      const t = runsText(node)
+      if (t) {
+        subtitle = t
+        break
+      }
+    }
+  }
+  if (!subtitle) {
+    for (const node of findAll(data, 'subscriberCountText')) {
+      const t = runsText(node)
+      if (t) {
+        // Bare number/short form — the renderer adds the localised
+        // "subscribers" suffix when it sees no letters past the count.
+        subtitle = t
+        break
+      }
+    }
+  }
+  if (!subtitle) {
     for (const node of findAll(data, 'subscribeButtonRenderer')) {
-      const t =
-        runsText(node.subscriberCountText) ||
-        runsText(node.longSubscriberCountText)
+      const t = runsText(node.subscriberCountText)
       if (t) {
         subtitle = t
         break
