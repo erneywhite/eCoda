@@ -24,6 +24,7 @@
 - 🎵 **Твоя настоящая библиотека YT Music** — все плейлисты, «Понравившаяся музыка», подписки. То что у тебя есть в браузере — есть и тут
 - 💾 **Качай музыку на диск** — отдельный трек, целый плейлист или всё что лайкнул. Слушай без интернета (например в самолёте)
 - 🎚️ **Кросс-фейд между треками** — плавный переход вместо резкого обрыва. Настраивается ползунком 0–12 секунд
+- 🎛️ **10-полосный эквалайзер** — пресеты (Бас, Вокал, Рок и др.) + ручные ползунки ±12 дБ на каждую полосу
 - 🪟 **Мини-плеер** — компактное окно поверх всех окон, чтобы переключать треки не отрываясь от работы. Два варианта: тонкая полоска или квадратик с обложкой
 - ⌨️ **Медиа-клавиши работают** — Play/Pause/Next/Prev на клавиатуре, виджет на lockscreen Windows и в Now Playing на macOS
 - 🎨 **8 цветовых тем** — от пастельных до неоновых
@@ -207,6 +208,7 @@ Just open the app and listen.
 - 🎵 **Your real YT Music library** — all your playlists, Liked Music, subscriptions. What you have in the browser, you have here
 - 💾 **Download music to disk** — per track, per playlist, or your entire Liked Music. Listen offline (planes, subway, dodgy hotel WiFi)
 - 🎚️ **Track-to-track crossfade** — smooth overlap instead of hard cuts. Slider 0–12 seconds in Settings
+- 🎛️ **10-band equalizer** — presets (Bass, Vocal, Rock, etc.) + manual sliders, ±12 dB per band
 - 🪟 **Mini-player** — always-on-top compact window to skip tracks without leaving what you're doing. Two layouts: horizontal pill or square cover-focused
 - ⌨️ **Hardware media keys work** — Play/Pause/Next/Prev on your keyboard, Windows lockscreen widget, macOS Now Playing
 - 🎨 **8 colour themes** — pastel to neon
