@@ -1,4 +1,4 @@
-import { app, shell, BrowserWindow, ipcMain, protocol, screen, Tray, Menu, nativeImage } from 'electron'
+import { app, shell, BrowserWindow, ipcMain, protocol, screen, Tray, Menu, nativeImage, session } from 'electron'
 import { join } from 'path'
 import { createReadStream, statSync } from 'node:fs'
 import { Readable } from 'node:stream'
@@ -29,6 +29,8 @@ import {
   setCloseAction,
   getCrossfadeDuration,
   setCrossfadeDuration,
+  getEqualizer,
+  setEqualizer,
   getPlaylistOverride,
   setPlaylistOverride,
   getWindowState,
@@ -38,6 +40,7 @@ import {
   clearLastSession,
   type AudioQuality,
   type CloseAction,
+  type EqualizerState,
   type PlaylistOverride,
   type RepeatMode,
   type DefaultTab,
@@ -351,6 +354,13 @@ app.whenReady().then(async () => {
       : ext === 'mp3' ? 'audio/mpeg'
       : 'application/octet-stream'
 
+    // ACAO so the renderer can route this audio through Web Audio
+    // (the equalizer). media:// is a different scheme from the app
+    // origin → cross-origin → without this header a
+    // MediaElementSourceNode built from it would be "tainted" and
+    // Web Audio would output silence. Harmless for the <img> thumbs.
+    const cors = { 'Access-Control-Allow-Origin': '*' }
+
     const rangeHeader = request.headers.get('range')
     if (!rangeHeader) {
       // Full-file response, but advertise byte-range support so the
@@ -360,7 +370,8 @@ app.whenReady().then(async () => {
         headers: {
           'Content-Length': String(fileSize),
           'Content-Type': mime,
-          'Accept-Ranges': 'bytes'
+          'Accept-Ranges': 'bytes',
+          ...cors
         }
       })
     }
@@ -391,11 +402,32 @@ app.whenReady().then(async () => {
           'Content-Length': String(chunkSize),
           'Content-Range': `bytes ${start}-${end}/${fileSize}`,
           'Content-Type': mime,
-          'Accept-Ranges': 'bytes'
+          'Accept-Ranges': 'bytes',
+          ...cors
         }
       }
     )
   })
+
+  // Inject Access-Control-Allow-Origin onto the googlevideo audio
+  // responses so the renderer can pipe online streams through Web
+  // Audio (the equalizer) without the cross-origin "taint → silence"
+  // problem. The <audio> elements carry crossorigin="anonymous"; for
+  // that to untaint the MediaElementSourceNode the response must echo
+  // an ACAO header, which googlevideo doesn't always send. Scoped to
+  // googlevideo only so we don't touch anything else in the session.
+  session.defaultSession.webRequest.onHeadersReceived(
+    { urls: ['*://*.googlevideo.com/*'] },
+    (details, callback) => {
+      const headers = { ...details.responseHeaders }
+      // Strip any existing case-variant to avoid duplicates, then set.
+      for (const k of Object.keys(headers)) {
+        if (k.toLowerCase() === 'access-control-allow-origin') delete headers[k]
+      }
+      headers['Access-Control-Allow-Origin'] = ['*']
+      callback({ responseHeaders: headers })
+    }
+  )
 
   ipcMain.handle('auth:browsers', () => detectBrowsers())
   ipcMain.handle('auth:status', () => getBrowser())
@@ -722,6 +754,11 @@ app.whenReady().then(async () => {
   ipcMain.handle('settings:setCrossfadeDuration', (_event, seconds: number) =>
     setCrossfadeDuration(seconds)
   )
+  // 10-band equalizer state (enabled + preset label + per-band dB gains).
+  ipcMain.handle('settings:getEqualizer', () => getEqualizer())
+  ipcMain.handle('settings:setEqualizer', (_event, state: EqualizerState) =>
+    setEqualizer(state)
+  )
 
   // Seed the in-memory closeAction BEFORE the window is created — the
   // close handler reads from this synchronously and we don't want a
@@ -967,7 +1004,17 @@ function enterMiniMode(layout: 'compact' | 'square'): void {
   const x = display.x + display.width - dims.width - 24
   const y = display.y + display.height - dims.height - 24
   mainWindow.setBounds({ x, y, width: dims.width, height: dims.height }, false)
-  mainWindow.setAlwaysOnTop(true, 'normal')
+  // 'floating' (NSFloatingWindowLevel), NOT 'normal'. On macOS the
+  // 'normal' level is the SAME level as regular app windows, so the
+  // mini-player would NOT actually stay above other apps — it just
+  // looked always-on-top until you clicked another window. 'floating'
+  // is the level meant for palettes / mini-players. On Windows the
+  // level argument is effectively ignored, so this is safe everywhere.
+  mainWindow.setAlwaysOnTop(true, 'floating')
+  // Keep it visible across Spaces + over fullscreen apps on macOS —
+  // otherwise switching to a fullscreen window hides the mini-player.
+  // No-op on Windows.
+  mainWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
   // Lock the window size — mini-player has two fixed-size presets
   // (compact + square). User-resize would just stretch the layout
   // weirdly, and the resize-edge hit area was eating clicks meant for
@@ -994,6 +1041,9 @@ function exitMiniMode(): void {
   if (!mainWindow || !miniActive) return
   miniActive = false
   mainWindow.setAlwaysOnTop(false)
+  // Undo the cross-Spaces / over-fullscreen visibility we set on enter
+  // so the restored full window behaves like a normal window again.
+  mainWindow.setVisibleOnAllWorkspaces(false)
   // Restore user-resize before restoring bounds + min size so the
   // window's interactive feel goes back to exactly what it was.
   mainWindow.setResizable(true)

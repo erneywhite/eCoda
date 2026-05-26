@@ -95,6 +95,12 @@ export type RepeatMode = 'off' | 'one' | 'all'
 
 export type CloseAction = 'tray' | 'quit'
 
+export interface EqualizerState {
+  enabled: boolean
+  preset: string
+  gains: number[]
+}
+
 export type TrayCommand = 'play-pause' | 'next' | 'prev'
 
 export type MiniLayout = 'compact' | 'square'
@@ -274,6 +280,8 @@ export interface EcodaApi {
     setCloseAction: (action: CloseAction) => Promise<void>
     getCrossfadeDuration: () => Promise<number>
     setCrossfadeDuration: (seconds: number) => Promise<void>
+    getEqualizer: () => Promise<EqualizerState>
+    setEqualizer: (state: EqualizerState) => Promise<void>
   }
   tray: {
     onCommand: (cb: (cmd: TrayCommand) => void) => () => void

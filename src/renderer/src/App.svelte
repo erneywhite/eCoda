@@ -915,6 +915,194 @@
     }
   })
 
+  // ---- equalizer (Web Audio) ---------------------------------------------
+  // 10-band graphic EQ. The band centre frequencies are the ISO octave
+  // set every player uses (foobar/AIMP/etc), so presets feel familiar.
+  const EQ_FREQS = [32, 64, 125, 250, 500, 1000, 2000, 4000, 8000, 16000]
+  const EQ_BAND_LABELS = ['32', '64', '125', '250', '500', '1K', '2K', '4K', '8K', '16K']
+  // Preset → per-band dB gains. 'custom' isn't here — it's the implicit
+  // label after a manual slider tweak. Values hand-tuned to taste.
+  const EQ_PRESETS: Record<string, number[]> = {
+    flat: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    bass: [6, 5, 4, 2, 0, 0, 0, 0, 0, 0],
+    treble: [0, 0, 0, 0, 0, 0, 2, 4, 5, 6],
+    vocal: [-2, -1, 0, 2, 4, 4, 3, 1, 0, -1],
+    rock: [4, 3, 1, -1, -1, 1, 2, 3, 4, 4],
+    pop: [-1, 1, 3, 4, 3, 0, -1, -1, 1, 2],
+    electronic: [5, 4, 1, 0, -2, 1, 0, 1, 4, 5],
+    jazz: [3, 2, 1, 2, -1, -1, 0, 1, 2, 3],
+    classical: [4, 3, 2, 0, -1, -1, 0, 2, 3, 4],
+    hiphop: [6, 5, 3, 1, -1, 0, 1, 2, 3, 3]
+  }
+  // Preset label list for the UI, in display order.
+  const EQ_PRESET_ORDER = [
+    'flat',
+    'bass',
+    'treble',
+    'vocal',
+    'rock',
+    'pop',
+    'electronic',
+    'jazz',
+    'classical',
+    'hiphop'
+  ]
+
+  let eqEnabled = $state(false)
+  let eqPreset = $state('flat')
+  let eqGains = $state<number[]>(EQ_PRESETS.flat.slice())
+
+  // Web Audio graph — built lazily the first time the EQ is switched on
+  // (or on launch if it was left on). We deliberately DON'T build it for
+  // users who never touch the EQ: createMediaElementSource is a one-way
+  // door (the element's audio routes through Web Audio forever after),
+  // so a user who never wants the EQ keeps the plain element→speakers
+  // path and zero risk of a Web Audio quirk silencing playback.
+  let audioCtx: AudioContext | null = null
+  let eqFilters: BiquadFilterNode[] = []
+  let audioGraphReady = false
+
+  function ensureAudioGraph(): void {
+    if (audioGraphReady) return
+    if (!audioElA || !audioElB) return
+    try {
+      const Ctx = window.AudioContext ?? (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext
+      audioCtx = new Ctx()
+      const srcA = audioCtx.createMediaElementSource(audioElA)
+      const srcB = audioCtx.createMediaElementSource(audioElB)
+      eqFilters = EQ_FREQS.map((freq, i) => {
+        const f = audioCtx!.createBiquadFilter()
+        f.type = i === 0 ? 'lowshelf' : i === EQ_FREQS.length - 1 ? 'highshelf' : 'peaking'
+        f.frequency.value = freq
+        if (f.type === 'peaking') f.Q.value = 1.41
+        f.gain.value = 0
+        return f
+      })
+      // Chain the filters in series, both sources feed the head, the
+      // tail goes to the speakers.
+      for (let i = 0; i < eqFilters.length - 1; i++) eqFilters[i].connect(eqFilters[i + 1])
+      srcA.connect(eqFilters[0])
+      srcB.connect(eqFilters[0])
+      eqFilters[eqFilters.length - 1].connect(audioCtx.destination)
+      audioGraphReady = true
+      applyEqGains()
+    } catch (err) {
+      console.warn('[eq] audio graph setup failed:', err)
+      audioGraphReady = false
+    }
+  }
+
+  // Push the current gains (or flat-0 when disabled) onto the filters.
+  // setTargetAtTime ramps smoothly so slider drags don't click.
+  function applyEqGains(): void {
+    if (!audioGraphReady || !audioCtx) return
+    const now = audioCtx.currentTime
+    for (let i = 0; i < eqFilters.length; i++) {
+      const target = eqEnabled ? eqGains[i] ?? 0 : 0
+      eqFilters[i].gain.setTargetAtTime(target, now, 0.02)
+    }
+  }
+
+  // Resume the context if the autoplay policy parked it suspended —
+  // called from playTrack (a user gesture).
+  function resumeAudioCtxIfNeeded(): void {
+    if (audioCtx && audioCtx.state === 'suspended') void audioCtx.resume()
+  }
+
+  async function persistEqualizer(): Promise<void> {
+    try {
+      await window.api.settings.setEqualizer({
+        enabled: eqEnabled,
+        preset: eqPreset,
+        gains: eqGains
+      })
+    } catch (err) {
+      console.warn('[eq] persist failed', err)
+    }
+  }
+
+  function toggleEqualizer(on: boolean): void {
+    eqEnabled = on
+    void persistEqualizer()
+    if (!on) {
+      // Flatten the bands to 0 dB — transparent. We leave the graph
+      // built (createMediaElementSource is one-way) but it passes audio
+      // through unchanged.
+      applyEqGains()
+      return
+    }
+    // Turning ON. The crossorigin attribute just flipped to 'anonymous'
+    // (reactive). If a track is already loaded it was fetched WITHOUT
+    // the CORS request, so its MediaElementSource would be tainted →
+    // silent. Wait a tick for the attribute to hit the DOM, reload the
+    // active element so it re-fetches with CORS, then build the graph.
+    void (async () => {
+      await tick()
+      ensureAudioGraph()
+      resumeAudioCtxIfNeeded()
+      reloadActiveForEq()
+      applyEqGains()
+    })()
+  }
+
+  // Re-fetch the active audio element's current src (now that
+  // crossorigin is set) without losing the play position. Only used
+  // when the EQ is switched on mid-playback — a fresh track started
+  // after EQ-on already loads with crossorigin and needs no reload.
+  function reloadActiveForEq(): void {
+    const el = audioEl
+    if (!el || !el.src) return
+    const pos = el.currentTime
+    const wasPlaying = !el.paused
+    const onReady = (): void => {
+      el.removeEventListener('canplay', onReady)
+      try {
+        el.currentTime = pos
+      } catch {
+        // some streams reject seek before fully buffered — ignore
+      }
+      if (wasPlaying) void el.play().catch(() => {})
+    }
+    el.addEventListener('canplay', onReady)
+    el.load()
+  }
+
+  function applyEqPreset(name: string): void {
+    const preset = EQ_PRESETS[name]
+    if (!preset) return
+    eqPreset = name
+    eqGains = preset.slice()
+    applyEqGains()
+    void persistEqualizer()
+  }
+
+  function setEqBand(index: number, db: number): void {
+    const next = eqGains.slice()
+    next[index] = Math.max(-12, Math.min(12, db))
+    eqGains = next
+    // Any manual tweak drops the preset to "custom" unless the result
+    // happens to still match the active preset exactly.
+    eqPreset = EQ_PRESET_ORDER.find((p) => arraysEqual(EQ_PRESETS[p], next)) ?? 'custom'
+    applyEqGains()
+    void persistEqualizer()
+  }
+
+  function arraysEqual(a: number[], b: number[]): boolean {
+    return a.length === b.length && a.every((v, i) => v === b[i])
+  }
+
+  // Cheap buffering breadcrumb. The "lag" report wasn't reproducible,
+  // so rather than chase a ghost we just leave a timestamped trace in
+  // main.log (via the console mirror) if the audio element stalls or
+  // has to wait for data — next time it happens there's evidence.
+  function onAudioStall(key: 'a' | 'b', kind: 'stalled' | 'waiting'): void {
+    if (key !== activeAudioKey) return
+    console.warn(
+      `[audio] ${kind} on ${key} at t=${currentTime.toFixed(1)}s` +
+        ` (track=${playing?.id ?? '—'}, downloading=${downloadingIds.size})`
+    )
+  }
+
   // Keep navigator.mediaSession in sync with the current track + play
   // state. Chromium forwards this to OS-level media controls (Windows
   // SMTC / macOS Now Playing / Linux MPRIS), so the lockscreen widget
@@ -1578,6 +1766,13 @@
       shuffleMode = await window.api.settings.getShuffleMode()
       repeatMode = await window.api.settings.getRepeatMode()
       crossfadeDuration = await window.api.settings.getCrossfadeDuration()
+      // Equalizer — load saved state. If it was left on, the graph
+      // builds lazily on the first playTrack (audio elements only
+      // exist once something is playing).
+      const eq = await window.api.settings.getEqualizer()
+      eqEnabled = eq.enabled
+      eqPreset = eq.preset
+      eqGains = eq.gains
       browsers = await window.api.auth.browsers()
       connectedBrowser = await window.api.auth.status()
       if (connectedBrowser) {
@@ -2090,6 +2285,13 @@
       // and silence the inactive one. The $effect above re-applies
       // volume/mute based on gain.
       loadOnActive(r.streamUrl)
+      // Build / resume the EQ graph if the user has it enabled. Done
+      // here (a user-gesture-rooted call) so the AudioContext isn't
+      // blocked by the autoplay policy. No-op when EQ is off.
+      if (eqEnabled) {
+        ensureAudioGraph()
+        resumeAudioCtxIfNeeded()
+      }
       await tick()
       const el = audioEl
       if (el) {
@@ -3737,6 +3939,65 @@
             </section>
 
             <section class="settings-card">
+              <div class="eq-head">
+                <h4>{t('settings.eq.title')}</h4>
+                <button
+                  class="eq-toggle"
+                  class:on={eqEnabled}
+                  role="switch"
+                  aria-checked={eqEnabled}
+                  onclick={() => toggleEqualizer(!eqEnabled)}
+                  title={eqEnabled ? t('settings.eq.on') : t('settings.eq.off')}
+                >
+                  <span class="eq-toggle-knob"></span>
+                </button>
+              </div>
+
+              <!-- Preset chips. Active one is highlighted; "custom"
+                   only shows as active after a manual slider tweak that
+                   doesn't match any preset. -->
+              <div class="eq-presets" class:disabled={!eqEnabled}>
+                {#each EQ_PRESET_ORDER as p (p)}
+                  <button
+                    class="eq-preset"
+                    class:active={eqPreset === p}
+                    disabled={!eqEnabled}
+                    onclick={() => applyEqPreset(p)}
+                  >
+                    {t('eq.preset.' + p)}
+                  </button>
+                {/each}
+                {#if eqPreset === 'custom'}
+                  <span class="eq-preset active eq-preset-custom">{t('eq.preset.custom')}</span>
+                {/if}
+              </div>
+
+              <!-- 10 vertical sliders. Each is a rotated range input;
+                   value is dB (-12..+12). The band label sits under
+                   each, the current dB above. -->
+              <div class="eq-bands" class:disabled={!eqEnabled}>
+                {#each EQ_BAND_LABELS as label, i (label)}
+                  <div class="eq-band">
+                    <span class="eq-band-db">{eqGains[i] > 0 ? '+' : ''}{eqGains[i]}</span>
+                    <input
+                      type="range"
+                      class="eq-slider"
+                      min="-12"
+                      max="12"
+                      step="1"
+                      value={eqGains[i]}
+                      disabled={!eqEnabled}
+                      oninput={(e) =>
+                        setEqBand(i, Number((e.currentTarget as HTMLInputElement).value))}
+                    />
+                    <span class="eq-band-label">{label}</span>
+                  </div>
+                {/each}
+              </div>
+              <p class="settings-hint">{t('settings.eq.hint')}</p>
+            </section>
+
+            <section class="settings-card">
               <h4>{t('settings.cache.title')}</h4>
               {#if cacheStats}
                 <p class="settings-line">
@@ -4247,25 +4508,42 @@
              player; the other is silent unless a fade is in progress.
              Both are always mounted (no {#if playing.streamUrl})
              because tearing one down mid-fade would chop the audio. -->
+        <!-- crossorigin is set to 'anonymous' ONLY when the equalizer is
+             on. Routing an element through Web Audio (MediaElementSource)
+             taints + silences the output unless the media was fetched
+             with CORS — and googlevideo doesn't send Access-Control-
+             Allow-Origin natively, so main injects it via onHeadersReceived
+             (+ on the media:// handler). We keep crossorigin OFF by
+             default so a CORS hiccup can never break plain playback for
+             users who don't touch the EQ; toggling EQ on reloads the
+             active track so it re-fetches WITH the CORS request.
+             onstalled/onwaiting log buffering hiccups to main.log — a
+             cheap breadcrumb if the "lag" report recurs. -->
         <audio
           bind:this={audioElA}
           src={audioASrc}
+          crossorigin={eqEnabled ? 'anonymous' : undefined}
           onended={() => onAudioElementEnded('a')}
           onplay={() => onAudioElementPlay('a')}
           onpause={() => onAudioElementPause('a')}
           onseeked={() => onAudioElementSeeked('a')}
           onloadedmetadata={() => onAudioElementLoaded('a')}
           ontimeupdate={() => onAudioElementTimeUpdate('a')}
+          onstalled={() => onAudioStall('a', 'stalled')}
+          onwaiting={() => onAudioStall('a', 'waiting')}
         ></audio>
         <audio
           bind:this={audioElB}
           src={audioBSrc}
+          crossorigin={eqEnabled ? 'anonymous' : undefined}
           onended={() => onAudioElementEnded('b')}
           onplay={() => onAudioElementPlay('b')}
           onpause={() => onAudioElementPause('b')}
           onseeked={() => onAudioElementSeeked('b')}
           onloadedmetadata={() => onAudioElementLoaded('b')}
           ontimeupdate={() => onAudioElementTimeUpdate('b')}
+          onstalled={() => onAudioStall('b', 'stalled')}
+          onwaiting={() => onAudioStall('b', 'waiting')}
         ></audio>
       </div>
       {#if miniMode}
@@ -5621,6 +5899,135 @@
     font-size: 0.88rem;
     font-weight: 600;
     font-variant-numeric: tabular-nums;
+  }
+
+  /* ---- equalizer ---------------------------------------------------------- */
+  .eq-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  /* iOS-style toggle switch for the EQ on/off */
+  .eq-toggle {
+    position: relative;
+    width: 44px;
+    height: 24px;
+    border-radius: 12px;
+    border: none;
+    background: rgba(255, 255, 255, 0.14);
+    cursor: pointer;
+    padding: 0;
+    transition: background 0.18s ease;
+    flex: 0 0 auto;
+  }
+  .eq-toggle.on {
+    background: var(--accent);
+  }
+  .eq-toggle-knob {
+    position: absolute;
+    top: 3px;
+    left: 3px;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: #fff;
+    transition: transform 0.18s cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+  .eq-toggle.on .eq-toggle-knob {
+    transform: translateX(20px);
+  }
+
+  .eq-presets {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+    margin: 0.6rem 0 0.9rem;
+    transition: opacity 0.18s ease;
+  }
+  .eq-presets.disabled {
+    opacity: 0.4;
+    pointer-events: none;
+  }
+  .eq-preset {
+    padding: 0.32rem 0.7rem;
+    border: 1px solid #34284e;
+    border-radius: 8px;
+    background: transparent;
+    color: #b9acd6;
+    font-size: 0.8rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.14s ease, color 0.14s ease, border-color 0.14s ease;
+  }
+  .eq-preset:hover:not(:disabled) {
+    border-color: rgba(var(--accent-rgb), 0.5);
+    color: #fff;
+  }
+  .eq-preset.active {
+    background: rgba(var(--accent-rgb), 0.22);
+    border-color: rgba(var(--accent-rgb), 0.6);
+    color: #fff;
+  }
+  .eq-preset-custom {
+    cursor: default;
+    border-style: dashed;
+  }
+
+  /* The 10 vertical band sliders. Each <input type=range> is rotated
+     -90° so it stands up; the wrapper gives it a fixed footprint. */
+  .eq-bands {
+    display: flex;
+    justify-content: space-between;
+    gap: 0.2rem;
+    margin: 0.3rem 0 0.6rem;
+    transition: opacity 0.18s ease;
+  }
+  .eq-bands.disabled {
+    opacity: 0.4;
+    pointer-events: none;
+  }
+  .eq-band {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.35rem;
+    flex: 1 1 0;
+    min-width: 0;
+  }
+  .eq-band-db {
+    font-size: 0.68rem;
+    color: #8c7da8;
+    font-variant-numeric: tabular-nums;
+    min-height: 0.9rem;
+  }
+  .eq-band-label {
+    font-size: 0.68rem;
+    color: #8c7da8;
+  }
+  .eq-slider {
+    appearance: none;
+    writing-mode: vertical-lr;
+    direction: rtl;
+    width: 6px;
+    height: 96px;
+    border-radius: 4px;
+    background: rgba(255, 255, 255, 0.12);
+    cursor: pointer;
+    outline: none;
+  }
+  .eq-slider::-webkit-slider-thumb {
+    appearance: none;
+    width: 16px;
+    height: 12px;
+    border-radius: 3px;
+    background: var(--accent);
+    border: 2px solid #fff;
+    cursor: pointer;
+    box-shadow: 0 0 5px rgba(var(--accent-rgb), 0.55);
+  }
+  .eq-slider:disabled::-webkit-slider-thumb {
+    background: #6b6280;
+    border-color: #b9acd6;
   }
   .quality-btn {
     flex: 1 1 130px;

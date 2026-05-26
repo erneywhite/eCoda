@@ -156,7 +156,10 @@ const api = {
       ipcRenderer.invoke('settings:setCloseAction', action),
     getCrossfadeDuration: () => ipcRenderer.invoke('settings:getCrossfadeDuration'),
     setCrossfadeDuration: (seconds: number) =>
-      ipcRenderer.invoke('settings:setCrossfadeDuration', seconds)
+      ipcRenderer.invoke('settings:setCrossfadeDuration', seconds),
+    getEqualizer: () => ipcRenderer.invoke('settings:getEqualizer'),
+    setEqualizer: (state: { enabled: boolean; preset: string; gains: number[] }) =>
+      ipcRenderer.invoke('settings:setEqualizer', state)
   },
   // Tray menu commands flow from main → renderer. The renderer
   // subscribes once at mount and dispatches the command string ('play-

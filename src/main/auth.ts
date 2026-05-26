@@ -371,6 +371,20 @@ export interface LastSession {
 //            who want the X to mean exit.
 export type CloseAction = 'tray' | 'quit'
 
+// 10-band graphic equalizer state. `gains` is exactly 10 values in dB
+// (-12..+12), one per band at 32/64/125/250/500/1k/2k/4k/8k/16k Hz —
+// the renderer maps them onto a Web Audio BiquadFilter chain. `preset`
+// is just the label of the last-applied preset (or 'custom' after a
+// manual slider tweak) so the UI can highlight it; the gains array is
+// the source of truth. `enabled` gates the whole chain — when off, the
+// renderer flattens every band to 0 dB (transparent) rather than
+// tearing the audio graph down.
+export interface EqualizerState {
+  enabled: boolean
+  preset: string
+  gains: number[]
+}
+
 interface Config {
   browser?: string
   defaultTab?: DefaultTab
@@ -384,6 +398,7 @@ interface Config {
   // — the next track starts the instant the previous ends. Settings
   // slider exposes 0 to 12 seconds.
   crossfadeDuration?: number
+  equalizer?: EqualizerState
   pinnedPlaylists?: PinnedPlaylist[]
   playlistOverrides?: Record<string, PlaylistOverride>
   windowState?: WindowState
@@ -505,6 +520,48 @@ export async function getCrossfadeDuration(): Promise<number> {
 export async function setCrossfadeDuration(seconds: number): Promise<void> {
   const clamped = Math.max(0, Math.min(12, Math.round(seconds)))
   await writeConfig({ ...(await readConfig()), crossfadeDuration: clamped })
+}
+
+// 10-band equalizer state. Default is disabled + flat. We validate the
+// gains array length + clamp each band to [-12, +12] dB on read so a
+// hand-edited or version-skewed config can't feed NaN / wrong-length
+// data into the Web Audio filter chain (which would throw and kill
+// audio).
+const EQ_BANDS = 10
+function flatGains(): number[] {
+  return new Array(EQ_BANDS).fill(0)
+}
+export async function getEqualizer(): Promise<EqualizerState> {
+  const raw = (await readConfig()).equalizer
+  if (!raw || typeof raw !== 'object') {
+    return { enabled: false, preset: 'flat', gains: flatGains() }
+  }
+  let gains = Array.isArray(raw.gains) ? raw.gains.slice(0, EQ_BANDS) : flatGains()
+  // Pad / sanitise to exactly EQ_BANDS finite values in range.
+  gains = Array.from({ length: EQ_BANDS }, (_, i) => {
+    const v = gains[i]
+    return typeof v === 'number' && Number.isFinite(v) ? Math.max(-12, Math.min(12, v)) : 0
+  })
+  return {
+    enabled: !!raw.enabled,
+    preset: typeof raw.preset === 'string' ? raw.preset : 'custom',
+    gains
+  }
+}
+
+export async function setEqualizer(state: EqualizerState): Promise<void> {
+  const gains = Array.from({ length: EQ_BANDS }, (_, i) => {
+    const v = state.gains?.[i]
+    return typeof v === 'number' && Number.isFinite(v) ? Math.max(-12, Math.min(12, v)) : 0
+  })
+  await writeConfig({
+    ...(await readConfig()),
+    equalizer: {
+      enabled: !!state.enabled,
+      preset: typeof state.preset === 'string' ? state.preset : 'custom',
+      gains
+    }
+  })
 }
 
 // Per-playlist override (custom track order + pinned set). null result
