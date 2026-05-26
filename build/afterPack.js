@@ -67,18 +67,24 @@ exports.default = async function (context) {
     throw new Error(`codesign exited with status ${res.status}`)
   }
 
-  // Quick sanity check — Squirrel.Mac runs this exact validation on the
-  // downloaded .app and refuses to apply the update if it fails. If we
-  // ship a build that doesn't pass this here, auto-update is broken.
+  // Sanity check — mirror EXACTLY what Squirrel.Mac runs on the
+  // downloaded .app before applying an update: SecStaticCodeCheckValidity
+  // with default flags, which corresponds to `codesign --verify --deep`
+  // WITHOUT `--strict`. We deliberately do NOT use `--strict` here:
+  // macOS Sequoia (Spotlight/fsevents) asynchronously re-stamps
+  // `com.apple.FinderInfo` on the nested Helper .app bundles shortly
+  // after our ditto pass, and `--strict` rejects that xattr. Squirrel
+  // doesn't run strict, so a strict check here would be both flaky (race
+  // with Spotlight) and stricter than the thing we're trying to predict.
   const verify = spawnSync(
     'codesign',
-    ['--verify', '--deep', '--strict', appPath],
+    ['--verify', '--deep', appPath],
     { stdio: 'inherit' }
   )
   if (verify.status !== 0) {
     throw new Error(
-      `codesign --verify --deep --strict failed on ${appPath} — Squirrel.Mac will reject this build`
+      `codesign --verify --deep failed on ${appPath} — Squirrel.Mac will reject this build`
     )
   }
-  console.log(`[afterPack] ad-hoc signature verified — Squirrel.Mac will accept this build`)
+  console.log(`[afterPack] ad-hoc signature verified (mild, matches Squirrel.Mac) — build OK`)
 }
