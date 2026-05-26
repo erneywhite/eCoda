@@ -47,8 +47,8 @@
 
 | Платформа | Файл | Размер |
 | --- | --- | --- |
-| **Windows 10/11** (x64) | `eCoda-Setup-1.0.0.exe` | ~131 MB |
-| **macOS** (Apple Silicon — M1/M2/M3/M4) | `eCoda-1.0.0-arm64.dmg` | ~180 MB |
+| **Windows 10/11** (x64) | `eCoda-Setup-1.1.0.exe` | ~130 MB |
+| **macOS** (Apple Silicon — M1/M2/M3/M4) | `eCoda-1.1.0-arm64.dmg` | ~160 MB |
 
 ---
 
@@ -231,8 +231,8 @@ Plus dozens of small touches you'll only notice while using it.
 
 | Platform | File | Size |
 | --- | --- | --- |
-| **Windows 10/11** (x64) | `eCoda-Setup-1.0.0.exe` | ~131 MB |
-| **macOS** (Apple Silicon — M1/M2/M3/M4) | `eCoda-1.0.0-arm64.dmg` | ~180 MB |
+| **Windows 10/11** (x64) | `eCoda-Setup-1.1.0.exe` | ~130 MB |
+| **macOS** (Apple Silicon — M1/M2/M3/M4) | `eCoda-1.1.0-arm64.dmg` | ~160 MB |
 
 ---
 
