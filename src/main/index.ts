@@ -210,7 +210,16 @@ async function createWindow(): Promise<void> {
       // DevTools available in dev only — installed users shouldn't be
       // staring at a debugger by default, and disabling them here also
       // blocks Ctrl+Shift+I + the View → Developer Tools menu item.
-      devTools: !app.isPackaged
+      devTools: !app.isPackaged,
+      // Keep requestAnimationFrame + timers running at full rate when the
+      // window is in the background or OCCLUDED by another window.
+      // Chromium otherwise throttles rAF to ~0 fps for occluded windows,
+      // which stalled the crossfade gain ramp (runFadeAnimation) — the
+      // incoming track stayed pinned at gain 0 (silent) while the
+      // outgoing track played out and ended, so the next track "switched"
+      // in the UI but produced no sound. A music player should never
+      // throttle its own audio transitions when buried behind a window.
+      backgroundThrottling: false
     }
   })
 

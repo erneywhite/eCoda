@@ -1014,7 +1014,14 @@
       await window.api.settings.setEqualizer({
         enabled: eqEnabled,
         preset: eqPreset,
-        gains: eqGains
+        // eqGains is a Svelte $state array — a reactive Proxy. Electron
+        // IPC serialises arguments with the structured-clone algorithm,
+        // which throws on the proxy ("object could not be cloned"); the
+        // rejection was swallowed by the catch below, so the EQ never
+        // actually persisted. $state.snapshot yields a plain, clone-safe
+        // copy. (This is why the EQ alone failed to save while every
+        // other setting — all primitives — round-tripped fine.)
+        gains: $state.snapshot(eqGains)
       })
     } catch (err) {
       console.warn('[eq] persist failed', err)
@@ -2487,13 +2494,23 @@
     maybeStartCrossfade()
   }
   function onAudioElementEnded(key: 'a' | 'b'): void {
-    // The fading-out audio's natural end during a crossfade is
-    // expected — the new track on the other element is already
-    // playing. Only act on the ACTIVE audio's end.
+    // Safety net for the crossfade gain ramp. During a fade the OUTGOING
+    // element is the non-active one; its natural end is expected. Normally
+    // the rAF ramp has already finished the fade by now, but if rAF was
+    // throttled (an occluded window pauses requestAnimationFrame) the
+    // incoming track is still sitting at gain 0 — silent. Snapping the
+    // fade to completion here forces the new track up to full volume the
+    // instant the old one ends, so we never strand it playing inaudibly.
+    // (backgroundThrottling:false should keep rAF alive, but this guards
+    // the case regardless of platform throttling quirks.)
+    if (crossfadeActive && key !== activeAudioKey) {
+      finishCrossfade(key, activeAudioKey)
+      return
+    }
+    // Only the ACTIVE audio's natural end advances the queue.
     if (key !== activeAudioKey) return
-    // If a crossfade is in progress, the active audio IS the
-    // incoming track, which shouldn't have reached its end yet —
-    // but if it somehow did, the fade will resolve normally.
+    // If a crossfade is somehow still in progress on the active (incoming)
+    // element, let the fade resolve normally rather than double-advancing.
     if (crossfadeActive) return
     onAudioEnded()
   }
