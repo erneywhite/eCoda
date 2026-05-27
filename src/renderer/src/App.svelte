@@ -5100,6 +5100,13 @@
     display: flex;
     align-items: center;
     gap: 1rem;
+    /* Whole header is the OS drag region for the frameless window — grab
+       anywhere in the empty space to move the window, double-click to
+       toggle maximize. Interactive children (.wordmark, .hist, .win-ctrl)
+       opt out via -webkit-app-region: no-drag below. This MUST live on the
+       base rule, not only the macOS override — otherwise the window can't
+       be dragged at all on Windows. */
+    -webkit-app-region: drag;
     /* Asymmetric padding: match .layout — header should sit above the
        sidebar with the same 1rem left gutter. Right side has zero
        padding because the window controls (.window-controls) hug the
@@ -5134,12 +5141,6 @@
        1.2rem 1rem`). 2rem on both keeps a clean vertical line down
        the right side of the window. */
     padding-right: 2rem;
-    /* Whole header is the drag region for the frameless window —
-       grab anywhere in the empty space to move the window. Interactive
-       children (.hist, .win-ctrl) opt out via -webkit-app-region:no-drag
-       below. Double-clicking the drag region toggles maximize, which
-       is the standard OS expectation. */
-    -webkit-app-region: drag;
   }
   /* All interactive header elements must opt out of the drag region —
      otherwise clicks land as drag attempts and the buttons feel dead. */
