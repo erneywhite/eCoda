@@ -1,6 +1,6 @@
 import { app } from 'electron'
 import { existsSync, readdirSync, statSync } from 'node:fs'
-import { readFile, writeFile } from 'node:fs/promises'
+import { readFile, writeFile, rename } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 
@@ -415,16 +415,48 @@ export function getCookiesFilePath(): string {
   return join(app.getPath('userData'), 'youtube-cookies.txt')
 }
 
+// In-memory config cache + serialized atomic writes (1.1.1). Two problems
+// this fixes:
+//  1. Reads used to hit disk every time. Our old writeConfig truncated the
+//     file then wrote it; if a read (e.g. the launch-time auth:status check)
+//     landed in that window it got an empty file → JSON.parse threw → {} →
+//     getBrowser() returned null → the "connect your account" screen showed
+//     even though a browser WAS configured. After first load, reads come
+//     from the cache and never touch disk again, so that race is gone.
+//  2. Writes are now atomic (temp file → rename, which is atomic on the same
+//     volume) and serialized through a chain, so the independent savers
+//     (window-state on move/resize/close, session on play, every settings
+//     setter) can't truncate each other or interleave a rename.
+let cachedConfig: Config | null = null
+let configWriteChain: Promise<void> = Promise.resolve()
+
 async function readConfig(): Promise<Config> {
-  try {
-    return JSON.parse(await readFile(configPath(), 'utf8')) as Config
-  } catch {
-    return {}
+  if (!cachedConfig) {
+    try {
+      cachedConfig = JSON.parse(await readFile(configPath(), 'utf8')) as Config
+    } catch {
+      cachedConfig = {}
+    }
   }
+  return cachedConfig
 }
 
 async function writeConfig(config: Config): Promise<void> {
-  await writeFile(configPath(), JSON.stringify(config, null, 2), 'utf8')
+  // Update the in-memory source of truth synchronously, BEFORE any await, so
+  // a read-modify-write setter whose readConfig() resolves right after this
+  // sees the new value rather than clobbering it with a stale snapshot.
+  cachedConfig = config
+  const target = configPath()
+  const tmp = `${target}.tmp`
+  const data = JSON.stringify(config, null, 2)
+  const run = configWriteChain.then(async () => {
+    await writeFile(tmp, data, 'utf8')
+    await rename(tmp, target)
+  })
+  // Keep the chain alive even if this particular write rejects, so the next
+  // save still runs; the caller still sees this write's own rejection.
+  configWriteChain = run.catch(() => {})
+  return run
 }
 
 // The browser eCoda reads cookies from, or null if none is configured yet.
