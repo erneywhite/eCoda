@@ -1469,6 +1469,47 @@
     items: CtxMenuItem[]
   }
   let ctxMenu = $state<CtxMenuState | null>(null)
+  // Bound to the rendered menu node so the clamp effect can measure + position
+  // it. Goes null when the menu closes (the {#if} removes the node).
+  let ctxMenuEl = $state<HTMLElement | null>(null)
+
+  // Keeps the context menu inside the window on EVERY open. The menu opens at
+  // the raw click coords (ctxMenu.x/y via the style: directives), so a click
+  // near the right/bottom edge would spill it — and clip its lower items —
+  // off-screen. This effect re-runs whenever `ctxMenu` changes (each open is a
+  // fresh object) or the node mounts: it measures the real rendered size
+  // (offsetWidth/Height — layout dims, unaffected by the scale transition,
+  // which is a CSS transform) and writes clamped left/top straight onto the
+  // node, with an 8px margin.
+  //
+  // Why an $effect and NOT a `use:` action (paid for in blood): an action's
+  // body only runs on element CREATION. On a second right-click WITHOUT closing
+  // the menu, Svelte REUSES the same .ctx-menu node (only the style: coords
+  // update), so the action never re-ran and the second menu spilled off-screen
+  // even though the first was clamped. The effect tracks ctxMenu, so it fires
+  // on every open including node reuse. The rAF retry covers a layout that
+  // isn't final on the first tick.
+  $effect(() => {
+    const menu = ctxMenu
+    const node = ctxMenuEl
+    if (!menu || !node) return
+    const place = (): void => {
+      const margin = 8
+      const x = Math.max(
+        margin,
+        Math.min(menu.x, window.innerWidth - node.offsetWidth - margin)
+      )
+      const y = Math.max(
+        margin,
+        Math.min(menu.y, window.innerHeight - node.offsetHeight - margin)
+      )
+      node.style.left = `${x}px`
+      node.style.top = `${y}px`
+    }
+    place()
+    const raf = requestAnimationFrame(place)
+    return () => cancelAnimationFrame(raf)
+  })
 
   // ---- add-to-playlist modal --------------------------------------------
   // Opened from the track context menu. Holds the track being added, the
@@ -1819,37 +1860,6 @@
 
   function closeCtxMenu(): void {
     ctxMenu = null
-  }
-
-  // Keeps the context menu inside the window. The menu opens at the raw click
-  // coords (`ctxMenu.x/y`), so a click near the right/bottom edge would spill
-  // it — and clip its lower items — outside the app. This Svelte action owns
-  // the menu's position entirely: it measures the menu's real rendered size
-  // (offsetWidth/Height — layout dims, unaffected by the `scale` transition,
-  // which is a CSS transform) and writes clamped `left`/`top` straight onto
-  // the node's inline style. We deliberately do NOT use `style:left/top`
-  // directives for this — driving position from `$state` and trying to correct
-  // it back from the action is racy in Svelte 5 (the corrected value can be
-  // lost on the mount tick). Setting node.style directly here is authoritative
-  // and survives unrelated re-renders. Runs synchronously on mount (before
-  // paint, so no flash) with a rAF retry in case layout wasn't ready yet.
-  function clampCtxMenu(node: HTMLElement): void {
-    const place = (): void => {
-      if (!ctxMenu) return
-      const margin = 8
-      const x = Math.max(
-        margin,
-        Math.min(ctxMenu.x, window.innerWidth - node.offsetWidth - margin)
-      )
-      const y = Math.max(
-        margin,
-        Math.min(ctxMenu.y, window.innerHeight - node.offsetHeight - margin)
-      )
-      node.style.left = `${x}px`
-      node.style.top = `${y}px`
-    }
-    place()
-    requestAnimationFrame(place)
   }
 
   // onMount stays synchronous so we can return a proper cleanup closure
@@ -4938,7 +4948,7 @@
     <div
       class="ctx-menu"
       role="menu"
-      use:clampCtxMenu
+      bind:this={ctxMenuEl}
       style:left="{ctxMenu.x}px"
       style:top="{ctxMenu.y}px"
       transition:scale={{ duration: 130, start: 0.94, opacity: 0, easing: quintOut }}
