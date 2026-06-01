@@ -1821,6 +1821,26 @@
     ctxMenu = null
   }
 
+  // Keeps the context menu inside the window. The menu is positioned from the
+  // raw click coords, so a click near the right/bottom edge would spill the
+  // menu (and clip its last items) outside the app. This action runs on mount,
+  // measures the REAL rendered size (offsetWidth/Height — layout dims, not
+  // affected by the `scale` transition, which is a CSS transform), and shifts
+  // the menu back in with an 8px margin. It writes the corrected coords back
+  // to `ctxMenu` state (rather than poking node.style directly) so the
+  // `style:` directives stay authoritative — otherwise an unrelated component
+  // re-render while the menu is open would re-apply the raw coords. The scale
+  // transition starts at opacity 0, so the correction is never visible.
+  function clampCtxMenu(node: HTMLElement): void {
+    if (!ctxMenu) return
+    const margin = 8
+    const maxX = window.innerWidth - node.offsetWidth - margin
+    const maxY = window.innerHeight - node.offsetHeight - margin
+    const x = Math.max(margin, Math.min(ctxMenu.x, maxX))
+    const y = Math.max(margin, Math.min(ctxMenu.y, maxY))
+    if (x !== ctxMenu.x || y !== ctxMenu.y) ctxMenu = { ...ctxMenu, x, y }
+  }
+
   // onMount stays synchronous so we can return a proper cleanup closure
   // (Svelte 5 typedef requires `() => () => void | Promise<never>` — an
   // async onMount that returns a teardown would violate the Promise<never>
@@ -4907,6 +4927,7 @@
     <div
       class="ctx-menu"
       role="menu"
+      use:clampCtxMenu
       style:left="{ctxMenu.x}px"
       style:top="{ctxMenu.y}px"
       transition:scale={{ duration: 130, start: 0.94, opacity: 0, easing: quintOut }}
