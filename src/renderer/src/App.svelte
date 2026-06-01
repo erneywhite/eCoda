@@ -1821,24 +1821,35 @@
     ctxMenu = null
   }
 
-  // Keeps the context menu inside the window. The menu is positioned from the
-  // raw click coords, so a click near the right/bottom edge would spill the
-  // menu (and clip its last items) outside the app. This action runs on mount,
-  // measures the REAL rendered size (offsetWidth/Height — layout dims, not
-  // affected by the `scale` transition, which is a CSS transform), and shifts
-  // the menu back in with an 8px margin. It writes the corrected coords back
-  // to `ctxMenu` state (rather than poking node.style directly) so the
-  // `style:` directives stay authoritative — otherwise an unrelated component
-  // re-render while the menu is open would re-apply the raw coords. The scale
-  // transition starts at opacity 0, so the correction is never visible.
+  // Keeps the context menu inside the window. The menu opens at the raw click
+  // coords (`ctxMenu.x/y`), so a click near the right/bottom edge would spill
+  // it — and clip its lower items — outside the app. This Svelte action owns
+  // the menu's position entirely: it measures the menu's real rendered size
+  // (offsetWidth/Height — layout dims, unaffected by the `scale` transition,
+  // which is a CSS transform) and writes clamped `left`/`top` straight onto
+  // the node's inline style. We deliberately do NOT use `style:left/top`
+  // directives for this — driving position from `$state` and trying to correct
+  // it back from the action is racy in Svelte 5 (the corrected value can be
+  // lost on the mount tick). Setting node.style directly here is authoritative
+  // and survives unrelated re-renders. Runs synchronously on mount (before
+  // paint, so no flash) with a rAF retry in case layout wasn't ready yet.
   function clampCtxMenu(node: HTMLElement): void {
-    if (!ctxMenu) return
-    const margin = 8
-    const maxX = window.innerWidth - node.offsetWidth - margin
-    const maxY = window.innerHeight - node.offsetHeight - margin
-    const x = Math.max(margin, Math.min(ctxMenu.x, maxX))
-    const y = Math.max(margin, Math.min(ctxMenu.y, maxY))
-    if (x !== ctxMenu.x || y !== ctxMenu.y) ctxMenu = { ...ctxMenu, x, y }
+    const place = (): void => {
+      if (!ctxMenu) return
+      const margin = 8
+      const x = Math.max(
+        margin,
+        Math.min(ctxMenu.x, window.innerWidth - node.offsetWidth - margin)
+      )
+      const y = Math.max(
+        margin,
+        Math.min(ctxMenu.y, window.innerHeight - node.offsetHeight - margin)
+      )
+      node.style.left = `${x}px`
+      node.style.top = `${y}px`
+    }
+    place()
+    requestAnimationFrame(place)
   }
 
   // onMount stays synchronous so we can return a proper cleanup closure
@@ -7403,6 +7414,12 @@
     display: flex;
     flex-direction: column;
     gap: 0.1rem;
+    /* Safety net for a menu taller than a short window (e.g. mini-player):
+       cap height to the viewport and scroll. The clampCtxMenu action keeps
+       the box inside the window horizontally + vertically; this stops a very
+       tall menu from overflowing when there's simply not enough height. */
+    max-height: calc(100vh - 16px);
+    overflow-y: auto;
     /* Scale-in transition uses the top-left corner as the origin so
        the menu appears to grow OUT of the click point (where its
        absolute-positioned top-left was placed), rather than ballooning
