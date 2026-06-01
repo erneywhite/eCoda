@@ -39,7 +39,9 @@ const api = {
     addTrack: (
       playlist: { id: string; title: string; thumbnail: string },
       videoId: string
-    ) => ipcRenderer.invoke('playlist:addTrack', playlist, videoId)
+    ) => ipcRenderer.invoke('playlist:addTrack', playlist, videoId),
+    removeTrack: (playlistId: string, videoId: string, setVideoId: string) =>
+      ipcRenderer.invoke('playlist:removeTrack', playlistId, videoId, setVideoId)
   },
   library: {
     prepare: () => ipcRenderer.invoke('library:prepare')

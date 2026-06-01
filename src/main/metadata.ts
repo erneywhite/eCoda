@@ -1028,6 +1028,34 @@ export async function addTrackToPlaylist(
   }
 }
 
+// Removes a track from a playlist via /browse/edit_playlist with
+// ACTION_REMOVE_VIDEO. YT identifies the row to drop by BOTH its
+// setVideoId (the per-playlist row id — a track added twice has two
+// distinct setVideoIds) AND its videoId, so a caller MUST pass the
+// row's setVideoId, not just the videoId. Same VL-strip + STATUS_SUCCEEDED
+// contract as the add path. Matches ytmusicapi's remove_playlist_items.
+export async function removeTrackFromPlaylist(
+  playlistId: string,
+  videoId: string,
+  setVideoId: string
+): Promise<boolean> {
+  if (!playlistId || !videoId || !setVideoId) return false
+  if (!/^[\w-]{11}$/.test(videoId)) return false
+  const rawId = playlistId.startsWith('VL') ? playlistId.slice(2) : playlistId
+  try {
+    const res = (await innertubeFetch('/browse/edit_playlist', {
+      playlistId: rawId,
+      actions: [{ action: 'ACTION_REMOVE_VIDEO', setVideoId, removedVideoId: videoId }]
+    })) as Record<string, unknown>
+    if (res?.status === 'STATUS_SUCCEEDED') return true
+    console.warn(`[remove-from-playlist] unexpected response for ${videoId} <- ${rawId}:`, res?.status)
+    return false
+  } catch (err) {
+    console.warn(`[remove-from-playlist] failed ${videoId} <- ${rawId}:`, err)
+    return false
+  }
+}
+
 // ===========================================================================
 // RADIO — yt.music.getUpNext(videoId) returns YT's "Up next" radio for a
 // track. We parse it into SearchResult[] so the renderer can drop the

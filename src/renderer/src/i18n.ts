@@ -104,6 +104,7 @@ const RU: Strings = {
   'ctx.addToQueue': 'Добавить в очередь',
   'ctx.startRadio': 'Радио по треку',
   'ctx.addToPlaylist': 'Добавить в плейлист',
+  'ctx.removeFromPlaylist': 'Удалить из плейлиста',
   'ctx.pinPosition': 'Закрепить позицию',
   'ctx.unpinPosition': 'Открепить позицию',
   'ctx.pinnedHint': 'Закреплён — остаётся на месте при перемешке',
@@ -145,10 +146,13 @@ const RU: Strings = {
   'toast.addedToPlaylist': 'Добавлено в «{title}»',
   'toast.addToPlaylistFailed': 'Не получилось добавить в плейлист',
   'toast.addToPlaylistLoadFailed': 'Не удалось загрузить плейлисты',
+  'toast.removedFromPlaylist': '«{title}» удалён из плейлиста',
+  'toast.removeFromPlaylistFailed': 'Не получилось удалить из плейлиста',
 
   // Confirm dialog (in-app replacement for native confirm)
   'confirm.ok': 'Подтвердить',
   'confirm.cancel': 'Отмена',
+  'confirm.removeFromPlaylist': 'Удалить «{title}» из этого плейлиста?',
 
   // Settings page
   'settings.title': 'Настройки',
@@ -342,6 +346,7 @@ const EN: Strings = {
   'ctx.addToQueue': 'Add to queue',
   'ctx.startRadio': 'Start radio',
   'ctx.addToPlaylist': 'Add to playlist',
+  'ctx.removeFromPlaylist': 'Remove from playlist',
   'ctx.pinPosition': 'Pin position',
   'ctx.unpinPosition': 'Unpin position',
   'ctx.pinnedHint': 'Pinned — stays put on reshuffle',
@@ -378,9 +383,12 @@ const EN: Strings = {
   'toast.addedToPlaylist': 'Added to "{title}"',
   'toast.addToPlaylistFailed': 'Couldn’t add to playlist',
   'toast.addToPlaylistLoadFailed': 'Couldn’t load playlists',
+  'toast.removedFromPlaylist': 'Removed "{title}" from the playlist',
+  'toast.removeFromPlaylistFailed': 'Couldn’t remove from playlist',
 
   'confirm.ok': 'Confirm',
   'confirm.cancel': 'Cancel',
+  'confirm.removeFromPlaylist': 'Remove "{title}" from this playlist?',
 
   'settings.title': 'Settings',
   'settings.account.title': 'Account',

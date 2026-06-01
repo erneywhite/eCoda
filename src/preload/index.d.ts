@@ -221,6 +221,7 @@ export interface EcodaApi {
     addable: () => Promise<HomeItem[]>
     recent: () => Promise<RecentPlaylist[]>
     addTrack: (playlist: RecentPlaylist, videoId: string) => Promise<boolean>
+    removeTrack: (playlistId: string, videoId: string, setVideoId: string) => Promise<boolean>
   }
   library: {
     prepare: () => Promise<{ ok: true; cookies: number } | { ok: false; error: string }>

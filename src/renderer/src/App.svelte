@@ -1475,8 +1475,8 @@
   // user's editable playlists (lazy-loaded once, then cached), a "Recent"
   // subset shown first, a live search filter, and a show-all toggle so the
   // tile grid stays compact in a small window. `busyId` marks the tile
-  // whose add is in flight (spinner + disabled), `addedIds` the ones that
-  // succeeded this session (checkmark, so re-clicks are obvious no-ops).
+  // whose add is in flight (spinner + disabled); the modal closes on a
+  // successful add, so there's no persistent "added" state to track.
   interface AddToPlaylistState {
     track: SearchResult
     playlists: HomeItem[]
@@ -1485,7 +1485,6 @@
     query: string
     showAll: boolean
     busyId: string | null
-    addedIds: string[]
   }
   let addModal = $state<AddToPlaylistState | null>(null)
   // Editable-playlist cache so re-opening the modal is instant. Dropped on
@@ -1515,7 +1514,9 @@
     // favorite_border (outline heart) — unlike
     unlike: 'M16.5 3c-1.74 0-3.41.81-4.5 2.09C10.91 3.81 9.24 3 7.5 3 4.42 3 2 5.42 2 8.5c0 3.78 3.4 6.86 8.55 11.54L12 21.35l1.45-1.32C18.6 15.36 22 12.28 22 8.5 22 5.42 19.58 3 16.5 3zm-4.4 15.55l-.1.1-.1-.1C7.14 14.24 4 11.39 4 8.5 4 6.5 5.5 5 7.5 5c1.54 0 3.04.99 3.57 2.36h1.87C13.46 5.99 14.96 5 16.5 5c2 0 3.5 1.5 3.5 3.5 0 2.89-3.14 5.74-7.9 10.05z',
     // radio — broadcast tower with dot
-    radio: 'M3.24 6.15C2.51 6.43 2 7.17 2 8v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8c0-1.1-.9-2-2-2H8.3l8.26-3.34L15.88 1 3.24 6.15zM7 20c-1.66 0-3-1.34-3-3s1.34-3 3-3 3 1.34 3 3-1.34 3-3 3zm13-8h-2v-2h-2v2H4V8h16v4z'
+    radio: 'M3.24 6.15C2.51 6.43 2 7.17 2 8v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8c0-1.1-.9-2-2-2H8.3l8.26-3.34L15.88 1 3.24 6.15zM7 20c-1.66 0-3-1.34-3-3s1.34-3 3-3 3 1.34 3 3-1.34 3-3 3zm13-8h-2v-2h-2v2H4V8h16v4z',
+    // delete (trash can) — remove from playlist
+    removeFromPlaylist: 'M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z'
   }
 
   // Builds the context menu items for a track. sourceList lets actions
@@ -1567,6 +1568,23 @@
         label: pinned ? t('ctx.unpinPosition') : t('ctx.pinPosition'),
         iconPath: pinned ? CTX_ICONS.unpin : CTX_ICONS.pin,
         onSelect: () => void togglePinTrack(track)
+      })
+    }
+    // Remove from playlist — only on rows from a real, user-editable playlist:
+    // NOT Liked Music (that's the heart's job), NOT the Downloaded virtual
+    // list (local files, no server playlist), NOT radio. Needs the row's
+    // setVideoId — edit_playlist identifies the row to drop by it.
+    const isRemovableRow =
+      isPlaylistRow &&
+      !isLikedMusicId(openPlaylistId) &&
+      openPlaylistId !== DOWNLOADED_ID &&
+      !!track.setVideoId
+    if (isRemovableRow) {
+      items.push({
+        label: t('ctx.removeFromPlaylist'),
+        iconPath: CTX_ICONS.removeFromPlaylist,
+        danger: true,
+        onSelect: () => void removeTrackFromOpenPlaylist(track)
       })
     }
     return items
@@ -1653,8 +1671,7 @@
       loading: addablePlaylistsCache == null,
       query: '',
       showAll: false,
-      busyId: null,
-      addedIds: []
+      busyId: null
     }
     // Recents are cheap (a config read) — always refresh them.
     void window.api.playlist.recent().then((recent) => {
@@ -1682,10 +1699,10 @@
     addModal = null
   }
 
-  // Performs the add. Optimistic-ish: marks the tile busy during the IPC,
-  // then either flips it to "added" (checkmark stays so the user sees it
-  // landed) or toasts a failure. The modal stays open so the user can add
-  // the same track to several playlists in a row, matching YT Music.
+  // Performs the add. Marks the tile busy during the IPC, then CLOSES the
+  // modal on success (with a confirming toast) — the user picks one playlist
+  // per open, matching what feels natural here. On failure the modal stays
+  // open with a toast so the user can retry or pick another.
   async function addTrackToPlaylist(playlist: HomeItem | RecentPlaylist): Promise<void> {
     if (!addModal || addModal.busyId) return
     const track = addModal.track
@@ -1701,19 +1718,11 @@
     } catch (err) {
       console.warn('[add-to-playlist] add failed:', err)
     }
+    // Bail if the user closed/reopened the modal for another track meanwhile.
     if (!addModal || addModal.track.id !== track.id) return
     if (ok) {
-      const addedIds = addModal.addedIds.includes(playlist.id)
-        ? addModal.addedIds
-        : [...addModal.addedIds, playlist.id]
-      // Float the just-used playlist to the front of the local recents so the
-      // UI matches what the backend just persisted, without a round-trip.
-      const recent: RecentPlaylist[] = [
-        snapshot,
-        ...addModal.recent.filter((p) => p.id !== playlist.id)
-      ]
-      addModal = { ...addModal, busyId: null, addedIds, recent }
       showToast(t('toast.addedToPlaylist', { title: playlist.title }))
+      closeAddToPlaylist()
     } else {
       addModal = { ...addModal, busyId: null }
       showToast(t('toast.addToPlaylistFailed'))
@@ -1734,6 +1743,41 @@
       .filter((p): p is HomeItem => p != null)
     const rest = state.playlists.filter((p) => !recentIds.has(p.id))
     return [...recentAsItems, ...rest]
+  }
+
+  // Removes a track from the currently-open playlist (right-click → "Remove
+  // from playlist"). Confirms first (destructive, mutates the real YT
+  // playlist), then optimistically drops the row from the view and keeps the
+  // player's sourceList in step so prev/next don't walk a stale list. Reverts
+  // + toasts on failure. Guarded to the open editable playlist; setVideoId is
+  // the row id edit_playlist needs.
+  async function removeTrackFromOpenPlaylist(track: SearchResult): Promise<void> {
+    if (!playlistView || !openPlaylistId || !track.setVideoId) return
+    const ok = await askConfirm(t('confirm.removeFromPlaylist', { title: track.title }), {
+      danger: true,
+      confirmLabel: t('ctx.removeFromPlaylist')
+    })
+    if (!ok) return
+    // Snapshot for revert, then drop the row optimistically.
+    const prevTracks = playlistView.tracks
+    const next = prevTracks.filter((tk) => tk.setVideoId !== track.setVideoId)
+    playlistView = { ...playlistView, tracks: next }
+    syncPlayingSourceList()
+    const done = await window.api.playlist.removeTrack(
+      openPlaylistId,
+      track.id,
+      track.setVideoId
+    )
+    if (!done) {
+      // Restore the row in its original place and tell the user.
+      if (playlistView) {
+        playlistView = { ...playlistView, tracks: prevTracks }
+        syncPlayingSourceList()
+      }
+      showToast(t('toast.removeFromPlaylistFailed'))
+      return
+    }
+    showToast(t('toast.removedFromPlaylist', { title: track.title }))
   }
 
   // Radio as a fully-fledged playlist view. We synthesize a PlaylistView
@@ -4948,11 +4992,9 @@
           {:else}
             <div class="add-grid">
               {#each shown as p (p.id)}
-                {@const added = addModal.addedIds.includes(p.id)}
                 {@const busy = addModal.busyId === p.id}
                 <button
                   class="add-tile"
-                  class:added
                   disabled={addModal.busyId != null}
                   onclick={() => void addTrackToPlaylist(p)}
                   title={p.title}
@@ -4967,15 +5009,9 @@
                         </svg>
                       </div>
                     {/if}
-                    <!-- Overlay: spinner while adding, checkmark once added. -->
+                    <!-- Overlay: spinner while this tile's add is in flight. -->
                     {#if busy}
                       <div class="add-tile-overlay"><span class="spinner spinner-inline"></span></div>
-                    {:else if added}
-                      <div class="add-tile-overlay added-overlay">
-                        <svg viewBox="0 0 24 24" width="26" height="26" fill="currentColor">
-                          <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z" />
-                        </svg>
-                      </div>
                     {/if}
                   </div>
                   <div class="add-tile-title">{p.title}</div>
@@ -7662,13 +7698,6 @@
     align-items: center;
     justify-content: center;
     background: rgba(15, 10, 28, 0.55);
-  }
-  .add-tile-overlay.added-overlay {
-    background: rgba(var(--accent-rgb), 0.55);
-    color: #ffffff;
-  }
-  .add-tile.added .add-tile-title {
-    color: #ffffff;
   }
   .add-tile-title {
     font-size: 0.78rem;

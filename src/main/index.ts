@@ -61,6 +61,7 @@ import {
   getLibraryPlaylists,
   getAddablePlaylists,
   addTrackToPlaylist,
+  removeTrackFromPlaylist,
   resetInnertube,
   likeTrack,
   getRadioForTrack,
@@ -506,6 +507,13 @@ app.whenReady().then(async () => {
       if (ok) await pushRecentAddPlaylist(playlist)
       return ok
     }
+  )
+  // Remove a track from a playlist via /browse/edit_playlist
+  // (ACTION_REMOVE_VIDEO). Needs the row's setVideoId, not just the videoId.
+  ipcMain.handle(
+    'playlist:removeTrack',
+    (_event, playlistId: string, videoId: string, setVideoId: string) =>
+      removeTrackFromPlaylist(playlistId, videoId, setVideoId)
   )
   // Radio for a track — yt.music.getUpNext(videoId). Returns the related
   // tracks as a fresh sourceList for the player.
