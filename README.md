@@ -22,10 +22,11 @@
 ## ✨ Что умеет
 
 - 🎵 **Твоя настоящая библиотека YT Music** — все плейлисты, «Понравившаяся музыка», подписки. То что у тебя есть в браузере — есть и тут
+- ➕ **Управляй плейлистами** — добавляй и удаляй треки в своих плейлистах прямо из приложения, по правому клику. Изменения уходят в YT
 - 💾 **Качай музыку на диск** — отдельный трек, целый плейлист или всё что лайкнул. Слушай без интернета (например в самолёте)
 - 🎚️ **Кросс-фейд между треками** — плавный переход вместо резкого обрыва. Настраивается ползунком 0–12 секунд
 - 🎛️ **10-полосный эквалайзер** — пресеты (Бас, Вокал, Рок и др.) + ручные ползунки ±12 дБ на каждую полосу
-- 🪟 **Мини-плеер** — компактное окно поверх всех окон, чтобы переключать треки не отрываясь от работы. Два варианта: тонкая полоска или квадратик с обложкой
+- 🪟 **Мини-плеер** — компактное окно поверх всех окон, чтобы переключать треки и крутить громкость не отрываясь от работы. Два варианта: тонкая полоска или квадратик с обложкой
 - ⌨️ **Медиа-клавиши работают** — Play/Pause/Next/Prev на клавиатуре, виджет на lockscreen Windows и в Now Playing на macOS
 - 🎨 **8 цветовых тем** — от пастельных до неоновых
 - 🦝 **Сворачивается в трей** — закрыл окно крестиком, музыка продолжает играть в фоне (можно отключить если бесит)
@@ -47,8 +48,8 @@
 
 | Платформа | Файл | Размер |
 | --- | --- | --- |
-| **Windows 10/11** (x64) | `eCoda-Setup-1.1.1.exe` | ~130 MB |
-| **macOS** (Apple Silicon — M1/M2/M3/M4) | `eCoda-1.1.1-arm64.dmg` | ~160 MB |
+| **Windows 10/11** (x64) | `eCoda-Setup-1.2.0.exe` | ~130 MB |
+| **macOS** (Apple Silicon — M1/M2/M3/M4) | `eCoda-1.2.0-arm64.dmg` | ~160 MB |
 
 ---
 
@@ -89,7 +90,7 @@
 - **Слева сайдбар** — Главная (рекомендации YT), Поиск, Библиотека (твои плейлисты), Скачанные (то что лежит на диске)
 - **Понравившаяся музыка** автоматически появится в сайдбаре сверху как закреплённый плейлист
 - **Любой плейлист можно закрепить** в сайдбаре кнопкой 📌 — будет всегда под рукой
-- **Правый клик по треку** — меню: «Играть следующим», «В очередь», «Радио по треку», «Закрепить позицию»
+- **Правый клик по треку** — меню: «Играть следующим», «В очередь», «Радио по треку», «Добавить в плейлист», «Удалить из плейлиста», «Закрепить позицию»
 - **Сердечко рядом с треком** — лайкнуть/убрать. Лайки синхронятся с YT
 - **Кнопка ⛶ в шапке** (рядом со стрелками) — мини-плеер
 - **⚙️ Настройки** внизу сайдбара — темы, язык, качество скачивания, кросс-фейд, поведение крестика, и т.д.
@@ -206,10 +207,11 @@ Just open the app and listen.
 ## ✨ What it does
 
 - 🎵 **Your real YT Music library** — all your playlists, Liked Music, subscriptions. What you have in the browser, you have here
+- ➕ **Manage your playlists** — add and remove tracks in your own playlists right from the app, via right-click. Changes sync to YT
 - 💾 **Download music to disk** — per track, per playlist, or your entire Liked Music. Listen offline (planes, subway, dodgy hotel WiFi)
 - 🎚️ **Track-to-track crossfade** — smooth overlap instead of hard cuts. Slider 0–12 seconds in Settings
 - 🎛️ **10-band equalizer** — presets (Bass, Vocal, Rock, etc.) + manual sliders, ±12 dB per band
-- 🪟 **Mini-player** — always-on-top compact window to skip tracks without leaving what you're doing. Two layouts: horizontal pill or square cover-focused
+- 🪟 **Mini-player** — always-on-top compact window to skip tracks and adjust volume without leaving what you're doing. Two layouts: horizontal pill or square cover-focused
 - ⌨️ **Hardware media keys work** — Play/Pause/Next/Prev on your keyboard, Windows lockscreen widget, macOS Now Playing
 - 🎨 **8 colour themes** — pastel to neon
 - 🦝 **Closes to system tray** — hit the X, music keeps playing in the background (toggleable if you'd rather it actually quit)
@@ -231,8 +233,8 @@ Plus dozens of small touches you'll only notice while using it.
 
 | Platform | File | Size |
 | --- | --- | --- |
-| **Windows 10/11** (x64) | `eCoda-Setup-1.1.1.exe` | ~130 MB |
-| **macOS** (Apple Silicon — M1/M2/M3/M4) | `eCoda-1.1.1-arm64.dmg` | ~160 MB |
+| **Windows 10/11** (x64) | `eCoda-Setup-1.2.0.exe` | ~130 MB |
+| **macOS** (Apple Silicon — M1/M2/M3/M4) | `eCoda-1.2.0-arm64.dmg` | ~160 MB |
 
 ---
 
@@ -273,7 +275,7 @@ After connecting a browser:
 - **Sidebar on the left** — Home (YT recommendations), Search, Library (your playlists), Downloaded (what's saved to disk)
 - **Liked Music** automatically appears in the sidebar at the top as a pinned playlist
 - **Any playlist can be pinned** to the sidebar with the 📌 button — always one click away
-- **Right-click any track** — menu: "Play next", "Add to queue", "Start radio from track", "Pin position"
+- **Right-click any track** — menu: "Play next", "Add to queue", "Start radio from track", "Add to playlist", "Remove from playlist", "Pin position"
 - **Heart next to a track** — like / unlike. Syncs to YT
 - **⛶ button in the header** (next to back/forward arrows) — opens mini-player
 - **⚙️ Settings** at the bottom of the sidebar — themes, language, download quality, crossfade, close-button behaviour, etc.
