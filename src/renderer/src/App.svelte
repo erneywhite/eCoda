@@ -4788,6 +4788,44 @@
           onwaiting={() => onAudioStall('b', 'waiting')}
         ></audio>
       </div>
+      <!-- Mini-player volume control: a mute button whose icon reflects the
+           current volume/mute state, with a slider that slides out on hover.
+           Reuses the SAME `volume`/`muted` state + handlers as the full bar
+           (the $effect higher up applies them to the audio elements), so this
+           is purely UI. The popup grows upward-left from the button so it
+           never clips against the tiny mini-window edges. A snippet so both
+           the compact and square layouts share one definition. -->
+      {#snippet miniVolume(placement: 'up' | 'left')}
+        <div class="mini-vol mini-vol-{placement}">
+          <button
+            class="mini-btn"
+            onclick={toggleMute}
+            title={muted || volume === 0 ? t('player.unmute') : t('player.mute')}
+            aria-label={muted || volume === 0 ? t('player.unmute') : t('player.mute')}
+          >
+            {#if muted || volume === 0}
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M3 9v6h4l5 5V4L7 9H3zm13.59 3L20 8.41 18.59 7 15 10.59 11.41 7 10 8.41 13.59 12 10 15.59 11.41 17 15 13.41 18.59 17 20 15.59z"/></svg>
+            {:else if volume > 0.5}
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3A4.5 4.5 0 0 0 14 7.97v8.05A4.5 4.5 0 0 0 16.5 12zM14 3.23v2.06A7 7 0 0 1 14 18.71v2.06A9 9 0 0 0 14 3.23z"/></svg>
+            {:else}
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M7 9v6h4l5 5V4l-5 5H7zm9.5 3A4.5 4.5 0 0 0 14 7.97v8.05A4.5 4.5 0 0 0 16.5 12z"/></svg>
+            {/if}
+          </button>
+          <div class="mini-vol-pop">
+            <input
+              type="range"
+              class="vol mini-vol-slider"
+              min="0"
+              max="1"
+              step="0.01"
+              value={muted ? 0 : volume}
+              oninput={onVolumeInput}
+              style:--p="{(muted ? 0 : volume) * 100}%"
+              aria-label={t('player.mute')}
+            />
+          </div>
+        </div>
+      {/snippet}
       {#if miniMode}
         <!-- Mini-player shell. Same `playing` state as the full UI,
              just rendered as either a horizontal pill (compact / A) or
@@ -4851,6 +4889,7 @@
                 <button class="mini-btn" onclick={() => void playNext({ fromUserClick: true })} title={t('player.next')}>
                   <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M6 18l8.5-6L6 6zM16 6h2v12h-2z"/></svg>
                 </button>
+                {@render miniVolume('left')}
                 <button
                   class="mini-btn mini-btn-like"
                   class:liked={playingLiked}
@@ -4934,6 +4973,7 @@
               >
                 <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d={playingLiked ? CTX_ICONS.like : CTX_ICONS.unlike}/></svg>
               </button>
+              {@render miniVolume('up')}
             </div>
           {/if}
         </div>
@@ -5318,6 +5358,73 @@
   .mini-btn-primary:hover {
     color: #0a0612;
     filter: brightness(1.08);
+  }
+
+  /* Mini volume: a mute button with a slider that pops out on hover. The
+     popup is absolutely positioned ABOVE the button (the mini window is only
+     ~108px tall in compact mode, so a popup that grows upward is the only
+     thing that reliably clears the window edges) and centred over it. Hidden
+     by default; revealed on hover of the wrapper or keyboard focus within, so
+     it's reachable without a mouse too. */
+  .mini-vol {
+    position: relative;
+    display: inline-flex;
+    -webkit-app-region: no-drag;
+  }
+  .mini-vol-pop {
+    position: absolute;
+    opacity: 0;
+    pointer-events: none;
+    padding: 0.5rem 0.55rem;
+    background: rgba(26, 18, 44, 0.98);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 10px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+    transition: opacity 0.13s ease, transform 0.13s ease;
+    z-index: 20;
+  }
+  /* "up" placement (square / B layout — tall window, room above the button):
+     popup floats centred above the button. */
+  .mini-vol-up .mini-vol-pop {
+    bottom: calc(100% + 6px);
+    left: 50%;
+    transform: translateX(-50%) scaleY(0.6);
+    transform-origin: bottom center;
+  }
+  .mini-vol-up:hover .mini-vol-pop,
+  .mini-vol-up:focus-within .mini-vol-pop {
+    transform: translateX(-50%) scaleY(1);
+  }
+  /* "left" placement (compact / A layout — short 108px window, no room above):
+     popup slides out to the LEFT of the button, vertically centred, where the
+     wide 420px pill has plenty of horizontal room. */
+  .mini-vol-left .mini-vol-pop {
+    right: calc(100% + 6px);
+    top: 50%;
+    transform: translateY(-50%) scaleX(0.6);
+    transform-origin: right center;
+  }
+  .mini-vol-left:hover .mini-vol-pop,
+  .mini-vol-left:focus-within .mini-vol-pop {
+    transform: translateY(-50%) scaleX(1);
+  }
+  .mini-vol:hover .mini-vol-pop,
+  .mini-vol:focus-within .mini-vol-pop {
+    opacity: 1;
+    pointer-events: auto;
+  }
+  /* Horizontal slider inside the popup — reuses the full-bar `.vol` track +
+     thumb styling (3px gradient track, --p fill). Fixed 100px so the popup
+     stays narrow enough to clear the mini window edges. */
+  .mini-vol-slider {
+    -webkit-app-region: no-drag;
+    width: 100px;
+    max-width: 100px;
+  }
+  /* The full-bar .vol hides its thumb until hover; in the popup the slider IS
+     the point, so keep the thumb always visible for an obvious drag target. */
+  .mini-vol-slider::-webkit-slider-thumb {
+    opacity: 1;
   }
 
   /* Top-of-shell seek strip. The element is 14px tall to give the
