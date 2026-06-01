@@ -103,9 +103,19 @@ const RU: Strings = {
   'ctx.playNext': 'Играть следующим',
   'ctx.addToQueue': 'Добавить в очередь',
   'ctx.startRadio': 'Радио по треку',
+  'ctx.addToPlaylist': 'Добавить в плейлист',
   'ctx.pinPosition': 'Закрепить позицию',
   'ctx.unpinPosition': 'Открепить позицию',
   'ctx.pinnedHint': 'Закреплён — остаётся на месте при перемешке',
+
+  // Add-to-playlist modal
+  'addModal.title': 'Добавить в плейлист',
+  'addModal.close': 'Закрыть',
+  'addModal.search': 'Поиск плейлиста…',
+  'addModal.empty': 'У вас пока нет плейлистов для добавления',
+  'addModal.noMatch': 'Ничего не найдено',
+  'addModal.showAll': 'Показать все ({count})',
+  'addModal.showLess': 'Свернуть',
 
   // Inline heart toggle on each row
   'like.add': 'В понравившиеся',
@@ -132,6 +142,9 @@ const RU: Strings = {
   'toast.playNextAdded': '«{title}» — следующим',
   'toast.queueAdded': '«{title}» — в очереди',
   'toast.likeFailed': 'Не получилось обновить лайк',
+  'toast.addedToPlaylist': 'Добавлено в «{title}»',
+  'toast.addToPlaylistFailed': 'Не получилось добавить в плейлист',
+  'toast.addToPlaylistLoadFailed': 'Не удалось загрузить плейлисты',
 
   // Confirm dialog (in-app replacement for native confirm)
   'confirm.ok': 'Подтвердить',
@@ -328,9 +341,19 @@ const EN: Strings = {
   'ctx.playNext': 'Play next',
   'ctx.addToQueue': 'Add to queue',
   'ctx.startRadio': 'Start radio',
+  'ctx.addToPlaylist': 'Add to playlist',
   'ctx.pinPosition': 'Pin position',
   'ctx.unpinPosition': 'Unpin position',
   'ctx.pinnedHint': 'Pinned — stays put on reshuffle',
+
+  // Add-to-playlist modal
+  'addModal.title': 'Add to playlist',
+  'addModal.close': 'Close',
+  'addModal.search': 'Search playlists…',
+  'addModal.empty': 'You don’t have any playlists to add to yet',
+  'addModal.noMatch': 'No playlists found',
+  'addModal.showAll': 'Show all ({count})',
+  'addModal.showLess': 'Show less',
 
   'like.add': 'Add to Liked Music',
   'like.remove': 'Remove from Liked Music',
@@ -352,6 +375,9 @@ const EN: Strings = {
   'toast.playNextAdded': '"{title}" — playing next',
   'toast.queueAdded': '"{title}" — added to queue',
   'toast.likeFailed': 'Couldn’t update like',
+  'toast.addedToPlaylist': 'Added to "{title}"',
+  'toast.addToPlaylistFailed': 'Couldn’t add to playlist',
+  'toast.addToPlaylistLoadFailed': 'Couldn’t load playlists',
 
   'confirm.ok': 'Confirm',
   'confirm.cancel': 'Cancel',

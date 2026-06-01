@@ -312,6 +312,16 @@ export interface PinnedPlaylist {
   thumbnail: string
 }
 
+// A playlist the user recently added a track INTO (via the right-click
+// "Add to playlist" modal). Surfaced in a "Recent" row at the top of that
+// modal — same snapshot shape as a pin so the modal can render the tile
+// without re-fetching. Most-recent-first, capped to RECENT_ADD_CAP.
+export interface RecentPlaylist {
+  id: string
+  title: string
+  thumbnail: string
+}
+
 // User overrides applied on top of whatever YT returns for a playlist.
 // Lets the user reshuffle / pin / drag-reorder tracks and have those
 // changes survive a restart. Driven by the streamer-wife use case:
@@ -400,6 +410,7 @@ interface Config {
   crossfadeDuration?: number
   equalizer?: EqualizerState
   pinnedPlaylists?: PinnedPlaylist[]
+  recentAddPlaylists?: RecentPlaylist[]
   playlistOverrides?: Record<string, PlaylistOverride>
   windowState?: WindowState
   lastSession?: LastSession
@@ -751,4 +762,27 @@ export async function togglePinnedPlaylist(item: PinnedPlaylist): Promise<boolea
   cfg.pinnedPlaylists = list
   await writeConfig(cfg)
   return true
+}
+
+// How many recently-used "add to playlist" targets we remember. Mirrors the
+// short "Recent" row YT Music shows at the top of its add-to-playlist sheet.
+const RECENT_ADD_CAP = 8
+
+// Playlists the user has recently added a track into, most-recent-first.
+// Drives the "Recent" row in the add-to-playlist modal.
+export async function getRecentAddPlaylists(): Promise<RecentPlaylist[]> {
+  return (await readConfig()).recentAddPlaylists ?? []
+}
+
+// Records a playlist as the most-recently-used add target. Moves an existing
+// entry to the front (refreshing its title/cover snapshot) rather than
+// duplicating it, and trims the list to RECENT_ADD_CAP. Called from the
+// add-to-playlist IPC handler on a successful add.
+export async function pushRecentAddPlaylist(item: RecentPlaylist): Promise<void> {
+  if (!item?.id) return
+  const cfg = await readConfig()
+  const list = (cfg.recentAddPlaylists ?? []).filter((p) => p.id !== item.id)
+  list.unshift({ id: item.id, title: item.title, thumbnail: item.thumbnail })
+  cfg.recentAddPlaylists = list.slice(0, RECENT_ADD_CAP)
+  await writeConfig(cfg)
 }

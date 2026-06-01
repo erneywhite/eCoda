@@ -15,6 +15,8 @@ import {
   getPinnedPlaylists,
   togglePinnedPlaylist,
   updatePinSnapshot,
+  getRecentAddPlaylists,
+  pushRecentAddPlaylist,
   getTheme,
   setTheme,
   getLang,
@@ -47,6 +49,7 @@ import {
   type Lang,
   type LastSession,
   type PinnedPlaylist,
+  type RecentPlaylist,
   type Theme,
   type WindowState
 } from './auth'
@@ -56,6 +59,8 @@ import {
   getHomeSections,
   getPlaylistTracks,
   getLibraryPlaylists,
+  getAddablePlaylists,
+  addTrackToPlaylist,
   resetInnertube,
   likeTrack,
   getRadioForTrack,
@@ -485,6 +490,22 @@ app.whenReady().then(async () => {
   // YT accepted the action.
   ipcMain.handle('metadata:like', (_event, videoId: string, like: boolean) =>
     likeTrack(videoId, like)
+  )
+  // Add-to-playlist: list the user's editable playlists (albums + Liked
+  // Music filtered out) so the right-click modal can show them as targets.
+  ipcMain.handle('playlist:addable', () => getAddablePlaylists())
+  // Recently-used add targets, most-recent-first — the modal's "Recent" row.
+  ipcMain.handle('playlist:recent', () => getRecentAddPlaylists())
+  // Push a track into a playlist via /browse/edit_playlist. On success we
+  // record the playlist (with a title/cover snapshot the renderer passes in)
+  // as the most-recent target so it floats to the top of the modal next time.
+  ipcMain.handle(
+    'playlist:addTrack',
+    async (_event, playlist: RecentPlaylist, videoId: string) => {
+      const ok = await addTrackToPlaylist(playlist.id, videoId)
+      if (ok) await pushRecentAddPlaylist(playlist)
+      return ok
+    }
   )
   // Radio for a track — yt.music.getUpNext(videoId). Returns the related
   // tracks as a fresh sourceList for the player.

@@ -28,6 +28,19 @@ const api = {
     radio: (videoId: string) => ipcRenderer.invoke('metadata:radio', videoId),
     artist: (channelId: string) => ipcRenderer.invoke('metadata:artist', channelId)
   },
+  // Add-to-playlist (right-click → "Add to playlist" modal). `addable`
+  // lists editable target playlists; `recent` is the recently-used subset
+  // surfaced at the top of the modal; `addTrack` performs the edit and
+  // records recency. The playlist arg to addTrack carries a title/cover
+  // snapshot so the backend can persist a "Recent" tile without re-fetching.
+  playlist: {
+    addable: () => ipcRenderer.invoke('playlist:addable'),
+    recent: () => ipcRenderer.invoke('playlist:recent'),
+    addTrack: (
+      playlist: { id: string; title: string; thumbnail: string },
+      videoId: string
+    ) => ipcRenderer.invoke('playlist:addTrack', playlist, videoId)
+  },
   library: {
     prepare: () => ipcRenderer.invoke('library:prepare')
   },

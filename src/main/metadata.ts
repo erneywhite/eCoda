@@ -973,6 +973,62 @@ export async function likeTrack(videoId: string, like: boolean): Promise<boolean
 }
 
 // ===========================================================================
+// ADD TO PLAYLIST — list the user's editable playlists + push a track into
+// one. Both ride the same SAPISIDHASH-signed page proxy (innertubeFetch) as
+// likeTrack, so no new auth machinery is needed.
+// ===========================================================================
+
+// The user's playlists, as "add a track here" targets. Sourced from the same
+// FEmusic_liked_playlists browse as getLibraryPlaylists, but filtered to real
+// playlists (albums can't be edited) with the "Liked Music" auto-playlist
+// removed — you LIKE a track to put it there, you don't edit_playlist it.
+//
+// Caveat: a library can also hold playlists SAVED from other users, which
+// aren't editable. This browse doesn't reliably flag ownership, so a saved
+// playlist can slip into the list; addTrackToPlaylist() degrades gracefully
+// (returns false) if the server rejects the edit, and the UI toasts a
+// failure. The vast majority of library playlists are the user's own.
+export async function getAddablePlaylists(): Promise<HomeItem[]> {
+  const section = await getLibraryPlaylists()
+  return section.items.filter(
+    (it) => it.type === 'playlist' && it.id !== 'LM' && it.id !== 'VLLM'
+  )
+}
+
+// Adds a track to a playlist via /browse/edit_playlist (the same endpoint
+// ytmusicapi uses for add_playlist_items). The playlistId carries the "VL"
+// browse prefix in our library tiles, but edit_playlist wants the raw id —
+// strip it. Returns true on STATUS_SUCCEEDED, false on any failure (playlist
+// not owned by the user, network error, unexpected response shape). YT
+// dedupes server-side, so re-adding an existing track still reports success.
+export async function addTrackToPlaylist(
+  playlistId: string,
+  videoId: string
+): Promise<boolean> {
+  if (!playlistId || !videoId || !/^[\w-]{11}$/.test(videoId)) return false
+  const rawId = playlistId.startsWith('VL') ? playlistId.slice(2) : playlistId
+  try {
+    // DEDUPE_OPTION_SKIP makes a repeat add a safe no-op instead of inserting
+    // a second copy — easy to trigger by accident from the right-click menu,
+    // and YT still reports STATUS_SUCCEEDED when the track was already there.
+    const res = (await innertubeFetch('/browse/edit_playlist', {
+      playlistId: rawId,
+      actions: [
+        { action: 'ACTION_ADD_VIDEO', addedVideoId: videoId, dedupeOption: 'DEDUPE_OPTION_SKIP' }
+      ]
+    })) as Record<string, unknown>
+    // A successful edit echoes status STATUS_SUCCEEDED (+ a playlistEditResults
+    // array). Treat anything else as a failure so the UI can warn the user.
+    if (res?.status === 'STATUS_SUCCEEDED') return true
+    console.warn(`[add-to-playlist] unexpected response for ${videoId} -> ${rawId}:`, res?.status)
+    return false
+  } catch (err) {
+    console.warn(`[add-to-playlist] failed ${videoId} -> ${rawId}:`, err)
+    return false
+  }
+}
+
+// ===========================================================================
 // RADIO — yt.music.getUpNext(videoId) returns YT's "Up next" radio for a
 // track. We parse it into SearchResult[] so the renderer can drop the
 // items straight into the player's sourceList or the user queue.

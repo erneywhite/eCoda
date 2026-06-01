@@ -79,6 +79,12 @@ export interface PinnedPlaylist {
   thumbnail: string
 }
 
+export interface RecentPlaylist {
+  id: string
+  title: string
+  thumbnail: string
+}
+
 export type UpdaterEvent =
   | { kind: 'checking' }
   | { kind: 'available'; version: string; releaseNotes?: string | null }
@@ -210,6 +216,11 @@ export interface EcodaApi {
     like: (videoId: string, like: boolean) => Promise<boolean>
     radio: (videoId: string) => Promise<SearchResult[]>
     artist: (channelId: string) => Promise<ArtistView>
+  }
+  playlist: {
+    addable: () => Promise<HomeItem[]>
+    recent: () => Promise<RecentPlaylist[]>
+    addTrack: (playlist: RecentPlaylist, videoId: string) => Promise<boolean>
   }
   library: {
     prepare: () => Promise<{ ok: true; cookies: number } | { ok: false; error: string }>

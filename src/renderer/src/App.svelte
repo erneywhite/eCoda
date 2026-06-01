@@ -20,6 +20,7 @@
     PinnedPlaylist,
     PlaylistOverride,
     PlaylistView,
+    RecentPlaylist,
     RepeatMode,
     SearchResult,
     SessionTrack,
@@ -1469,6 +1470,30 @@
   }
   let ctxMenu = $state<CtxMenuState | null>(null)
 
+  // ---- add-to-playlist modal --------------------------------------------
+  // Opened from the track context menu. Holds the track being added, the
+  // user's editable playlists (lazy-loaded once, then cached), a "Recent"
+  // subset shown first, a live search filter, and a show-all toggle so the
+  // tile grid stays compact in a small window. `busyId` marks the tile
+  // whose add is in flight (spinner + disabled), `addedIds` the ones that
+  // succeeded this session (checkmark, so re-clicks are obvious no-ops).
+  interface AddToPlaylistState {
+    track: SearchResult
+    playlists: HomeItem[]
+    recent: RecentPlaylist[]
+    loading: boolean
+    query: string
+    showAll: boolean
+    busyId: string | null
+    addedIds: string[]
+  }
+  let addModal = $state<AddToPlaylistState | null>(null)
+  // Editable-playlist cache so re-opening the modal is instant. Dropped on
+  // auth refresh / disconnect alongside the other library caches.
+  let addablePlaylistsCache: HomeItem[] | null = null
+  // How many tiles to show before the "Show all" toggle reveals the rest.
+  const ADD_MODAL_COLLAPSED_COUNT = 6
+
   // Reusable Material-style icon path strings for context-menu items.
   // 24×24 viewBox, single-path. Mirror YT Music's vocabulary so users
   // get instant visual recognition.
@@ -1477,6 +1502,10 @@
     playNext: 'M3 10h11v2H3v-2zm0-4h11v2H3V6zm0 8h7v2H3v-2zm14-4v8l6-4-6-4z',
     // playlist_add — list of lines + plus
     addToQueue: 'M14 10H2v2h12v-2zm0-4H2v2h12V6zM2 14h8v2H2v-2zm19-3h-2V8h-2v3h-2v2h2v3h2v-3h2v-2z',
+    // library_add / playlist-with-plus — list of lines + a boxed plus,
+    // distinct from addToQueue so "add to queue" and "add to playlist"
+    // don't read as the same action in the menu.
+    addToPlaylist: 'M2 6v2h12V6H2zm0 4v2h9v-2H2zm0 4v2h9v-2H2zm14-2v3h-3v2h3v3h2v-3h3v-2h-3v-3h-2z',
     // push_pin — slanted thumbtack (pinned indicator)
     pin: 'M16 9V4l1-1V1H7v2l1 1v5l-2 2v2h5v7l1 1 1-1v-7h5v-2l-2-2z',
     // push_pin outline — same pin shape but outline-only
@@ -1514,6 +1543,12 @@
       label: t('ctx.startRadio'),
       iconPath: CTX_ICONS.radio,
       onSelect: () => void startRadioFromTrack(track),
+      disabled: track.unavailable
+    })
+    items.push({
+      label: t('ctx.addToPlaylist'),
+      iconPath: CTX_ICONS.addToPlaylist,
+      onSelect: () => void openAddToPlaylist(track),
       disabled: track.unavailable
     })
     // Pin / unpin only makes sense in a playlist view (search results
@@ -1601,6 +1636,104 @@
       playlistView = { ...playlistView, tracks: next }
       syncPlayingSourceList()
     }
+  }
+
+  // ---- add-to-playlist actions ------------------------------------------
+
+  // Opens the add-to-playlist modal for a track. Renders immediately with
+  // whatever's cached (or a loading state), then fills in the playlist list
+  // + recents. Lazy: the editable-playlist list is only fetched the first
+  // time the modal is opened in a session.
+  async function openAddToPlaylist(track: SearchResult): Promise<void> {
+    if (!track.id || track.unavailable) return
+    addModal = {
+      track,
+      playlists: addablePlaylistsCache ?? [],
+      recent: [],
+      loading: addablePlaylistsCache == null,
+      query: '',
+      showAll: false,
+      busyId: null,
+      addedIds: []
+    }
+    // Recents are cheap (a config read) — always refresh them.
+    void window.api.playlist.recent().then((recent) => {
+      if (addModal && addModal.track.id === track.id) addModal = { ...addModal, recent }
+    })
+    if (addablePlaylistsCache == null) {
+      try {
+        const playlists = await window.api.playlist.addable()
+        addablePlaylistsCache = playlists
+        // Guard against the user having closed/reopened the modal meanwhile.
+        if (addModal && addModal.track.id === track.id) {
+          addModal = { ...addModal, playlists, loading: false }
+        }
+      } catch (err) {
+        console.warn('[add-to-playlist] failed to load playlists:', err)
+        if (addModal && addModal.track.id === track.id) {
+          addModal = { ...addModal, loading: false }
+        }
+        showToast(t('toast.addToPlaylistLoadFailed'))
+      }
+    }
+  }
+
+  function closeAddToPlaylist(): void {
+    addModal = null
+  }
+
+  // Performs the add. Optimistic-ish: marks the tile busy during the IPC,
+  // then either flips it to "added" (checkmark stays so the user sees it
+  // landed) or toasts a failure. The modal stays open so the user can add
+  // the same track to several playlists in a row, matching YT Music.
+  async function addTrackToPlaylist(playlist: HomeItem | RecentPlaylist): Promise<void> {
+    if (!addModal || addModal.busyId) return
+    const track = addModal.track
+    addModal = { ...addModal, busyId: playlist.id }
+    const snapshot: RecentPlaylist = {
+      id: playlist.id,
+      title: playlist.title,
+      thumbnail: playlist.thumbnail
+    }
+    let ok = false
+    try {
+      ok = await window.api.playlist.addTrack(snapshot, track.id)
+    } catch (err) {
+      console.warn('[add-to-playlist] add failed:', err)
+    }
+    if (!addModal || addModal.track.id !== track.id) return
+    if (ok) {
+      const addedIds = addModal.addedIds.includes(playlist.id)
+        ? addModal.addedIds
+        : [...addModal.addedIds, playlist.id]
+      // Float the just-used playlist to the front of the local recents so the
+      // UI matches what the backend just persisted, without a round-trip.
+      const recent: RecentPlaylist[] = [
+        snapshot,
+        ...addModal.recent.filter((p) => p.id !== playlist.id)
+      ]
+      addModal = { ...addModal, busyId: null, addedIds, recent }
+      showToast(t('toast.addedToPlaylist', { title: playlist.title }))
+    } else {
+      addModal = { ...addModal, busyId: null }
+      showToast(t('toast.addToPlaylistFailed'))
+    }
+  }
+
+  // Playlists matching the current search box, with recents hoisted to the
+  // front when no query is active. Drives the modal's tile grid.
+  function filteredAddPlaylists(state: AddToPlaylistState): HomeItem[] {
+    const q = state.query.trim().toLowerCase()
+    if (q) {
+      return state.playlists.filter((p) => p.title.toLowerCase().includes(q))
+    }
+    // No query: show recents first (in recent order), then the rest, deduped.
+    const recentIds = new Set(state.recent.map((r) => r.id))
+    const recentAsItems: HomeItem[] = state.recent
+      .map((r) => state.playlists.find((p) => p.id === r.id))
+      .filter((p): p is HomeItem => p != null)
+    const rest = state.playlists.filter((p) => !recentIds.has(p.id))
+    return [...recentAsItems, ...rest]
   }
 
   // Radio as a fully-fledged playlist view. We synthesize a PlaylistView
@@ -1703,6 +1836,9 @@
       homeSections = null
       libraryPlaylists = null
       pinnedPlaylists = []
+      // Drop the editable-playlist cache so the add-to-playlist modal re-
+      // fetches against the refreshed session next time it's opened.
+      addablePlaylistsCache = null
       void loadPinned()
       if (view === 'home') void loadHome()
       else if (view === 'library') void loadLibraryData()
@@ -1747,6 +1883,10 @@
         // modal first matches user expectation.
         if (confirmDialog) {
           closeConfirm(false)
+          return
+        }
+        if (addModal) {
+          closeAddToPlaylist()
           return
         }
         if (ctxMenu) closeCtxMenu()
@@ -4750,6 +4890,115 @@
     </div>
   {/if}
 
+  <!-- Add-to-playlist modal — opened from a track's right-click menu.
+       Compact + window-size-adaptive: the tile grid uses auto-fill so it
+       reflows from 2 to N columns as the window widens, a search box
+       filters by name, and a "Show all" toggle keeps the initial height
+       small for a windowed player. Recents float to the top when no
+       search is active. -->
+  {#if addModal}
+    {@const visible = filteredAddPlaylists(addModal)}
+    {@const collapsed = !addModal.showAll && !addModal.query.trim()}
+    {@const shown = collapsed ? visible.slice(0, ADD_MODAL_COLLAPSED_COUNT) : visible}
+    {@const hiddenCount = visible.length - shown.length}
+    <!-- svelte-ignore a11y_click_events_have_key_events -->
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <div
+      class="add-backdrop"
+      onclick={(e) => {
+        if (e.target === e.currentTarget) closeAddToPlaylist()
+      }}
+    >
+      <div class="add-card" role="dialog" aria-modal="true" tabindex="-1">
+        <div class="add-head">
+          <div class="add-title">{t('addModal.title')}</div>
+          <button class="add-close" onclick={closeAddToPlaylist} aria-label={t('addModal.close')}>
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+              <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" />
+            </svg>
+          </button>
+        </div>
+        <!-- Track being added — small reminder of what this affects. -->
+        <div class="add-track">
+          <img class="add-track-cover" src={addModal.track.thumbnail} alt="" />
+          <div class="add-track-meta">
+            <div class="add-track-title">{addModal.track.title}</div>
+            <div class="add-track-artist">{addModal.track.artist}</div>
+          </div>
+        </div>
+
+        {#if addModal.loading}
+          <div class="add-loading"><div class="spinner"></div></div>
+        {:else if addModal.playlists.length === 0}
+          <p class="add-empty">{t('addModal.empty')}</p>
+        {:else}
+          <!-- Search filter — only worth showing once there are enough
+               playlists that scanning the grid is slower than typing. -->
+          {#if addModal.playlists.length > ADD_MODAL_COLLAPSED_COUNT}
+            <input
+              class="add-search"
+              type="text"
+              bind:value={addModal.query}
+              placeholder={t('addModal.search')}
+            />
+          {/if}
+
+          {#if visible.length === 0}
+            <p class="add-empty">{t('addModal.noMatch')}</p>
+          {:else}
+            <div class="add-grid">
+              {#each shown as p (p.id)}
+                {@const added = addModal.addedIds.includes(p.id)}
+                {@const busy = addModal.busyId === p.id}
+                <button
+                  class="add-tile"
+                  class:added
+                  disabled={addModal.busyId != null}
+                  onclick={() => void addTrackToPlaylist(p)}
+                  title={p.title}
+                >
+                  <div class="add-tile-cover">
+                    {#if p.thumbnail}
+                      <img src={p.thumbnail} alt="" />
+                    {:else}
+                      <div class="add-tile-placeholder">
+                        <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor">
+                          <path d="M15 6H3v2h12V6zm0 4H3v2h12v-2zM3 16h8v-2H3v2zM17 6v8.18c-.31-.11-.65-.18-1-.18-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3V8h3V6h-5z" />
+                        </svg>
+                      </div>
+                    {/if}
+                    <!-- Overlay: spinner while adding, checkmark once added. -->
+                    {#if busy}
+                      <div class="add-tile-overlay"><span class="spinner spinner-inline"></span></div>
+                    {:else if added}
+                      <div class="add-tile-overlay added-overlay">
+                        <svg viewBox="0 0 24 24" width="26" height="26" fill="currentColor">
+                          <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z" />
+                        </svg>
+                      </div>
+                    {/if}
+                  </div>
+                  <div class="add-tile-title">{p.title}</div>
+                </button>
+              {/each}
+            </div>
+
+            <!-- Show all / less — only when collapsing actually hides tiles. -->
+            {#if collapsed && hiddenCount > 0}
+              <button class="add-more" onclick={() => (addModal!.showAll = true)}>
+                {t('addModal.showAll', { count: hiddenCount })}
+              </button>
+            {:else if addModal.showAll && !addModal.query.trim() && visible.length > ADD_MODAL_COLLAPSED_COUNT}
+              <button class="add-more" onclick={() => (addModal!.showAll = false)}>
+                {t('addModal.showLess')}
+              </button>
+            {/if}
+          {/if}
+        {/if}
+      </div>
+    </div>
+  {/if}
+
   <!-- Toast: bottom-centre, above the player bar. Single live message,
        auto-dismisses after 2.5s. Used for "Added to queue" etc. -->
   {#if toast}
@@ -7229,6 +7478,224 @@
   @keyframes confirm-card-in {
     from { opacity: 0; transform: translateY(8px) scale(0.97); }
     to { opacity: 1; transform: translateY(0) scale(1); }
+  }
+
+  /* ---- add-to-playlist modal ----
+     Same glass-card language as the confirm dialog, but laid out for a
+     compact, window-adaptive playlist picker. The card caps its size to
+     a fraction of the viewport (min() against vw/vh) so it stays usable
+     when the player is a small floating window, and the tile grid uses
+     auto-fill so column count tracks the available width. */
+  .add-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 1100;
+    background: rgba(0, 0, 0, 0.55);
+    backdrop-filter: blur(2px);
+    -webkit-backdrop-filter: blur(2px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    animation: confirm-bg-in 0.12s ease-out;
+  }
+  .add-card {
+    display: flex;
+    flex-direction: column;
+    width: min(440px, 92vw);
+    max-height: min(560px, 82vh);
+    padding: 1.1rem 1.2rem 1.2rem;
+    background: rgba(26, 18, 44, 0.97);
+    backdrop-filter: blur(24px);
+    -webkit-backdrop-filter: blur(24px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 14px;
+    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.6);
+    color: #ffffff;
+    animation: confirm-card-in 0.16s ease-out;
+  }
+  .add-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 0.7rem;
+  }
+  .add-title {
+    font-size: 1.05rem;
+    font-weight: 700;
+  }
+  .add-close {
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 30px;
+    height: 30px;
+    padding: 0;
+    border: none;
+    border-radius: 8px;
+    background: transparent;
+    color: #a99bc9;
+    cursor: pointer;
+    transition: background 0.12s ease, color 0.12s ease;
+  }
+  .add-close:hover {
+    background: rgba(255, 255, 255, 0.08);
+    color: #ffffff;
+  }
+  .add-track {
+    display: flex;
+    align-items: center;
+    gap: 0.65rem;
+    padding: 0.5rem 0.6rem;
+    margin-bottom: 0.8rem;
+    background: rgba(255, 255, 255, 0.04);
+    border-radius: 10px;
+  }
+  .add-track-cover {
+    flex: 0 0 auto;
+    width: 40px;
+    height: 40px;
+    border-radius: 6px;
+    object-fit: cover;
+    background: rgba(255, 255, 255, 0.06);
+  }
+  .add-track-meta {
+    min-width: 0;
+  }
+  .add-track-title {
+    font-size: 0.88rem;
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .add-track-artist {
+    font-size: 0.78rem;
+    color: #a99bc9;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .add-loading {
+    display: flex;
+    justify-content: center;
+    padding: 1.5rem 0 2rem;
+  }
+  .add-empty {
+    padding: 1.2rem 0.2rem;
+    text-align: center;
+    color: #a99bc9;
+    font-size: 0.88rem;
+  }
+  .add-search {
+    width: 100%;
+    margin-bottom: 0.8rem;
+    padding: 0.55rem 0.8rem;
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 9px;
+    color: #ffffff;
+    font-size: 0.85rem;
+    outline: none;
+  }
+  .add-search::placeholder {
+    color: #8a7daa;
+  }
+  .add-search:focus {
+    border-color: rgba(var(--accent-rgb), 0.55);
+  }
+  .add-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+    gap: 0.7rem;
+    overflow-y: auto;
+    /* Let the grid scroll inside the capped card instead of growing it. */
+    padding: 0.1rem 0.2rem 0.2rem 0.1rem;
+    margin: 0 -0.2rem;
+  }
+  .add-tile {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    padding: 0;
+    border: none;
+    background: transparent;
+    color: #d4c9e8;
+    cursor: pointer;
+    text-align: left;
+  }
+  .add-tile:disabled {
+    cursor: default;
+  }
+  .add-tile-cover {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 1 / 1;
+    border-radius: 8px;
+    overflow: hidden;
+    background: rgba(255, 255, 255, 0.06);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
+    transition: transform 0.14s ease, box-shadow 0.14s ease;
+  }
+  .add-tile:hover:not(:disabled) .add-tile-cover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.5);
+  }
+  .add-tile-cover img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+  }
+  .add-tile-placeholder {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #8a7daa;
+  }
+  .add-tile-overlay {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(15, 10, 28, 0.55);
+  }
+  .add-tile-overlay.added-overlay {
+    background: rgba(var(--accent-rgb), 0.55);
+    color: #ffffff;
+  }
+  .add-tile.added .add-tile-title {
+    color: #ffffff;
+  }
+  .add-tile-title {
+    font-size: 0.78rem;
+    font-weight: 500;
+    line-height: 1.25;
+    /* Two-line clamp so long playlist names don't blow out tile height. */
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  .add-more {
+    margin-top: 0.8rem;
+    padding: 0.5rem;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 9px;
+    background: transparent;
+    color: #d4c9e8;
+    font-size: 0.83rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.12s ease, color 0.12s ease;
+  }
+  .add-more:hover {
+    background: rgba(255, 255, 255, 0.07);
+    color: #ffffff;
   }
 
   .toast {
