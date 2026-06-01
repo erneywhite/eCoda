@@ -1368,6 +1368,32 @@
     muted = !muted
   }
 
+  // Mini-player volume popup visibility. Driven by EXPLICIT mouse/focus events
+  // rather than CSS :hover — paid for in blood: the mini-shell is a
+  // `-webkit-app-region: drag` surface, and Chromium suppresses CSS :hover
+  // over a drag region, so the hover-reveal never fired in the real Electron
+  // window (it "worked" only in a plain-browser test harness, which has no
+  // drag region). no-drag elements still receive JS pointer events (that's why
+  // the click-to-mute worked), so we wire onpointerenter/leave/focus directly.
+  // A short close delay bridges the gap between the button and the popup so
+  // moving the cursor across it doesn't snap the slider shut.
+  let miniVolOpen = $state(false)
+  let miniVolCloseTimer: ReturnType<typeof setTimeout> | null = null
+  function openMiniVol(): void {
+    if (miniVolCloseTimer) {
+      clearTimeout(miniVolCloseTimer)
+      miniVolCloseTimer = null
+    }
+    miniVolOpen = true
+  }
+  function closeMiniVolSoon(): void {
+    if (miniVolCloseTimer) clearTimeout(miniVolCloseTimer)
+    miniVolCloseTimer = setTimeout(() => {
+      miniVolOpen = false
+      miniVolCloseTimer = null
+    }, 220)
+  }
+
   async function toggleShuffle(): Promise<void> {
     shuffleMode = !shuffleMode
     await window.api.settings.setShuffleMode(shuffleMode)
@@ -4796,10 +4822,18 @@
            never clips against the tiny mini-window edges. A snippet so both
            the compact and square layouts share one definition. -->
       {#snippet miniVolume(placement: 'up' | 'left')}
-        <div class="mini-vol mini-vol-{placement}">
+        <div
+          class="mini-vol mini-vol-{placement}"
+          class:open={miniVolOpen}
+          role="group"
+          onpointerenter={openMiniVol}
+          onpointerleave={closeMiniVolSoon}
+        >
           <button
             class="mini-btn"
             onclick={toggleMute}
+            onfocus={openMiniVol}
+            onblur={closeMiniVolSoon}
             title={muted || volume === 0 ? t('player.unmute') : t('player.mute')}
             aria-label={muted || volume === 0 ? t('player.unmute') : t('player.mute')}
           >
@@ -4820,6 +4854,8 @@
               step="0.01"
               value={muted ? 0 : volume}
               oninput={onVolumeInput}
+              onfocus={openMiniVol}
+              onblur={closeMiniVolSoon}
               style:--p="{(muted ? 0 : volume) * 100}%"
               aria-label={t('player.mute')}
             />
@@ -5372,6 +5408,9 @@
     -webkit-app-region: no-drag;
   }
   .mini-vol-pop {
+    /* no-drag: without it the popup sits over the shell's drag region and
+       eats its own pointer events (slider becomes undraggable). */
+    -webkit-app-region: no-drag;
     position: absolute;
     opacity: 0;
     pointer-events: none;
@@ -5384,46 +5423,54 @@
     z-index: 20;
   }
   /* "up" placement (square / B layout — tall window, room above the button):
-     popup floats centred above the button. */
+     popup floats centred above the button. The padding-bottom bridge closes
+     the gap to the button so the cursor never crosses bare drag-region
+     between them (which would drop the pointerenter chain). */
   .mini-vol-up .mini-vol-pop {
-    bottom: calc(100% + 6px);
+    bottom: 100%;
+    padding-bottom: 8px;
     left: 50%;
     transform: translateX(-50%) scaleY(0.6);
     transform-origin: bottom center;
   }
-  .mini-vol-up:hover .mini-vol-pop,
-  .mini-vol-up:focus-within .mini-vol-pop {
+  .mini-vol-up.open .mini-vol-pop {
     transform: translateX(-50%) scaleY(1);
   }
   /* "left" placement (compact / A layout — short 108px window, no room above):
      popup slides out to the LEFT of the button, vertically centred, where the
-     wide 420px pill has plenty of horizontal room. */
+     wide 420px pill has plenty of horizontal room. padding-right bridges the
+     gap to the button (same drag-region reason as above). */
   .mini-vol-left .mini-vol-pop {
-    right: calc(100% + 6px);
+    right: 100%;
+    padding-right: 8px;
     top: 50%;
     transform: translateY(-50%) scaleX(0.6);
     transform-origin: right center;
   }
-  .mini-vol-left:hover .mini-vol-pop,
-  .mini-vol-left:focus-within .mini-vol-pop {
+  .mini-vol-left.open .mini-vol-pop {
     transform: translateY(-50%) scaleX(1);
   }
-  .mini-vol:hover .mini-vol-pop,
-  .mini-vol:focus-within .mini-vol-pop {
+  .mini-vol.open .mini-vol-pop {
     opacity: 1;
     pointer-events: auto;
   }
   /* Horizontal slider inside the popup — reuses the full-bar `.vol` track +
      thumb styling (3px gradient track, --p fill). Fixed 100px so the popup
-     stays narrow enough to clear the mini window edges. */
-  .mini-vol-slider {
+     stays narrow enough to clear the mini window edges.
+     NOTE: the selector is `.mini-vol-pop .mini-vol-slider`, NOT just
+     `.mini-vol-slider` — paid for in blood. `.vol` (also a single class)
+     sets `width: 100%` and is defined LATER in this file, so a bare
+     `.mini-vol-slider { width: 100px }` lost the cascade tie-break and the
+     slider collapsed to 0 width inside the auto-width popup (100% of nothing).
+     The descendant selector bumps specificity so the fixed width wins. */
+  .mini-vol-pop .mini-vol-slider {
     -webkit-app-region: no-drag;
     width: 100px;
     max-width: 100px;
   }
   /* The full-bar .vol hides its thumb until hover; in the popup the slider IS
      the point, so keep the thumb always visible for an obvious drag target. */
-  .mini-vol-slider::-webkit-slider-thumb {
+  .mini-vol-pop .mini-vol-slider::-webkit-slider-thumb {
     opacity: 1;
   }
 
