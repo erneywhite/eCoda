@@ -249,10 +249,13 @@ async function createWindow(): Promise<void> {
 
   mainWindow.on('ready-to-show', () => {
     mainWindow?.show()
-    // Now that the window is shown it has a taskbar button — seed the
-    // Windows thumbnail toolbar (setThumbarButtons silently fails while the
-    // window is still hidden, which is why this can't go in app.whenReady).
-    updateThumbarButtons()
+    // NB: the thumbnail toolbar is deliberately NOT seeded here. Calling
+    // setThumbarButtons in/around ready-to-show poisons the toolbar — the
+    // first call ("add") fails silently and every later "update" can't
+    // recover it, so the buttons never appear even though each call returns
+    // true (Electron #9049). Instead the FIRST setThumbarButtons call comes
+    // from the renderer's window:playbackState IPC, which fires after the
+    // page is fully loaded — the documented working path.
     // DevTools open by default in dev only — easier to inspect renderer
     // logs and network without poking Ctrl+Shift+I every launch.
     if (!app.isPackaged) {
