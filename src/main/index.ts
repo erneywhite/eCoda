@@ -3,10 +3,20 @@ import { join } from 'path'
 import { createReadStream, statSync } from 'node:fs'
 import { Readable } from 'node:stream'
 import icon from '../../resources/icon.png?asset'
-import thumbPrevIcon from '../../resources/thumbar/prev.png?asset'
-import thumbPlayIcon from '../../resources/thumbar/play.png?asset'
-import thumbPauseIcon from '../../resources/thumbar/pause.png?asset'
-import thumbNextIcon from '../../resources/thumbar/next.png?asset'
+// Taskbar thumbnail-toolbar icons embedded as base64 data URLs (16px white
+// glyphs). Embedded rather than loaded via `?asset` so there's zero
+// dependency on resolving a file path inside the packaged app.asar at
+// runtime — `nativeImage.createFromDataURL` always works. (The PNGs in
+// resources/thumbar/ + scripts/gen-thumbar-icons.mjs are kept as the source
+// of truth; re-run the script and re-paste these if the glyphs change.)
+const THUMB_PREV_ICON =
+  'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAACXBIWXMAAAsTAAALEwEAmpwYAAAAVklEQVR4nO3Qyw1AABAA0T0404YWFKIftUh0owSlSJ4IEsLBL07mOJudZDfiZ4eJ8sCnqG8FUKAbB5cCSFChn/35AHK0y+L3gXh6QrzxxDXI0GzkT4wMJsywefFRMJAAAAAASUVORK5CYII='
+const THUMB_PLAY_ICON =
+  'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAACXBIWXMAAAsTAAALEwEAmpwYAAAAUklEQVR4nN3SOw2AMBRA0bLjAAOoaYIJxLFWAWI6V8IhHWqgbyBwBZzkfVL6Z8hYI8CFiiMCjAq2CNBrOLHMAqMb+ytAi4xQZpdYI2fMoUf6Vg/Bp7fhNRP9XQAAAABJRU5ErkJggg=='
+const THUMB_PAUSE_ICON =
+  'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAACXBIWXMAAAsTAAALEwEAmpwYAAAALklEQVR4nGNgGH7g////q6G4CEmsCCZOjAEwAFcM1QwGowb8HylhsJqihDT0AABOTeT9U0xfTAAAAABJRU5ErkJggg=='
+const THUMB_NEXT_ICON =
+  'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAACXBIWXMAAAsTAAALEwEAmpwYAAAAV0lEQVR4nO3QoQ2AMBRF0SosCXuwA0swGENgGIcNukgPqcDQCkIFAq58+e8m74fwU4ANQyWfoWxcyEeImFoEmYQF3VPByY7xFUFqmRBbnriir+T3BOF7HO6XsN2oIqpNAAAAAElFTkSuQmCC'
 import { verifyBrowserLogin, startYtdlpDaemon, stopYtdlpDaemon } from './ytdlp'
 import {
   detectBrowsers,
@@ -1052,40 +1062,38 @@ let thumbarLang: Lang = 'ru'
 function updateThumbarButtons(): void {
   if (process.platform !== 'win32' || !mainWindow || mainWindow.isDestroyed()) return
   const L = TRAY_LABELS[thumbarLang] ?? TRAY_LABELS.ru
-  const { hasTrack, isPlaying } = thumbPlaybackState
-  // When nothing is loaded, grey the buttons out rather than hide the toolbar
-  // — a stable 3-button strip reads better than buttons popping in/out.
-  const flags: Array<'disabled'> = hasTrack ? [] : ['disabled']
-  const prevImg = nativeImage.createFromPath(thumbPrevIcon)
-  const playImg = nativeImage.createFromPath(isPlaying ? thumbPauseIcon : thumbPlayIcon)
-  const nextImg = nativeImage.createFromPath(thumbNextIcon)
+  const { isPlaying } = thumbPlaybackState
+  // Buttons are ALWAYS enabled (no 'disabled' flag). Windows creates the
+  // thumbnail toolbar on the FIRST setThumbarButtons call; an all-disabled
+  // first call (before any track loads) is a suspected reason the toolbar
+  // never renders. The renderer's tray:command handlers no-op when nothing
+  // is playing, so always-enabled is harmless.
+  const prevImg = nativeImage.createFromDataURL(THUMB_PREV_ICON)
+  const playImg = nativeImage.createFromDataURL(isPlaying ? THUMB_PAUSE_ICON : THUMB_PLAY_ICON)
+  const nextImg = nativeImage.createFromDataURL(THUMB_NEXT_ICON)
   const ok = mainWindow.setThumbarButtons([
     {
       tooltip: L.prev,
       icon: prevImg,
-      flags,
       click: () => sendTrayCommand('prev')
     },
     {
       tooltip: L.playPause,
       icon: playImg,
-      flags,
       click: () => sendTrayCommand('play-pause')
     },
     {
       tooltip: L.next,
       icon: nextImg,
-      flags,
       click: () => sendTrayCommand('next')
     }
   ])
-  // Only log when something's off (breadcrumb for diagnosing on a real
-  // install) — staying quiet on the happy path keeps main.log clean.
-  if (!ok || prevImg.isEmpty() || playImg.isEmpty() || nextImg.isEmpty()) {
-    console.warn(
-      `[thumbar] set=${ok} visible=${mainWindow.isVisible()} iconEmpty(prev/play/next)=${prevImg.isEmpty()}/${playImg.isEmpty()}/${nextImg.isEmpty()} path=${thumbPrevIcon}`
-    )
-  }
+  // Always log (temporarily, while diagnosing why the toolbar doesn't show on
+  // the installed build) — this line in <userData>/main.log tells us set /
+  // visible / hasTrack / iconEmpty on the real install.
+  console.log(
+    `[thumbar] set=${ok} visible=${mainWindow.isVisible()} playing=${isPlaying} iconEmpty(prev/play/next)=${prevImg.isEmpty()}/${playImg.isEmpty()}/${nextImg.isEmpty()} size=${prevImg.getSize().width}x${prevImg.getSize().height}`
+  )
 }
 
 // ---------------------------------------------------------------------------
