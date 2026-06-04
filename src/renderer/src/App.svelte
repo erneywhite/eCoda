@@ -1147,13 +1147,6 @@
     navigator.mediaSession.playbackState = isPlaying ? 'playing' : 'paused'
   })
 
-  // Mirror playback state to main so the Windows taskbar thumbnail toolbar
-  // shows the right play/pause icon and enables/disables its buttons. A
-  // deferred-resume track (empty streamUrl) still counts as "has track".
-  $effect(() => {
-    void window.api.window.setPlaybackState({ hasTrack: !!playing, isPlaying })
-  })
-
   // Push the current position/duration into the OS media session. A session
   // that reports a valid position state reads as "full-featured" to Windows
   // SMTC, which makes it more likely to stay the active session that hardware

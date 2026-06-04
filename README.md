@@ -28,7 +28,6 @@
 - 🎛️ **10-полосный эквалайзер** — пресеты (Бас, Вокал, Рок и др.) + ручные ползунки ±12 дБ на каждую полосу
 - 🪟 **Мини-плеер** — компактное окно поверх всех окон, чтобы переключать треки и крутить громкость не отрываясь от работы. Два варианта: тонкая полоска или квадратик с обложкой
 - ⌨️ **Медиа-клавиши работают** — Play/Pause/Next/Prev на клавиатуре, виджет на lockscreen Windows и в Now Playing на macOS
-- 📊 **Кнопки в панели задач** (Windows) — наведи на иконку eCoda → переключай треки и ставь паузу прямо из превью, не разворачивая окно
 - 🎨 **8 цветовых тем** — от пастельных до неоновых
 - 🦝 **Сворачивается в трей** — закрыл окно крестиком, музыка продолжает играть в фоне (можно отключить если бесит)
 - 🌍 **Русский + English** интерфейс
@@ -214,7 +213,6 @@ Just open the app and listen.
 - 🎛️ **10-band equalizer** — presets (Bass, Vocal, Rock, etc.) + manual sliders, ±12 dB per band
 - 🪟 **Mini-player** — always-on-top compact window to skip tracks and adjust volume without leaving what you're doing. Two layouts: horizontal pill or square cover-focused
 - ⌨️ **Hardware media keys work** — Play/Pause/Next/Prev on your keyboard, Windows lockscreen widget, macOS Now Playing
-- 📊 **Taskbar playback buttons** (Windows) — hover the eCoda icon → skip tracks and pause straight from the preview, no need to open the window
 - 🎨 **8 colour themes** — pastel to neon
 - 🦝 **Closes to system tray** — hit the X, music keeps playing in the background (toggleable if you'd rather it actually quit)
 - 🌍 **Russian + English** UI

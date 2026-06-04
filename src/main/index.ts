@@ -3,20 +3,6 @@ import { join } from 'path'
 import { createReadStream, statSync } from 'node:fs'
 import { Readable } from 'node:stream'
 import icon from '../../resources/icon.png?asset'
-// Taskbar thumbnail-toolbar icons embedded as base64 data URLs (16px white
-// glyphs). Embedded rather than loaded via `?asset` so there's zero
-// dependency on resolving a file path inside the packaged app.asar at
-// runtime — `nativeImage.createFromDataURL` always works. (The PNGs in
-// resources/thumbar/ + scripts/gen-thumbar-icons.mjs are kept as the source
-// of truth; re-run the script and re-paste these if the glyphs change.)
-const THUMB_PREV_ICON =
-  'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAACXBIWXMAAAsTAAALEwEAmpwYAAAAVklEQVR4nO3Qyw1AABAA0T0404YWFKIftUh0owSlSJ4IEsLBL07mOJudZDfiZ4eJ8sCnqG8FUKAbB5cCSFChn/35AHK0y+L3gXh6QrzxxDXI0GzkT4wMJsywefFRMJAAAAAASUVORK5CYII='
-const THUMB_PLAY_ICON =
-  'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAACXBIWXMAAAsTAAALEwEAmpwYAAAAUklEQVR4nN3SOw2AMBRA0bLjAAOoaYIJxLFWAWI6V8IhHWqgbyBwBZzkfVL6Z8hYI8CFiiMCjAq2CNBrOLHMAqMb+ytAi4xQZpdYI2fMoUf6Vg/Bp7fhNRP9XQAAAABJRU5ErkJggg=='
-const THUMB_PAUSE_ICON =
-  'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAACXBIWXMAAAsTAAALEwEAmpwYAAAALklEQVR4nGNgGH7g////q6G4CEmsCCZOjAEwAFcM1QwGowb8HylhsJqihDT0AABOTeT9U0xfTAAAAABJRU5ErkJggg=='
-const THUMB_NEXT_ICON =
-  'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAACXBIWXMAAAsTAAALEwEAmpwYAAAAV0lEQVR4nO3QoQ2AMBRF0SosCXuwA0swGENgGIcNukgPqcDQCkIFAq58+e8m74fwU4ANQyWfoWxcyEeImFoEmYQF3VPByY7xFUFqmRBbnriir+T3BOF7HO6XsN2oIqpNAAAAAElFTkSuQmCC'
 import { verifyBrowserLogin, startYtdlpDaemon, stopYtdlpDaemon } from './ytdlp'
 import {
   detectBrowsers,
@@ -249,13 +235,6 @@ async function createWindow(): Promise<void> {
 
   mainWindow.on('ready-to-show', () => {
     mainWindow?.show()
-    // NB: the thumbnail toolbar is deliberately NOT seeded here. Calling
-    // setThumbarButtons in/around ready-to-show poisons the toolbar — the
-    // first call ("add") fails silently and every later "update" can't
-    // recover it, so the buttons never appear even though each call returns
-    // true (Electron #9049). Instead the FIRST setThumbarButtons call comes
-    // from the renderer's window:playbackState IPC, which fires after the
-    // page is fully loaded — the documented working path.
     // DevTools open by default in dev only — easier to inspect renderer
     // logs and network without poking Ctrl+Shift+I every launch.
     if (!app.isPackaged) {
@@ -733,16 +712,6 @@ app.whenReady().then(async () => {
   })
   ipcMain.handle('window:close', () => mainWindow?.close())
   ipcMain.handle('window:isMaximized', () => mainWindow?.isMaximized() ?? false)
-  // Renderer pushes its playback state (has-track + playing/paused) so the
-  // Windows taskbar thumbnail toolbar can show the right play/pause icon and
-  // enable/disable its buttons. No-op off Windows.
-  ipcMain.handle(
-    'window:playbackState',
-    (_event, state: { hasTrack: boolean; isPlaying: boolean }) => {
-      thumbPlaybackState = state
-      updateThumbarButtons()
-    }
-  )
 
   // Mini-player. Same BrowserWindow, just resized + always-on-top +
   // its own renderer layout. Two presets: 'compact' (horizontal pill,
@@ -777,9 +746,6 @@ app.whenReady().then(async () => {
     // Rebuild the tray menu — it caches the labels at create time, so
     // the new lang only takes effect after a refresh.
     rebuildTrayMenu(lang)
-    // Thumbar button tooltips are localized too — refresh them.
-    thumbarLang = lang
-    updateThumbarButtons()
   })
   // Audio quality preset for new downloads — see formatSelectorFor() in
   // downloads.ts. Doesn't retroactively re-download anything.
@@ -846,9 +812,6 @@ app.whenReady().then(async () => {
   // landed.
   closeActionCache = await getCloseAction()
 
-  // Cache the UI lang for the thumbar tooltips. The toolbar itself is seeded
-  // from the window's ready-to-show (it needs a shown window to attach to).
-  thumbarLang = await getLang()
   await createWindow()
   await createTray()
 
@@ -1045,58 +1008,6 @@ function showAndFocusWindow(): void {
 function sendTrayCommand(cmd: 'play-pause' | 'next' | 'prev'): void {
   if (!mainWindow || mainWindow.isDestroyed()) return
   mainWindow.webContents.send('tray:command', cmd)
-}
-
-// ---------------------------------------------------------------------------
-// WINDOWS TASKBAR THUMBNAIL TOOLBAR — prev / play-pause / next buttons that
-// appear in the taskbar preview when you hover the app's taskbar entry. Each
-// button's click runs in main and proxies to the renderer via the SAME
-// `tray:command` IPC the tray menu uses. Windows-only (setThumbarButtons is
-// a no-op elsewhere, but we guard anyway). The play/pause icon + the
-// disabled state track the renderer's playback state, pushed via
-// `window:playbackState`. Icons are tiny white glyphs in resources/thumbar/.
-// ---------------------------------------------------------------------------
-let thumbPlaybackState: { hasTrack: boolean; isPlaying: boolean } = {
-  hasTrack: false,
-  isPlaying: false
-}
-let thumbarLang: Lang = 'ru'
-
-function updateThumbarButtons(): void {
-  if (process.platform !== 'win32' || !mainWindow || mainWindow.isDestroyed()) return
-  const L = TRAY_LABELS[thumbarLang] ?? TRAY_LABELS.ru
-  const { isPlaying } = thumbPlaybackState
-  // Buttons are ALWAYS enabled (no 'disabled' flag). Windows creates the
-  // thumbnail toolbar on the FIRST setThumbarButtons call; an all-disabled
-  // first call (before any track loads) is a suspected reason the toolbar
-  // never renders. The renderer's tray:command handlers no-op when nothing
-  // is playing, so always-enabled is harmless.
-  const prevImg = nativeImage.createFromDataURL(THUMB_PREV_ICON)
-  const playImg = nativeImage.createFromDataURL(isPlaying ? THUMB_PAUSE_ICON : THUMB_PLAY_ICON)
-  const nextImg = nativeImage.createFromDataURL(THUMB_NEXT_ICON)
-  const ok = mainWindow.setThumbarButtons([
-    {
-      tooltip: L.prev,
-      icon: prevImg,
-      click: () => sendTrayCommand('prev')
-    },
-    {
-      tooltip: L.playPause,
-      icon: playImg,
-      click: () => sendTrayCommand('play-pause')
-    },
-    {
-      tooltip: L.next,
-      icon: nextImg,
-      click: () => sendTrayCommand('next')
-    }
-  ])
-  // Always log (temporarily, while diagnosing why the toolbar doesn't show on
-  // the installed build) — this line in <userData>/main.log tells us set /
-  // visible / hasTrack / iconEmpty on the real install.
-  console.log(
-    `[thumbar] set=${ok} visible=${mainWindow.isVisible()} playing=${isPlaying} iconEmpty(prev/play/next)=${prevImg.isEmpty()}/${playImg.isEmpty()}/${nextImg.isEmpty()} size=${prevImg.getSize().width}x${prevImg.getSize().height}`
-  )
 }
 
 // ---------------------------------------------------------------------------
