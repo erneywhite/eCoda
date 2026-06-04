@@ -107,6 +107,10 @@ const api = {
     toggleMaximize: () => ipcRenderer.invoke('window:toggleMaximize'),
     close: () => ipcRenderer.invoke('window:close'),
     isMaximized: () => ipcRenderer.invoke('window:isMaximized'),
+    // Pushes playback state so the Windows taskbar thumbnail toolbar can
+    // reflect play/pause + enable its buttons. No-op off Windows.
+    setPlaybackState: (state: { hasTrack: boolean; isPlaying: boolean }) =>
+      ipcRenderer.invoke('window:playbackState', state),
     // Push from main on maximize/unmaximize (including OS-driven
     // changes like Aero snap or double-click on the drag region) so
     // the maximize/restore button can swap its icon.

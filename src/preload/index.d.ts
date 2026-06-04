@@ -256,6 +256,7 @@ export interface EcodaApi {
     toggleMaximize: () => Promise<boolean>
     close: () => Promise<void>
     isMaximized: () => Promise<boolean>
+    setPlaybackState: (state: { hasTrack: boolean; isPlaying: boolean }) => Promise<void>
     onMaximizeChanged: (cb: (isMax: boolean) => void) => () => void
     enterMini: (layout: MiniLayout) => Promise<void>
     setMiniLayout: (layout: MiniLayout) => Promise<void>

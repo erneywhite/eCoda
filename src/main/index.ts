@@ -3,6 +3,10 @@ import { join } from 'path'
 import { createReadStream, statSync } from 'node:fs'
 import { Readable } from 'node:stream'
 import icon from '../../resources/icon.png?asset'
+import thumbPrevIcon from '../../resources/thumbar/prev.png?asset'
+import thumbPlayIcon from '../../resources/thumbar/play.png?asset'
+import thumbPauseIcon from '../../resources/thumbar/pause.png?asset'
+import thumbNextIcon from '../../resources/thumbar/next.png?asset'
 import { verifyBrowserLogin, startYtdlpDaemon, stopYtdlpDaemon } from './ytdlp'
 import {
   detectBrowsers,
@@ -235,6 +239,10 @@ async function createWindow(): Promise<void> {
 
   mainWindow.on('ready-to-show', () => {
     mainWindow?.show()
+    // Now that the window is shown it has a taskbar button — seed the
+    // Windows thumbnail toolbar (setThumbarButtons silently fails while the
+    // window is still hidden, which is why this can't go in app.whenReady).
+    updateThumbarButtons()
     // DevTools open by default in dev only — easier to inspect renderer
     // logs and network without poking Ctrl+Shift+I every launch.
     if (!app.isPackaged) {
@@ -315,6 +323,14 @@ async function createWindow(): Promise<void> {
 }
 
 app.whenReady().then(async () => {
+  // Declare a stable Windows AppUserModelID. Without it Windows has no app
+  // identity to hang taskbar features on — the thumbnail-toolbar buttons
+  // (prev/play/next) silently don't appear, and toast/SMTC grouping is
+  // flaky. Must match the NSIS appId so the dev run, the installed app, and
+  // its shortcut all share one identity. No-op on macOS/Linux. (In dev the
+  // process is electron.exe; this is what makes the thumbnail toolbar show
+  // there too, not just in the packaged build.)
+  if (process.platform === 'win32') app.setAppUserModelId('com.erneywhite.ecoda')
   // First thing after ready: hook console.log/warn/error into a file at
   // <userData>/main.log. The packaged app has no stdout console visible
   // to the user; without this we'd be flying blind whenever a bug needs
@@ -704,6 +720,16 @@ app.whenReady().then(async () => {
   })
   ipcMain.handle('window:close', () => mainWindow?.close())
   ipcMain.handle('window:isMaximized', () => mainWindow?.isMaximized() ?? false)
+  // Renderer pushes its playback state (has-track + playing/paused) so the
+  // Windows taskbar thumbnail toolbar can show the right play/pause icon and
+  // enable/disable its buttons. No-op off Windows.
+  ipcMain.handle(
+    'window:playbackState',
+    (_event, state: { hasTrack: boolean; isPlaying: boolean }) => {
+      thumbPlaybackState = state
+      updateThumbarButtons()
+    }
+  )
 
   // Mini-player. Same BrowserWindow, just resized + always-on-top +
   // its own renderer layout. Two presets: 'compact' (horizontal pill,
@@ -738,6 +764,9 @@ app.whenReady().then(async () => {
     // Rebuild the tray menu — it caches the labels at create time, so
     // the new lang only takes effect after a refresh.
     rebuildTrayMenu(lang)
+    // Thumbar button tooltips are localized too — refresh them.
+    thumbarLang = lang
+    updateThumbarButtons()
   })
   // Audio quality preset for new downloads — see formatSelectorFor() in
   // downloads.ts. Doesn't retroactively re-download anything.
@@ -804,6 +833,9 @@ app.whenReady().then(async () => {
   // landed.
   closeActionCache = await getCloseAction()
 
+  // Cache the UI lang for the thumbar tooltips. The toolbar itself is seeded
+  // from the window's ready-to-show (it needs a shown window to attach to).
+  thumbarLang = await getLang()
   await createWindow()
   await createTray()
 
@@ -1000,6 +1032,60 @@ function showAndFocusWindow(): void {
 function sendTrayCommand(cmd: 'play-pause' | 'next' | 'prev'): void {
   if (!mainWindow || mainWindow.isDestroyed()) return
   mainWindow.webContents.send('tray:command', cmd)
+}
+
+// ---------------------------------------------------------------------------
+// WINDOWS TASKBAR THUMBNAIL TOOLBAR — prev / play-pause / next buttons that
+// appear in the taskbar preview when you hover the app's taskbar entry. Each
+// button's click runs in main and proxies to the renderer via the SAME
+// `tray:command` IPC the tray menu uses. Windows-only (setThumbarButtons is
+// a no-op elsewhere, but we guard anyway). The play/pause icon + the
+// disabled state track the renderer's playback state, pushed via
+// `window:playbackState`. Icons are tiny white glyphs in resources/thumbar/.
+// ---------------------------------------------------------------------------
+let thumbPlaybackState: { hasTrack: boolean; isPlaying: boolean } = {
+  hasTrack: false,
+  isPlaying: false
+}
+let thumbarLang: Lang = 'ru'
+
+function updateThumbarButtons(): void {
+  if (process.platform !== 'win32' || !mainWindow || mainWindow.isDestroyed()) return
+  const L = TRAY_LABELS[thumbarLang] ?? TRAY_LABELS.ru
+  const { hasTrack, isPlaying } = thumbPlaybackState
+  // When nothing is loaded, grey the buttons out rather than hide the toolbar
+  // — a stable 3-button strip reads better than buttons popping in/out.
+  const flags: Array<'disabled'> = hasTrack ? [] : ['disabled']
+  const prevImg = nativeImage.createFromPath(thumbPrevIcon)
+  const playImg = nativeImage.createFromPath(isPlaying ? thumbPauseIcon : thumbPlayIcon)
+  const nextImg = nativeImage.createFromPath(thumbNextIcon)
+  const ok = mainWindow.setThumbarButtons([
+    {
+      tooltip: L.prev,
+      icon: prevImg,
+      flags,
+      click: () => sendTrayCommand('prev')
+    },
+    {
+      tooltip: L.playPause,
+      icon: playImg,
+      flags,
+      click: () => sendTrayCommand('play-pause')
+    },
+    {
+      tooltip: L.next,
+      icon: nextImg,
+      flags,
+      click: () => sendTrayCommand('next')
+    }
+  ])
+  // Only log when something's off (breadcrumb for diagnosing on a real
+  // install) — staying quiet on the happy path keeps main.log clean.
+  if (!ok || prevImg.isEmpty() || playImg.isEmpty() || nextImg.isEmpty()) {
+    console.warn(
+      `[thumbar] set=${ok} visible=${mainWindow.isVisible()} iconEmpty(prev/play/next)=${prevImg.isEmpty()}/${playImg.isEmpty()}/${nextImg.isEmpty()} path=${thumbPrevIcon}`
+    )
+  }
 }
 
 // ---------------------------------------------------------------------------

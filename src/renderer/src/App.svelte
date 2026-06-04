@@ -886,6 +886,12 @@
   // user actually hits Play (which kicks off resolve + seek + start). The
   // saved position lives in pendingResumeTime; canplay reads it and seeks.
   let pendingResumeTime = $state<number | null>(null)
+  // The track id the pending resume position belongs to. The resume seek is
+  // applied ONLY when the next resolved track matches this id — otherwise a
+  // fresh play of a DIFFERENT track as the first action after launch would
+  // inherit the saved position and start mid-track (the "plays from the
+  // middle" bug). One-shot: cleared the moment any track is played.
+  let pendingResumeId = $state<string | null>(null)
 
   // ---- crossfade ---------------------------------------------------------
   // User-configurable in Settings → "Crossfade duration". 0 = disabled
@@ -1141,6 +1147,38 @@
     navigator.mediaSession.playbackState = isPlaying ? 'playing' : 'paused'
   })
 
+  // Mirror playback state to main so the Windows taskbar thumbnail toolbar
+  // shows the right play/pause icon and enables/disables its buttons. A
+  // deferred-resume track (empty streamUrl) still counts as "has track".
+  $effect(() => {
+    void window.api.window.setPlaybackState({ hasTrack: !!playing, isPlaying })
+  })
+
+  // Push the current position/duration into the OS media session. A session
+  // that reports a valid position state reads as "full-featured" to Windows
+  // SMTC, which makes it more likely to stay the active session that hardware
+  // media keys route to (the keys are flaky mainly when another running media
+  // app — e.g. Spotify — grabbed the session, or Chromium let it go stale).
+  // Called from the active audio element's timeupdate / loadedmetadata /
+  // seeked. setPositionState throws on inconsistent values, hence the guard.
+  function syncMediaPositionState(): void {
+    if (typeof navigator === 'undefined' || !('mediaSession' in navigator)) return
+    if (typeof navigator.mediaSession.setPositionState !== 'function') return
+    try {
+      if (playing && Number.isFinite(duration) && duration > 0) {
+        navigator.mediaSession.setPositionState({
+          duration,
+          position: Math.max(0, Math.min(currentTime, duration)),
+          playbackRate: 1
+        })
+      } else {
+        navigator.mediaSession.setPositionState()
+      }
+    } catch {
+      // inconsistent position/duration (e.g. mid-load) — ignore
+    }
+  }
+
   // ---- shuffle / repeat / queue ------------------------------------------
   // Persisted in config so the streamer use case ("set my modes once, leave
   // them") survives restarts. Loaded from window.api.settings on mount.
@@ -1237,6 +1275,7 @@
       sourceListTitle: saved.sourceListTitle
     }
     pendingResumeTime = saved.currentTime > 1 ? saved.currentTime : null
+    pendingResumeId = pendingResumeTime !== null ? saved.track.id : null
     // Seed the UI clock to the saved position so the seek bar already
     // shows the right spot before audio actually loads.
     currentTime = Number.isFinite(saved.currentTime) ? saved.currentTime : 0
@@ -1935,7 +1974,36 @@
       navigator.mediaSession.setActionHandler('seekto', (details) => {
         if (audioEl && typeof details.seekTime === 'number') {
           audioEl.currentTime = details.seekTime
+          currentTime = details.seekTime
+          syncMediaPositionState()
         }
+      })
+      // A more complete handler set reads as a "full" session to Windows SMTC,
+      // which helps it stay the session media keys route to. Each is wrapped
+      // because some platforms reject unknown actions.
+      const safe = (action: MediaSessionAction, handler: MediaSessionActionHandler): void => {
+        try {
+          navigator.mediaSession.setActionHandler(action, handler)
+        } catch {
+          // action not supported on this platform — ignore
+        }
+      }
+      safe('stop', () => {
+        if (audioEl && !audioEl.paused) audioEl.pause()
+      })
+      safe('seekbackward', (details) => {
+        if (!audioEl) return
+        const step = details.seekOffset ?? 10
+        audioEl.currentTime = Math.max(0, audioEl.currentTime - step)
+        currentTime = audioEl.currentTime
+        syncMediaPositionState()
+      })
+      safe('seekforward', (details) => {
+        if (!audioEl) return
+        const step = details.seekOffset ?? 10
+        audioEl.currentTime = Math.min(audioEl.duration || audioEl.currentTime, audioEl.currentTime + step)
+        currentTime = audioEl.currentTime
+        syncMediaPositionState()
       })
     }
     // Silent reconnect just refreshed cookies in main — drop the
@@ -2109,6 +2177,7 @@
     // user can no longer resolve. Drop the pending seek so the next
     // resolved track plays from 0:00.
     pendingResumeTime = null
+    pendingResumeId = null
     // Player ephemeral state — queue, history, transient UI bits.
     userQueue = []
     playHistory = []
@@ -2533,11 +2602,20 @@
         sourceListTitle: sourceContext?.title
       }
       playStatus = 'playing'
+      // Resolve the resume position for THIS track, then clear the pending
+      // state immediately (one-shot). The seek only applies when the track
+      // matches the id captured at session-restore time — a fresh play of any
+      // other track starts at 0:00 and never inherits the saved position.
+      const resumeTime =
+        pendingResumeId === track.id && pendingResumeTime && pendingResumeTime > 1
+          ? pendingResumeTime
+          : 0
+      pendingResumeTime = null
+      pendingResumeId = null
       // Reset transport state so the UI doesn't briefly show old times.
-      // For a deferred-resume start, seed currentTime to the saved
-      // position so the seek bar doesn't jump back to 0:00 before canplay
-      // fires the actual seek.
-      currentTime = pendingResumeTime && pendingResumeTime > 1 ? pendingResumeTime : 0
+      // For a deferred-resume start, seed currentTime to the saved position
+      // so the seek bar doesn't jump back to 0:00 before canplay seeks.
+      currentTime = resumeTime
       duration = 0
       // Load the new track onto the active audio element, full gain,
       // and silence the inactive one. The $effect above re-applies
@@ -2556,14 +2634,14 @@
         const onCanPlay = (): void => {
           el.removeEventListener('canplay', onCanPlay)
           // Resume from the position saved before the previous app close.
-          if (pendingResumeTime !== null && pendingResumeTime > 1 && Number.isFinite(el.duration)) {
+          // resumeTime was captured (+ scoped to this track) above.
+          if (resumeTime > 1 && Number.isFinite(el.duration)) {
             try {
-              el.currentTime = Math.min(pendingResumeTime, el.duration - 1)
+              el.currentTime = Math.min(resumeTime, el.duration - 1)
               currentTime = el.currentTime
             } catch {
               // ignore — some streams reject seek before fully ready
             }
-            pendingResumeTime = null
           }
           const ids = nextIdsFrom(track.id, sourceList)
           if (ids.length > 0) void window.api.prefetchAudio(ids)
@@ -2673,6 +2751,15 @@
 
   async function playPrev(): Promise<void> {
     if (!playing) return
+    // Restart-on-prev: if we're more than 3s into the current track, the first
+    // Prev press restarts it (seek to 0) rather than jumping to the previous
+    // track — matches Spotify / YT Music / foobar / basically every player.
+    // Press Prev again within the first 3s to actually go back a track.
+    if (playing.streamUrl && audioEl && audioEl.currentTime > 3) {
+      audioEl.currentTime = 0
+      currentTime = 0
+      return
+    }
     // In shuffle mode, "prev" walks back through what we actually played,
     // not the original list order — otherwise it would feel arbitrary.
     if (shuffleMode && playHistory.length > 0) {
@@ -2730,18 +2817,22 @@
     persistSession()
   }
   function onAudioElementSeeked(key: 'a' | 'b'): void {
-    if (key === activeAudioKey) persistSession()
+    if (key !== activeAudioKey) return
+    persistSession()
+    syncMediaPositionState()
   }
   function onAudioElementLoaded(key: 'a' | 'b'): void {
     if (key !== activeAudioKey) return
     const a = key === 'a' ? audioElA : audioElB
     duration = a?.duration ?? 0
+    syncMediaPositionState()
   }
   function onAudioElementTimeUpdate(key: 'a' | 'b'): void {
     if (key !== activeAudioKey) return
     const a = key === 'a' ? audioElA : audioElB
     if (!seeking && a) currentTime = a.currentTime
     maybePersistSessionOnTime()
+    syncMediaPositionState()
     maybeStartCrossfade()
   }
   function onAudioElementEnded(key: 'a' | 'b'): void {
@@ -5436,19 +5527,26 @@
   .mini-vol-up.open .mini-vol-pop {
     transform: translateX(-50%) scaleY(1);
   }
-  /* "left" placement (compact / A layout — short 108px window, no room above):
-     popup slides out to the LEFT of the button, vertically centred, where the
-     wide 420px pill has plenty of horizontal room. padding-right bridges the
-     gap to the button (same drag-region reason as above). */
+  /* "left"/compact (A layout — short 108px window). The popup drops BELOW the
+     volume button, anchored to its right edge and extending left, into the
+     empty lower strip of the pill — so it no longer overlaps the play /
+     prev / next buttons (which sit in the centre row, above it). padding-top
+     bridges the gap to the button (drag-region: the cursor must never cross
+     bare drag surface between button and popup or the pointerenter chain
+     drops). */
   .mini-vol-left .mini-vol-pop {
-    right: 100%;
-    padding-right: 8px;
-    top: 50%;
-    transform: translateY(-50%) scaleX(0.6);
-    transform-origin: right center;
+    top: 100%;
+    right: 0;
+    /* Tight padding: the compact pill is only 108px tall, so the popup must
+       fit in the ~33px strip below the button without clipping. padding-top
+       doubles as the no-gap bridge to the button. */
+    padding: 4px 8px;
+    padding-top: 7px;
+    transform: scaleY(0.6);
+    transform-origin: top right;
   }
   .mini-vol-left.open .mini-vol-pop {
-    transform: translateY(-50%) scaleX(1);
+    transform: scaleY(1);
   }
   .mini-vol.open .mini-vol-pop {
     opacity: 1;
