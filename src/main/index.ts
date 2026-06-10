@@ -88,7 +88,7 @@ import {
   type TrackInfo
 } from './downloads'
 import { importCookiesToMusicSession, clearMusicSessionCookies } from './library-session'
-import { harvestTokens, resetHarvest, browseViaPage, innertubeFetch } from './token-harvest'
+import { harvestTokens, resetHarvest, browseViaPage, innertubeFetch, setAuthReadyGate } from './token-harvest'
 import {
   checkForUpdates,
   downloadUpdate,
@@ -938,7 +938,20 @@ app.whenReady().then(async () => {
   // comes back logged_in=0 → Library is empty. We refresh on every launch
   // so the user never has to manually Disconnect+Connect just because
   // they reopened the app a day later or installed an upgrade.
-  void silentReconnect()
+  //
+  // The reconnect is also wired into the auth gate: authenticated InnerTube
+  // calls (innertubeFetch / harvestTokens) wait for it before touching the
+  // page proxy. Without the gate, a Library default-tab fetch at mount races
+  // the cookie import and flashes "No SAPISID cookie in page context" until
+  // auth:refreshed heals the view. Raced against a 15s timeout so a hung
+  // reconnect (or a first run with no browser) can never wedge the app.
+  const reconnect = silentReconnect()
+  setAuthReadyGate(
+    Promise.race([
+      reconnect.catch(() => undefined),
+      new Promise<void>((resolve) => setTimeout(resolve, 15000))
+    ]).then(() => undefined)
+  )
 })
 
 // Refreshes the cookies file from the currently-installed-and-configured

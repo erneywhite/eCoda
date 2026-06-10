@@ -17,6 +17,19 @@ const TTL_MS = 30 * 60 * 1000
 let cache: { tokens: HarvestedTokens; at: number } | null = null
 let inflight: Promise<HarvestedTokens | null> | null = null
 
+// Launch gate: authenticated InnerTube traffic awaits this before touching
+// the page proxy. index.ts points it at the startup silentReconnect, so the
+// renderer's very FIRST Library/Home fetch doesn't race the cookie refresh —
+// without the gate the proxy window loads music.youtube.com logged-out and
+// the call dies with "No SAPISID cookie in page context" (a transient error
+// screen the user sees until auth:refreshed heals the view a few seconds
+// later). The gate must NEVER reject and NEVER block forever — index.ts
+// races it against a timeout.
+let authReadyGate: Promise<void> = Promise.resolve()
+export function setAuthReadyGate(gate: Promise<void>): void {
+  authReadyGate = gate
+}
+
 // Harvests tokens by loading music.youtube.com in an off-screen Electron
 // window on the persist:music partition (which already has our auth
 // cookies after importCookiesToMusicSession). After the page loads we
@@ -25,6 +38,7 @@ let inflight: Promise<HarvestedTokens | null> | null = null
 // Cached for 30 minutes — visitor_data has a long life but YT rotates
 // it occasionally; periodic refresh is cheap (one page load).
 export async function harvestTokens(): Promise<HarvestedTokens | null> {
+  await authReadyGate
   if (cache && Date.now() - cache.at < TTL_MS) return cache.tokens
   if (inflight) return inflight
   inflight = doHarvest()
@@ -168,6 +182,9 @@ export async function innertubeFetch(
   body: object,
   clientOverride?: ClientOverride
 ): Promise<unknown> {
+  // Hold authenticated calls until the launch-time cookie refresh lands —
+  // see setAuthReadyGate above. Resolved (or timed out) within seconds.
+  await authReadyGate
   const win = await getProxyWindow()
   const bodyJson = JSON.stringify(body)
   const overrideJson = JSON.stringify(clientOverride ?? null)
