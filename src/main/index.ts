@@ -176,7 +176,27 @@ if (mediaKeyModeAtBoot === 'global' && process.platform === 'darwin') {
     globalModeFellBack = true
   }
 }
-if (mediaKeyModeAtBoot === 'global') {
+// Disabling Chromium's handler is WINDOWS-ONLY (and Linux, if we ever ship
+// it). The HardwareMediaKeyHandling feature is not just key handling — it is
+// Chromium's ENTIRE OS media integration: on macOS it registers the app with
+// MPNowPlayingInfoCenter/MediaRemote (what Control Center, NotchNook-style
+// apps, and AirPods controls read), on Windows it is the SMTC integration
+// (media overlay, lockscreen widget). Killing it makes eCoda invisible to
+// the OS as a media player.
+//
+// On macOS we DON'T need to kill it even in 'global' mode: Electron's
+// globalShortcut intercepts media keys via a CGEventTap (that's why it needs
+// Accessibility), which sits UPSTREAM of the system MediaRemote routing and
+// consumes the event — Chromium's Now Playing handler never sees the key, so
+// there's no double-trigger. Net result on mac: deterministic keys via the
+// event tap AND the app stays registered in Now Playing (visible/controllable
+// from NotchNook & co).
+//
+// On Windows the order is reversed — Chromium's SMTC integration grabs the
+// keys first and globalShortcut never fires (verified on the Windows side in
+// 1.4.0 dev) — so there the feature flag must stay off in 'global' mode, at
+// the cost of SMTC visibility.
+if (mediaKeyModeAtBoot === 'global' && process.platform !== 'darwin') {
   app.commandLine.appendSwitch('disable-features', 'HardwareMediaKeyHandling')
 }
 
