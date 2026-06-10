@@ -381,6 +381,20 @@ export interface LastSession {
 //            who want the X to mean exit.
 export type CloseAction = 'tray' | 'quit'
 
+// How hardware media keys (Play/Pause/Next/Prev) reach the app:
+//   'system' — Chromium's built-in MediaSession → SMTC / Now Playing
+//              integration. Pretty lockscreen widget, OS arbitration decides
+//              which app gets the keys. Downside (the reported bug): after a
+//              long pause + browser activity Chromium drops/parks the media
+//              session and the keys stop reaching us.
+//   'global' — WE register the keys via globalShortcut (and disable
+//              Chromium's built-in handling at boot). Deterministic: keys
+//              always control eCoda while it runs. Downsides: other apps
+//              don't get the keys while eCoda runs; the lockscreen widget
+//              may not show; macOS needs the Accessibility permission.
+// Applied at app startup (command-line feature flag) → needs a restart.
+export type MediaKeyMode = 'system' | 'global'
+
 // 10-band graphic equalizer state. `gains` is exactly 10 values in dB
 // (-12..+12), one per band at 32/64/125/250/500/1k/2k/4k/8k/16k Hz —
 // the renderer maps them onto a Web Audio BiquadFilter chain. `preset`
@@ -404,6 +418,7 @@ interface Config {
   shuffleMode?: boolean
   repeatMode?: RepeatMode
   closeAction?: CloseAction
+  mediaKeyMode?: MediaKeyMode
   // Seconds of crossfade between natural track transitions. 0 disables
   // — the next track starts the instant the previous ends. Settings
   // slider exposes 0 to 12 seconds.
@@ -550,6 +565,19 @@ export async function getCloseAction(): Promise<CloseAction> {
 
 export async function setCloseAction(action: CloseAction): Promise<void> {
   await writeConfig({ ...(await readConfig()), closeAction: action })
+}
+
+// Media-key handling mode — see the MediaKeyMode type above. NOTE: the boot
+// path in index.ts reads this field SYNCHRONOUSLY (readFileSync) before
+// app.ready, because the Chromium feature flag must be appended before then;
+// keep the field name in sync if it ever changes.
+export async function getMediaKeyMode(): Promise<MediaKeyMode> {
+  const mode = (await readConfig()).mediaKeyMode
+  return mode === 'global' ? 'global' : 'system'
+}
+
+export async function setMediaKeyMode(mode: MediaKeyMode): Promise<void> {
+  await writeConfig({ ...(await readConfig()), mediaKeyMode: mode })
 }
 
 // Crossfade duration in seconds for natural track transitions. 0

@@ -169,6 +169,10 @@ const api = {
     getCloseAction: () => ipcRenderer.invoke('settings:getCloseAction'),
     setCloseAction: (action: 'tray' | 'quit') =>
       ipcRenderer.invoke('settings:setCloseAction', action),
+    getMediaKeyMode: () => ipcRenderer.invoke('settings:getMediaKeyMode'),
+    setMediaKeyMode: (mode: 'system' | 'global') =>
+      ipcRenderer.invoke('settings:setMediaKeyMode', mode),
+    getMediaKeyStatus: () => ipcRenderer.invoke('settings:getMediaKeyStatus'),
     getCrossfadeDuration: () => ipcRenderer.invoke('settings:getCrossfadeDuration'),
     setCrossfadeDuration: (seconds: number) =>
       ipcRenderer.invoke('settings:setCrossfadeDuration', seconds),

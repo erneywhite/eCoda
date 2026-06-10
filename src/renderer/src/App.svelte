@@ -559,18 +559,33 @@
   // fresh install (handled by the IPC default).
   let audioQuality = $state<'best' | 'medium' | 'low'>('best')
 
+  // How hardware media keys reach the app — 'system' (Chromium → SMTC/Now
+  // Playing, OS arbitration) or 'global' (eCoda registers the keys OS-wide;
+  // deterministic but exclusive). Boot-time flag in main → needs a restart.
+  let mediaKeyMode = $state<'system' | 'global'>('system')
+
   async function loadSettings(): Promise<void> {
     appInfo = await window.api.app.info()
     cacheStats = await window.api.downloads.stats()
     defaultTab = await window.api.settings.getDefaultTab()
     audioQuality = await window.api.settings.getAudioQuality()
     closeAction = await window.api.settings.getCloseAction()
+    mediaKeyMode = await window.api.settings.getMediaKeyMode()
     crossfadeDuration = await window.api.settings.getCrossfadeDuration()
   }
 
   async function changeCloseAction(action: 'tray' | 'quit'): Promise<void> {
     closeAction = action
     await window.api.settings.setCloseAction(action)
+  }
+
+  async function changeMediaKeyMode(mode: 'system' | 'global'): Promise<void> {
+    if (mediaKeyMode === mode) return
+    mediaKeyMode = mode
+    await window.api.settings.setMediaKeyMode(mode)
+    // The Chromium feature flag is applied at boot — remind that a restart
+    // is needed before the new mode actually takes effect.
+    showToast(t('settings.mediaKeys.restartHint'))
   }
 
   async function changeCrossfadeDuration(seconds: number): Promise<void> {
@@ -1171,6 +1186,50 @@
       // inconsistent position/duration (e.g. mid-load) — ignore
     }
   }
+
+  // ---- follow-scroll: keep the playing track visible -----------------------
+  // When the open playlist IS the one playing, track changes scroll the
+  // highlighted row into view. block:'nearest' = zero movement when the row
+  // is already visible, minimal movement otherwise — so shuffle jumps don't
+  // centre-snap the list around. Two guards keep it polite:
+  //  - lastManualScrollAt: skip while the user drove the list in the last 5s
+  //    (wheel listener in onMount) so we never fight their scrolling;
+  //  - lastAutoScrollKey: `playing` is re-created by unrelated updates (like
+  //    toggles, sourceList syncs), so we only act when the actual
+  //    (track, playlist, view) combination changes — not on object churn.
+  let lastManualScrollAt = 0
+  let lastAutoScrollKey = ''
+  $effect(() => {
+    const id = playing?.id
+    const srcId = playing?.sourceListId
+    // Tracking playlistView/playlistLoading is load-bearing: on navigation
+    // back into the playing playlist the rows render ASYNCHRONOUSLY — on the
+    // first flush the list is empty (or, for Downloaded, still shows the
+    // previous playlist). Without these deps the effect would fire once
+    // against the stale/empty DOM and never retry.
+    const rowCount = playlistView?.tracks.length ?? 0
+    const key = `${id}|${openPlaylistId}|${view}`
+    if (!id || miniMode || view !== 'playlist' || playlistLoading) return
+    if (!openPlaylistId || openPlaylistId !== srcId) return
+    if (rowCount === 0) return
+    if (key === lastAutoScrollKey) return
+    if (Date.now() - lastManualScrollAt < 5000) {
+      // Consume the key WITHOUT scrolling — once the user stops scrolling we
+      // shouldn't later yank the list for a track change they already saw.
+      lastAutoScrollKey = key
+      return
+    }
+    // NB: with a duplicate videoId in the playlist this picks the FIRST
+    // matching row — consistent with the player itself (playNext's findIndex
+    // also collapses to the first instance), so the scroll follows the
+    // player's own notion of "current".
+    const row = document.querySelector('.track-list .track-row.current')
+    // Row not rendered yet → do NOT consume the key; the playlistView /
+    // playlistLoading deps re-fire this effect when the rows land.
+    if (!row) return
+    lastAutoScrollKey = key
+    row.closest('.track-li')?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+  })
 
   // ---- shuffle / repeat / queue ------------------------------------------
   // Persisted in config so the streamer use case ("set my modes once, leave
@@ -2037,6 +2096,15 @@
     }
     window.addEventListener('mouseup', onMouse)
 
+    // Follow-scroll guard: a wheel anywhere means the user is driving the
+    // list — pause the playing-track auto-scroll for a few seconds so it
+    // never yanks the list out from under them. (scroll events are NOT used
+    // here: our own smooth scrollIntoView fires those too.)
+    const onWheelManual = (): void => {
+      lastManualScrollAt = Date.now()
+    }
+    window.addEventListener('wheel', onWheelManual, { passive: true })
+
     // Context-menu dismissal: any click outside the menu OR an ESC press
     // closes it. The menu itself stops propagation on its own clicks so
     // picking an item doesn't immediately re-close before the action
@@ -2085,6 +2153,18 @@
       shuffleMode = await window.api.settings.getShuffleMode()
       repeatMode = await window.api.settings.getRepeatMode()
       crossfadeDuration = await window.api.settings.getCrossfadeDuration()
+      // Media-key health check: warn if 'global' mode is configured but
+      // didn't take effect this launch (macOS Accessibility fallback, or the
+      // shortcuts were grabbed by another app) — otherwise the user's keys
+      // would just be silently dead with no clue why.
+      void (async () => {
+        const mode = await window.api.settings.getMediaKeyMode()
+        if (mode !== 'global') return
+        const st = await window.api.settings.getMediaKeyStatus()
+        if (st.fellBack || (st.bootMode === 'global' && !st.active)) {
+          showToast(t('settings.mediaKeys.globalFailed'))
+        }
+      })()
       // Equalizer — load saved state. If it was left on, the graph
       // builds lazily on the first playTrack (audio elements only
       // exist once something is playing).
@@ -2128,6 +2208,7 @@
       unsubMini()
       unsubTray()
       window.removeEventListener('mouseup', onMouse)
+      window.removeEventListener('wheel', onWheelManual)
       window.removeEventListener('mousedown', onWindowMouseDown)
       window.removeEventListener('keydown', onWindowKeyDown)
     }
@@ -4246,6 +4327,26 @@
                 </button>
               </div>
               <p class="settings-hint">{t('settings.closeAction.hint')}</p>
+              <p class="settings-line" style:margin-top="0.9rem">
+                {t('settings.mediaKeys.label')}
+              </p>
+              <div class="seg">
+                <button
+                  class="seg-btn"
+                  class:active={mediaKeyMode === 'system'}
+                  onclick={() => void changeMediaKeyMode('system')}
+                >
+                  {t('settings.mediaKeys.system')}
+                </button>
+                <button
+                  class="seg-btn"
+                  class:active={mediaKeyMode === 'global'}
+                  onclick={() => void changeMediaKeyMode('global')}
+                >
+                  {t('settings.mediaKeys.global')}
+                </button>
+              </div>
+              <p class="settings-hint">{t('settings.mediaKeys.hint')}</p>
             </section>
 
             <section class="settings-card">

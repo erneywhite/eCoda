@@ -181,6 +181,14 @@ const RU: Strings = {
   'settings.closeAction.quit': 'Выйти из приложения',
   'settings.closeAction.hint':
     '«Свернуть в трей» оставляет музыку играть в фоне — окно появится снова из иконки в трее. «Выйти» закрывает приложение полностью.',
+  'settings.mediaKeys.label': 'Медиа-клавиши (Play/Pause, Next, Prev)',
+  'settings.mediaKeys.system': 'Системные',
+  'settings.mediaKeys.global': 'Всегда eCoda',
+  'settings.mediaKeys.hint':
+    '«Системные» — стандартная интеграция: система сама решает, какому приложению отдать нажатие (после долгой паузы клавиши могут перестать доходить до eCoda). «Всегда eCoda» — приложение перехватывает медиа-клавиши, пока запущено: надёжно, но другие плееры и браузер их не получат, а виджет на экране блокировки может не показываться. На macOS этому режиму нужно разрешение «Универсальный доступ». Вступает в силу после перезапуска eCoda.',
+  'settings.mediaKeys.restartHint': 'Перезапусти eCoda, чтобы применить режим медиа-клавиш',
+  'settings.mediaKeys.globalFailed':
+    'Глобальный перехват медиа-клавиш не активен: на macOS включи eCoda в «Универсальный доступ», либо клавиши занял другой софт. Пока работает системный режим.',
   'settings.lang.title': 'Язык интерфейса',
   'settings.lang.hint': 'Меняется мгновенно. Списки и плейлисты с YouTube используют локаль YT.',
   'settings.cache.title': 'Оффлайн-кеш',
@@ -416,6 +424,14 @@ const EN: Strings = {
   'settings.closeAction.quit': 'Quit app',
   'settings.closeAction.hint':
     'Minimize keeps music playing in the background — bring the window back from the tray icon. Quit exits the app entirely.',
+  'settings.mediaKeys.label': 'Media keys (Play/Pause, Next, Prev)',
+  'settings.mediaKeys.system': 'System',
+  'settings.mediaKeys.global': 'Always eCoda',
+  'settings.mediaKeys.hint':
+    'System — the standard integration: the OS decides which app gets the key press (after a long pause the keys may stop reaching eCoda). Always eCoda — the app captures the media keys while it runs: reliable, but other players and the browser won’t receive them, and the lockscreen widget may not show. On macOS this mode needs the Accessibility permission. Takes effect after restarting eCoda.',
+  'settings.mediaKeys.restartHint': 'Restart eCoda to apply the media-key mode',
+  'settings.mediaKeys.globalFailed':
+    'Global media-key capture is not active: on macOS enable eCoda under Accessibility, or another app grabbed the keys. System mode is in effect for now.',
   'settings.lang.title': 'Interface language',
   'settings.lang.hint':
     'Applies instantly. YouTube’s own playlist and section titles still use YT’s locale.',

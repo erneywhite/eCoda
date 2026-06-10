@@ -101,6 +101,8 @@ export type RepeatMode = 'off' | 'one' | 'all'
 
 export type CloseAction = 'tray' | 'quit'
 
+export type MediaKeyMode = 'system' | 'global'
+
 export interface EqualizerState {
   enabled: boolean
   preset: string
@@ -290,6 +292,13 @@ export interface EcodaApi {
     setPlaylistOverride: (id: string, override: PlaylistOverride | null) => Promise<void>
     getCloseAction: () => Promise<CloseAction>
     setCloseAction: (action: CloseAction) => Promise<void>
+    getMediaKeyMode: () => Promise<MediaKeyMode>
+    setMediaKeyMode: (mode: MediaKeyMode) => Promise<void>
+    getMediaKeyStatus: () => Promise<{
+      bootMode: MediaKeyMode
+      active: boolean
+      fellBack: boolean
+    }>
     getCrossfadeDuration: () => Promise<number>
     setCrossfadeDuration: (seconds: number) => Promise<void>
     getEqualizer: () => Promise<EqualizerState>

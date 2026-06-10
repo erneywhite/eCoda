@@ -1,6 +1,6 @@
-import { app, shell, BrowserWindow, ipcMain, protocol, screen, Tray, Menu, nativeImage, session } from 'electron'
+import { app, shell, BrowserWindow, ipcMain, protocol, screen, Tray, Menu, nativeImage, session, globalShortcut, systemPreferences } from 'electron'
 import { join } from 'path'
-import { createReadStream, statSync } from 'node:fs'
+import { createReadStream, readFileSync, statSync } from 'node:fs'
 import { Readable } from 'node:stream'
 import icon from '../../resources/icon.png?asset'
 import { verifyBrowserLogin, startYtdlpDaemon, stopYtdlpDaemon } from './ytdlp'
@@ -29,6 +29,8 @@ import {
   setRepeatMode,
   getCloseAction,
   setCloseAction,
+  getMediaKeyMode,
+  setMediaKeyMode,
   getCrossfadeDuration,
   setCrossfadeDuration,
   getEqualizer,
@@ -48,6 +50,7 @@ import {
   type DefaultTab,
   type Lang,
   type LastSession,
+  type MediaKeyMode,
   type PinnedPlaylist,
   type RecentPlaylist,
   type Theme,
@@ -126,6 +129,90 @@ protocol.registerSchemesAsPrivileged([
     }
   }
 ])
+
+// ---------------------------------------------------------------------------
+// MEDIA-KEY MODE (boot-time) — must be decided BEFORE app.ready because
+// disabling Chromium's built-in hardware-media-key handling is a command-line
+// feature flag. Config reads everywhere else are async (auth.ts), so this one
+// spot does a tiny synchronous read of config.json. In 'global' mode WE own
+// the media keys via globalShortcut; Chromium's handler must be off or it
+// grabs the keys first (through SMTC / Now Playing) and globalShortcut never
+// fires. Why this mode exists: with the default 'system' integration,
+// Chromium drops/parks the media session after a long pause + browser
+// activity, and hardware media keys stop reaching the app (user-reported on
+// both Windows and macOS). 'global' makes the keys deterministic while eCoda
+// runs. See MediaKeyMode in auth.ts for the trade-offs.
+// ---------------------------------------------------------------------------
+let mediaKeyModeAtBoot: MediaKeyMode = 'system'
+// True when 'global' was configured but couldn't be honoured this launch
+// (macOS Accessibility permission missing) — we fell back to 'system' so
+// the user keeps SOME media-key path instead of none. Surfaced to the
+// renderer via settings:getMediaKeyStatus.
+let globalModeFellBack = false
+try {
+  const rawCfg = readFileSync(join(app.getPath('userData'), 'config.json'), 'utf8')
+  if ((JSON.parse(rawCfg) as { mediaKeyMode?: string }).mediaKeyMode === 'global') {
+    mediaKeyModeAtBoot = 'global'
+  }
+} catch {
+  // first run / unreadable config → default 'system'
+}
+// macOS: without the Accessibility permission globalShortcut cannot register
+// media keys AT ALL. If we still disabled Chromium's handler we'd ship the
+// worst of both worlds — no global shortcuts AND no SMTC/Now Playing path =
+// zero media-key handling. So check the permission first (a plain C call,
+// safe pre-ready) and fall back to 'system' for this launch when missing.
+if (mediaKeyModeAtBoot === 'global' && process.platform === 'darwin') {
+  try {
+    if (!systemPreferences.isTrustedAccessibilityClient(false)) {
+      mediaKeyModeAtBoot = 'system'
+      globalModeFellBack = true
+      console.warn(
+        '[media-keys] global mode configured but Accessibility not granted — falling back to system integration for this launch'
+      )
+    }
+  } catch {
+    mediaKeyModeAtBoot = 'system'
+    globalModeFellBack = true
+  }
+}
+if (mediaKeyModeAtBoot === 'global') {
+  app.commandLine.appendSwitch('disable-features', 'HardwareMediaKeyHandling')
+}
+
+// Registers the OS-global media-key shortcuts ('global' mode only). Clicks
+// route through the same tray:command IPC the tray menu uses, so the
+// renderer's existing playback handlers stay the single source of truth.
+// On macOS this needs the Accessibility permission — without it
+// globalShortcut.register silently fails for media keys, so we check and
+// log rather than half-work.
+// True only when ALL three media keys registered successfully — the renderer
+// reads this (settings:getMediaKeyStatus) and warns the user if 'global'
+// mode is configured but the keys didn't actually take (e.g. another
+// global-hotkey app owns them), because in that state Chromium's handler is
+// already disabled and media keys would otherwise be silently dead.
+let globalMediaKeysActive = false
+
+function registerGlobalMediaKeys(): void {
+  if (process.platform === 'darwin' && !systemPreferences.isTrustedAccessibilityClient(false)) {
+    // Normally unreachable (the boot block falls back to 'system' in this
+    // case), but kept as a belt-and-braces guard.
+    console.warn('[media-keys] Accessibility not granted — keys NOT registered')
+    return
+  }
+  const bindings: Array<[string, 'play-pause' | 'next' | 'prev']> = [
+    ['MediaPlayPause', 'play-pause'],
+    ['MediaNextTrack', 'next'],
+    ['MediaPreviousTrack', 'prev']
+  ]
+  let allOk = true
+  for (const [accelerator, cmd] of bindings) {
+    const ok = globalShortcut.register(accelerator, () => sendTrayCommand(cmd))
+    allOk = allOk && ok
+    console.log(`[media-keys] global register ${accelerator}: ${ok}`)
+  }
+  globalMediaKeysActive = allOk
+}
 
 // Validate saved bounds against the live display layout — a monitor that
 // was attached last session may be gone now, in which case the window would
@@ -794,6 +881,26 @@ app.whenReady().then(async () => {
     // the new value without a restart.
     closeActionCache = action
   })
+  // Media-key mode. Takes effect on the NEXT launch (the Chromium feature
+  // flag is boot-time); the renderer shows a "restart to apply" hint. On
+  // macOS, enabling 'global' prompts for the Accessibility permission right
+  // away so it's already granted when the restart applies the mode.
+  ipcMain.handle('settings:getMediaKeyMode', () => getMediaKeyMode())
+  ipcMain.handle('settings:setMediaKeyMode', async (_event, mode: MediaKeyMode) => {
+    await setMediaKeyMode(mode)
+    if (mode === 'global' && process.platform === 'darwin') {
+      systemPreferences.isTrustedAccessibilityClient(true)
+    }
+  })
+  // Health of the media-key path THIS launch. Lets the renderer warn when
+  // 'global' is configured but didn't take effect (macOS permission fallback,
+  // or globalShortcut registration lost to another app) instead of the keys
+  // dying silently.
+  ipcMain.handle('settings:getMediaKeyStatus', () => ({
+    bootMode: mediaKeyModeAtBoot,
+    active: globalMediaKeysActive,
+    fellBack: globalModeFellBack
+  }))
   // Crossfade duration in seconds — 0 disables. Renderer reads on
   // mount and any time the user moves the Settings slider.
   ipcMain.handle('settings:getCrossfadeDuration', () => getCrossfadeDuration())
@@ -814,6 +921,9 @@ app.whenReady().then(async () => {
 
   await createWindow()
   await createTray()
+  // 'global' media-key mode: take ownership of the hardware keys (Chromium's
+  // own handler was disabled at boot via the feature flag above).
+  if (mediaKeyModeAtBoot === 'global') registerGlobalMediaKeys()
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) void createWindow()
@@ -893,6 +1003,12 @@ app.on('before-quit', () => {
   // Tell the persistent yt-dlp daemon to exit cleanly so it gets a
   // chance to flush its caches; falls through to SIGTERM if it doesn't.
   stopYtdlpDaemon()
+})
+
+// Release the OS-global media-key shortcuts ('global' mode) so other apps
+// get them back the moment eCoda exits. No-op when nothing was registered.
+app.on('will-quit', () => {
+  globalShortcut.unregisterAll()
 })
 
 // ---------------------------------------------------------------------------
