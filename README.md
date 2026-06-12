@@ -33,7 +33,7 @@
 - 🌍 **Русский + English** интерфейс
 - 🔁 **Помнит где остановился** — закрыл посреди трека, открыл назавтра, продолжил с той же секунды
 - 🎲 **Для стримеров** — закрепляй интро трека на первом месте, тасуй остальное в один клик, drag-and-drop порядок треков
-- 🔈 **Выбор устройства вывода** — направь музыку в отдельное (в т.ч. виртуальное) аудиоустройство, чтобы она не попадала в запись стрима
+- 🔈 **Выбор устройства вывода** — играй музыку в наушники, колонки или виртуальное устройство, независимо от системного звука по умолчанию
 
 И ещё много мелочей которые видно только в процессе использования.
 
@@ -219,7 +219,7 @@ Just open the app and listen.
 - 🌍 **Russian + English** UI
 - 🔁 **Remembers where you left off** — close mid-track, reopen tomorrow, picks up at the same second
 - 🎲 **Streamer-friendly playlists** — pin an intro track at position 0, reshuffle the rest with one click, drag-and-drop reorder
-- 🔈 **Output device picker** — route the music to a separate (incl. virtual) audio device so it stays out of your stream recording
+- 🔈 **Output device picker** — play the music through headphones, speakers, or a virtual device, independent of the system default
 
 Plus dozens of small touches you'll only notice while using it.
 
