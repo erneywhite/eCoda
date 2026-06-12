@@ -103,6 +103,11 @@ export type CloseAction = 'tray' | 'quit'
 
 export type MediaKeyMode = 'system' | 'global'
 
+export interface AudioOutputDevice {
+  id: string
+  label: string
+}
+
 export interface EqualizerState {
   enabled: boolean
   preset: string
@@ -299,6 +304,8 @@ export interface EcodaApi {
       active: boolean
       fellBack: boolean
     }>
+    getAudioOutputDevice: () => Promise<AudioOutputDevice | null>
+    setAudioOutputDevice: (dev: AudioOutputDevice | null) => Promise<void>
     getCrossfadeDuration: () => Promise<number>
     setCrossfadeDuration: (seconds: number) => Promise<void>
     getEqualizer: () => Promise<EqualizerState>

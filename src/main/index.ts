@@ -31,6 +31,8 @@ import {
   setCloseAction,
   getMediaKeyMode,
   setMediaKeyMode,
+  getAudioOutputDevice,
+  setAudioOutputDevice,
   getCrossfadeDuration,
   setCrossfadeDuration,
   getEqualizer,
@@ -42,6 +44,7 @@ import {
   getLastSession,
   setLastSession,
   clearLastSession,
+  type AudioOutputDevice,
   type AudioQuality,
   type CloseAction,
   type EqualizerState,
@@ -921,6 +924,13 @@ app.whenReady().then(async () => {
     active: globalMediaKeysActive,
     fellBack: globalModeFellBack
   }))
+  // Audio output device (deviceId + label snapshot). Enumeration and the
+  // actual setSinkId routing happen in the RENDERER (navigator.mediaDevices
+  // lives there) — main only persists the choice.
+  ipcMain.handle('settings:getAudioOutputDevice', () => getAudioOutputDevice())
+  ipcMain.handle('settings:setAudioOutputDevice', (_event, dev: AudioOutputDevice | null) =>
+    setAudioOutputDevice(dev)
+  )
   // Crossfade duration in seconds — 0 disables. Renderer reads on
   // mount and any time the user moves the Settings slider.
   ipcMain.handle('settings:getCrossfadeDuration', () => getCrossfadeDuration())

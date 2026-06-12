@@ -572,6 +572,11 @@
     closeAction = await window.api.settings.getCloseAction()
     mediaKeyMode = await window.api.settings.getMediaKeyMode()
     crossfadeDuration = await window.api.settings.getCrossfadeDuration()
+    // Output-device picker: refresh the live device list and point the
+    // select at the saved choice ('' = system default).
+    savedOutputDevice = await window.api.settings.getAudioOutputDevice()
+    selectedOutputId = savedOutputDevice?.id ?? ''
+    await refreshOutputDevices()
   }
 
   async function changeCloseAction(action: 'tray' | 'quit'): Promise<void> {
@@ -1008,6 +1013,11 @@
       eqFilters[eqFilters.length - 1].connect(audioCtx.destination)
       audioGraphReady = true
       applyEqGains()
+      // Route the brand-new context to the user-picked output device. Once
+      // audio flows through this graph the elements' sinkIds are bypassed —
+      // without this the output-device setting would silently die the moment
+      // the EQ comes on.
+      if (savedOutputDevice) void applyAudioSink(savedOutputDevice.id)
     } catch (err) {
       console.warn('[eq] audio graph setup failed:', err)
       audioGraphReady = false
@@ -1029,6 +1039,126 @@
   // called from playTrack (a user gesture).
   function resumeAudioCtxIfNeeded(): void {
     if (audioCtx && audioCtx.state === 'suspended') void audioCtx.resume()
+  }
+
+  // ---- audio output device --------------------------------------------------
+  // Routes playback to a user-picked output device (Settings → "Устройство
+  // вывода"). The streamer use case: send music to a separate virtual device
+  // (VB-Cable / voicemeeter bus) so it stays out of the Twitch VOD while the
+  // rest of the desktop audio is captured normally.
+  //
+  // Persisted as {id, label} in config (label = human-readable snapshot for
+  // the "device missing" warning). Empty id / null = system default.
+  let savedOutputDevice = $state<{ id: string; label: string } | null>(null)
+  let outputDevices = $state<Array<{ id: string; label: string }>>([])
+  // Bound to the Settings <select>; '' = system default.
+  let selectedOutputId = $state('')
+
+  async function refreshOutputDevices(): Promise<void> {
+    try {
+      const all = await navigator.mediaDevices.enumerateDevices()
+      outputDevices = all
+        // Drop the 'default'/'communications' pseudo-devices — our own
+        // "Системное по умолчанию" option (id '') covers the default, and
+        // duplicating the same physical device under three ids only
+        // confuses the picker.
+        .filter(
+          (d) => d.kind === 'audiooutput' && d.deviceId !== 'default' && d.deviceId !== 'communications'
+        )
+        .map((d) => ({ id: d.deviceId, label: d.label || d.deviceId }))
+    } catch (err) {
+      console.warn('[audio-out] enumerateDevices failed:', err)
+      outputDevices = []
+    }
+  }
+
+  // Applies a sink to EVERYTHING that produces sound: both crossfade audio
+  // elements AND the EQ AudioContext. The ctx part is load-bearing: once the
+  // EQ graph exists, audio flows element → MediaElementSource → filters →
+  // ctx.destination, and the ELEMENT's sinkId is bypassed — without
+  // AudioContext.setSinkId the picker would silently stop working the moment
+  // the user enables the equalizer. '' = system default for both APIs.
+  //
+  // Returns 'applied' (≥1 sink actually set), 'failed' (some sink rejected —
+  // device gone mid-flight etc.), or 'noop' — there was NOTHING to apply to.
+  // 'noop' is a real state, not an error: the audio elements live inside
+  // {#if playing} and don't exist until something plays (and audioCtx only
+  // exists with EQ on). Callers must NOT treat 'noop' as proof the id works.
+  async function applyAudioSink(id: string): Promise<'applied' | 'noop' | 'failed'> {
+    let touched = 0
+    let failed = 0
+    for (const el of [audioElA, audioElB]) {
+      if (!el) continue
+      try {
+        await el.setSinkId(id)
+        touched++
+      } catch (err) {
+        console.warn('[audio-out] element setSinkId failed:', err)
+        failed++
+      }
+    }
+    if (audioCtx) {
+      // AudioContext.setSinkId is Chromium 110+; not yet in the TS dom lib.
+      const ctx = audioCtx as unknown as { setSinkId?: (id: string) => Promise<void> }
+      if (typeof ctx.setSinkId === 'function') {
+        try {
+          await ctx.setSinkId(id)
+          touched++
+        } catch (err) {
+          console.warn('[audio-out] AudioContext setSinkId failed:', err)
+          failed++
+        }
+      }
+    }
+    if (failed > 0) return 'failed'
+    return touched > 0 ? 'applied' : 'noop'
+  }
+
+  // Re-apply the saved sink whenever an audio element (RE)MOUNTS. This is
+  // the load-bearing piece (review finding): the elements live inside
+  // {#if playing} — they don't exist at startup, and disconnect() unmounts +
+  // later recreates them — so any one-shot apply routes nothing and fresh
+  // elements come up on the system default sink, silently leaking audio to
+  // the wrong device (the exact thing the streamer use case must prevent).
+  // Same project lesson as the ctx-menu clamp: "do X every time this
+  // state-driven element appears" belongs in a $effect keyed on the state.
+  $effect(() => {
+    const a = audioElA
+    const b = audioElB
+    const dev = savedOutputDevice
+    if (!dev || (!a && !b)) return
+    void applyAudioSink(dev.id)
+  })
+
+  // Settings "Сохранить": validate + apply first, persist only when the id
+  // is at least known-good — a broken device id must not get stranded in
+  // the config with a success toast.
+  async function saveOutputDevice(): Promise<void> {
+    const id = selectedOutputId
+    const label = id === '' ? '' : (outputDevices.find((d) => d.id === id)?.label ?? savedOutputDevice?.label ?? '')
+    // With nothing playing there are no sinks to try (applyAudioSink would
+    // return a vacuous 'noop'), so the enumeration check is the only
+    // validation available — it rejects picking the "⚠ (не найдено)" option
+    // of an absent device while idle.
+    if (id !== '' && !outputDevices.some((d) => d.id === id)) {
+      showToast(t('settings.output.applyFailed'))
+      return
+    }
+    const res = await applyAudioSink(id)
+    if (res === 'failed') {
+      showToast(t('settings.output.applyFailed'))
+      return
+    }
+    // 'applied' — routed live; 'noop' — nothing playing yet, the mount
+    // $effect above routes the elements the moment they appear.
+    if (id === '') {
+      await window.api.settings.setAudioOutputDevice(null)
+      savedOutputDevice = null
+    } else {
+      await window.api.settings.setAudioOutputDevice({ id, label })
+      savedOutputDevice = { id, label }
+    }
+    showToast(t('settings.output.saved'))
   }
 
   async function persistEqualizer(): Promise<void> {
@@ -2164,6 +2294,27 @@
         if (st.fellBack || (st.bootMode === 'global' && !st.active)) {
           showToast(t('settings.mediaKeys.globalFailed'))
         }
+      })()
+      // Audio output device: apply the saved sink, or — the streamer's
+      // "emergency case" — warn when the saved device is gone (virtual mixer
+      // not running, USB DAC unplugged). The saved value is deliberately NOT
+      // cleared: if the mixer comes back, the next launch picks it up again.
+      // Until then playback falls back to the system default automatically.
+      void (async () => {
+        const dev = await window.api.settings.getAudioOutputDevice()
+        if (!dev) return
+        savedOutputDevice = dev
+        await refreshOutputDevices()
+        const present = outputDevices.some((d) => d.id === dev.id)
+        // 'noop' is fine here: with nothing playing there are no sinks yet —
+        // the mount $effect routes the elements when they appear. Only an
+        // actual rejection (or the device being absent) warrants the warning.
+        if (present && (await applyAudioSink(dev.id)) !== 'failed') return
+        const go = await askConfirm(t('audio.deviceMissing', { label: dev.label || dev.id }), {
+          confirmLabel: t('audio.goToSettings'),
+          cancelLabel: t('audio.later')
+        })
+        if (go) navigate({ kind: 'settings' })
       })()
       // Equalizer — load saved state. If it was left on, the graph
       // builds lazily on the first playTrack (audio elements only
@@ -4367,6 +4518,36 @@
             </section>
 
             <section class="settings-card">
+              <h4>{t('settings.output.title')}</h4>
+              <p class="settings-line">{t('settings.output.line')}</p>
+              <div class="output-row">
+                <!-- Re-enumerate on focus so plugging in / starting a virtual
+                     mixer shows up without reopening Settings. -->
+                <select
+                  class="output-select"
+                  bind:value={selectedOutputId}
+                  onfocus={() => void refreshOutputDevices()}
+                >
+                  <option value="">{t('settings.output.systemDefault')}</option>
+                  {#if savedOutputDevice && !outputDevices.some((d) => d.id === savedOutputDevice!.id)}
+                    <!-- Saved device currently absent — keep it pickable so the
+                         select doesn't silently snap to another value. -->
+                    <option value={savedOutputDevice.id}>
+                      ⚠ {savedOutputDevice.label || savedOutputDevice.id} ({t('settings.output.missing')})
+                    </option>
+                  {/if}
+                  {#each outputDevices as d (d.id)}
+                    <option value={d.id}>{d.label}</option>
+                  {/each}
+                </select>
+                <button class="output-save" onclick={() => void saveOutputDevice()}>
+                  {t('settings.output.save')}
+                </button>
+              </div>
+              <p class="settings-hint">{t('settings.output.hint')}</p>
+            </section>
+
+            <section class="settings-card">
               <h4>{t('settings.crossfade.title')}</h4>
               <div class="crossfade-row">
                 <input
@@ -6548,6 +6729,51 @@
     gap: 0.5rem;
     flex-wrap: wrap;
     margin: 0.3rem 0 0.5rem;
+  }
+
+  /* Output-device picker row — select stretches, Save button keeps its
+     natural width. The select gets the same glass-input look as .add-search. */
+  .output-row {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    margin: 0.4rem 0 0.5rem;
+  }
+  .output-select {
+    flex: 1;
+    min-width: 0;
+    padding: 0.55rem 0.8rem;
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 9px;
+    color: #ffffff;
+    font-size: 0.85rem;
+    outline: none;
+    cursor: pointer;
+  }
+  .output-select:focus {
+    border-color: rgba(var(--accent-rgb), 0.55);
+  }
+  /* Chromium styles the dropdown list itself from the select's colors;
+     dark background keeps the option list readable on Windows. */
+  .output-select option {
+    background: #1a122c;
+    color: #ffffff;
+  }
+  .output-save {
+    flex: 0 0 auto;
+    padding: 0.55rem 1.2rem;
+    border: none;
+    border-radius: 9px;
+    background: linear-gradient(135deg, var(--accent), var(--accent-2));
+    color: #ffffff;
+    font-size: 0.85rem;
+    font-weight: 600;
+    cursor: pointer;
+    box-shadow: 0 4px 14px rgba(var(--accent-rgb), 0.4);
+  }
+  .output-save:hover {
+    filter: brightness(1.08);
   }
 
   /* Crossfade slider row — slider stretches, value label sits to the

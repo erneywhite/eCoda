@@ -395,6 +395,16 @@ export type CloseAction = 'tray' | 'quit'
 // Applied at app startup (command-line feature flag) → needs a restart.
 export type MediaKeyMode = 'system' | 'global'
 
+// The audio output device eCoda plays through. `id` is Chromium's
+// per-origin deviceId (stable across sessions on the same machine for our
+// persistent session); `label` is a human-readable snapshot used by the
+// "saved device is missing" launch warning, since the id alone is an opaque
+// hash. Field absent → system default output.
+export interface AudioOutputDevice {
+  id: string
+  label: string
+}
+
 // 10-band graphic equalizer state. `gains` is exactly 10 values in dB
 // (-12..+12), one per band at 32/64/125/250/500/1k/2k/4k/8k/16k Hz —
 // the renderer maps them onto a Web Audio BiquadFilter chain. `preset`
@@ -419,6 +429,7 @@ interface Config {
   repeatMode?: RepeatMode
   closeAction?: CloseAction
   mediaKeyMode?: MediaKeyMode
+  audioOutputDevice?: AudioOutputDevice
   // Seconds of crossfade between natural track transitions. 0 disables
   // — the next track starts the instant the previous ends. Settings
   // slider exposes 0 to 12 seconds.
@@ -578,6 +589,23 @@ export async function getMediaKeyMode(): Promise<MediaKeyMode> {
 
 export async function setMediaKeyMode(mode: MediaKeyMode): Promise<void> {
   await writeConfig({ ...(await readConfig()), mediaKeyMode: mode })
+}
+
+// Audio output device — null/absent means "system default". Passing null
+// deletes the field so a fresh config stays clean.
+export async function getAudioOutputDevice(): Promise<AudioOutputDevice | null> {
+  const dev = (await readConfig()).audioOutputDevice
+  return dev && typeof dev.id === 'string' && dev.id !== '' ? dev : null
+}
+
+export async function setAudioOutputDevice(dev: AudioOutputDevice | null): Promise<void> {
+  const cfg = await readConfig()
+  if (dev && dev.id) {
+    cfg.audioOutputDevice = { id: dev.id, label: dev.label ?? '' }
+  } else {
+    delete cfg.audioOutputDevice
+  }
+  await writeConfig(cfg)
 }
 
 // Crossfade duration in seconds for natural track transitions. 0

@@ -189,6 +189,19 @@ const RU: Strings = {
   'settings.mediaKeys.restartHint': 'Перезапусти eCoda, чтобы применить режим медиа-клавиш',
   'settings.mediaKeys.globalFailed':
     'Глобальный перехват медиа-клавиш не активен: на macOS включи eCoda в «Универсальный доступ», либо клавиши занял другой софт. Пока работает системный режим.',
+  'settings.output.title': 'Устройство вывода',
+  'settings.output.line': 'Куда выводить звук плеера',
+  'settings.output.systemDefault': 'Системное по умолчанию',
+  'settings.output.save': 'Сохранить',
+  'settings.output.saved': 'Устройство вывода сохранено',
+  'settings.output.applyFailed': 'Не получилось переключить устройство вывода',
+  'settings.output.missing': 'не найдено',
+  'settings.output.hint':
+    'Полезно для стримов: направь музыку в отдельное виртуальное устройство (VB-Cable, Voicemeeter и т.п.), чтобы она не попадала в запись. Если сохранённое устройство пропадёт, eCoda предупредит при запуске и будет играть через системное.',
+  'audio.deviceMissing':
+    'Сохранённое устройство вывода «{label}» не найдено. Звук пойдёт через системное устройство по умолчанию.',
+  'audio.goToSettings': 'Перейти к настройкам',
+  'audio.later': 'Позже',
   'settings.lang.title': 'Язык интерфейса',
   'settings.lang.hint': 'Меняется мгновенно. Списки и плейлисты с YouTube используют локаль YT.',
   'settings.cache.title': 'Оффлайн-кеш',
@@ -432,6 +445,19 @@ const EN: Strings = {
   'settings.mediaKeys.restartHint': 'Restart eCoda to apply the media-key mode',
   'settings.mediaKeys.globalFailed':
     'Global media-key capture is not active: on macOS enable eCoda under Accessibility, or another app grabbed the keys. System mode is in effect for now.',
+  'settings.output.title': 'Output device',
+  'settings.output.line': 'Where the player sends its audio',
+  'settings.output.systemDefault': 'System default',
+  'settings.output.save': 'Save',
+  'settings.output.saved': 'Output device saved',
+  'settings.output.applyFailed': 'Couldn’t switch the output device',
+  'settings.output.missing': 'not found',
+  'settings.output.hint':
+    'Handy for streaming: route the music to a separate virtual device (VB-Cable, Voicemeeter, etc.) so it stays out of the recording. If the saved device disappears, eCoda warns you at launch and plays through the system default.',
+  'audio.deviceMissing':
+    'The saved output device “{label}” was not found. Audio will play through the system default device.',
+  'audio.goToSettings': 'Go to settings',
+  'audio.later': 'Later',
   'settings.lang.title': 'Interface language',
   'settings.lang.hint':
     'Applies instantly. YouTube’s own playlist and section titles still use YT’s locale.',

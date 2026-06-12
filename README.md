@@ -33,6 +33,7 @@
 - 🌍 **Русский + English** интерфейс
 - 🔁 **Помнит где остановился** — закрыл посреди трека, открыл назавтра, продолжил с той же секунды
 - 🎲 **Для стримеров** — закрепляй интро трека на первом месте, тасуй остальное в один клик, drag-and-drop порядок треков
+- 🔈 **Выбор устройства вывода** — направь музыку в отдельное (в т.ч. виртуальное) аудиоустройство, чтобы она не попадала в запись стрима
 
 И ещё много мелочей которые видно только в процессе использования.
 
@@ -48,8 +49,8 @@
 
 | Платформа | Файл | Размер |
 | --- | --- | --- |
-| **Windows 10/11** (x64) | `eCoda-Setup-1.4.0.exe` | ~130 MB |
-| **macOS** (Apple Silicon — M1/M2/M3/M4) | `eCoda-1.4.0-arm64.dmg` | ~160 MB |
+| **Windows 10/11** (x64) | `eCoda-Setup-1.5.0.exe` | ~130 MB |
+| **macOS** (Apple Silicon — M1/M2/M3/M4) | `eCoda-1.5.0-arm64.dmg` | ~160 MB |
 
 ---
 
@@ -218,6 +219,7 @@ Just open the app and listen.
 - 🌍 **Russian + English** UI
 - 🔁 **Remembers where you left off** — close mid-track, reopen tomorrow, picks up at the same second
 - 🎲 **Streamer-friendly playlists** — pin an intro track at position 0, reshuffle the rest with one click, drag-and-drop reorder
+- 🔈 **Output device picker** — route the music to a separate (incl. virtual) audio device so it stays out of your stream recording
 
 Plus dozens of small touches you'll only notice while using it.
 
@@ -233,8 +235,8 @@ Plus dozens of small touches you'll only notice while using it.
 
 | Platform | File | Size |
 | --- | --- | --- |
-| **Windows 10/11** (x64) | `eCoda-Setup-1.4.0.exe` | ~130 MB |
-| **macOS** (Apple Silicon — M1/M2/M3/M4) | `eCoda-1.4.0-arm64.dmg` | ~160 MB |
+| **Windows 10/11** (x64) | `eCoda-Setup-1.5.0.exe` | ~130 MB |
+| **macOS** (Apple Silicon — M1/M2/M3/M4) | `eCoda-1.5.0-arm64.dmg` | ~160 MB |
 
 ---
 

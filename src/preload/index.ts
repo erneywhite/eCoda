@@ -173,6 +173,9 @@ const api = {
     setMediaKeyMode: (mode: 'system' | 'global') =>
       ipcRenderer.invoke('settings:setMediaKeyMode', mode),
     getMediaKeyStatus: () => ipcRenderer.invoke('settings:getMediaKeyStatus'),
+    getAudioOutputDevice: () => ipcRenderer.invoke('settings:getAudioOutputDevice'),
+    setAudioOutputDevice: (dev: { id: string; label: string } | null) =>
+      ipcRenderer.invoke('settings:setAudioOutputDevice', dev),
     getCrossfadeDuration: () => ipcRenderer.invoke('settings:getCrossfadeDuration'),
     setCrossfadeDuration: (seconds: number) =>
       ipcRenderer.invoke('settings:setCrossfadeDuration', seconds),
