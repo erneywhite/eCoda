@@ -1,4 +1,4 @@
-import { app, shell, BrowserWindow, ipcMain, protocol, screen, Tray, Menu, nativeImage, session, globalShortcut, systemPreferences } from 'electron'
+import { app, shell, BrowserWindow, ipcMain, protocol, screen, Tray, Menu, nativeImage, session, globalShortcut, systemPreferences, clipboard } from 'electron'
 import { join } from 'path'
 import { createReadStream, readFileSync, statSync } from 'node:fs'
 import { Readable } from 'node:stream'
@@ -808,6 +808,14 @@ app.whenReady().then(async () => {
     const err = await shell.openPath(target)
     if (err) console.warn('[app:openPath] failed:', target, err)
     return err === ''
+  })
+  // Copy text to the OS clipboard. Goes through main's `clipboard` module
+  // rather than the renderer's navigator.clipboard so it works regardless of
+  // the renderer's secure-context status (file:// in the packaged build).
+  ipcMain.handle('app:copyText', (_event, text: string) => {
+    if (typeof text !== 'string' || text === '') return false
+    clipboard.writeText(text)
+    return true
   })
   // Custom-titlebar window controls — the native chrome is hidden, so
   // the renderer's header buttons drive these via IPC. isMaximized is

@@ -257,6 +257,7 @@ export interface EcodaApi {
       repoUrl: string
     }>
     openPath: (target: string) => Promise<boolean>
+    copyText: (text: string) => Promise<boolean>
   }
   window: {
     minimize: () => Promise<void>

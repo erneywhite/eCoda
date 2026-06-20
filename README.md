@@ -23,6 +23,7 @@
 
 - 🎵 **Твоя настоящая библиотека YT Music** — все плейлисты, «Понравившаяся музыка», подписки. То что у тебя есть в браузере — есть и тут
 - ➕ **Управляй плейлистами** — добавляй и удаляй треки в своих плейлистах прямо из приложения, по правому клику. Изменения уходят в YT
+- 🔗 **Делись треками** — правый клик по песне → «Скопировать ссылку», и YouTube-ссылка уже в буфере, кидай друзьям
 - 💾 **Качай музыку на диск** — отдельный трек, целый плейлист или всё что лайкнул. Слушай без интернета (например в самолёте)
 - 🎚️ **Кросс-фейд между треками** — плавный переход вместо резкого обрыва. Настраивается ползунком 0–12 секунд
 - 🎛️ **10-полосный эквалайзер** — пресеты (Бас, Вокал, Рок и др.) + ручные ползунки ±12 дБ на каждую полосу
@@ -49,8 +50,8 @@
 
 | Платформа | Файл | Размер |
 | --- | --- | --- |
-| **Windows 10/11** (x64) | `eCoda-Setup-1.5.0.exe` | ~130 MB |
-| **macOS** (Apple Silicon — M1/M2/M3/M4) | `eCoda-1.5.0-arm64.dmg` | ~160 MB |
+| **Windows 10/11** (x64) | `eCoda-Setup-1.5.1.exe` | ~130 MB |
+| **macOS** (Apple Silicon — M1/M2/M3/M4) | `eCoda-1.5.1-arm64.dmg` | ~160 MB |
 
 ---
 
@@ -209,6 +210,7 @@ Just open the app and listen.
 
 - 🎵 **Your real YT Music library** — all your playlists, Liked Music, subscriptions. What you have in the browser, you have here
 - ➕ **Manage your playlists** — add and remove tracks in your own playlists right from the app, via right-click. Changes sync to YT
+- 🔗 **Share tracks** — right-click a song → "Copy link", and the YouTube link is on your clipboard, ready to send to friends
 - 💾 **Download music to disk** — per track, per playlist, or your entire Liked Music. Listen offline (planes, subway, dodgy hotel WiFi)
 - 🎚️ **Track-to-track crossfade** — smooth overlap instead of hard cuts. Slider 0–12 seconds in Settings
 - 🎛️ **10-band equalizer** — presets (Bass, Vocal, Rock, etc.) + manual sliders, ±12 dB per band
@@ -235,8 +237,8 @@ Plus dozens of small touches you'll only notice while using it.
 
 | Platform | File | Size |
 | --- | --- | --- |
-| **Windows 10/11** (x64) | `eCoda-Setup-1.5.0.exe` | ~130 MB |
-| **macOS** (Apple Silicon — M1/M2/M3/M4) | `eCoda-1.5.0-arm64.dmg` | ~160 MB |
+| **Windows 10/11** (x64) | `eCoda-Setup-1.5.1.exe` | ~130 MB |
+| **macOS** (Apple Silicon — M1/M2/M3/M4) | `eCoda-1.5.1-arm64.dmg` | ~160 MB |
 
 ---
 

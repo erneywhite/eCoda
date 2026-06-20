@@ -1804,7 +1804,20 @@
     // radio — broadcast tower with dot
     radio: 'M3.24 6.15C2.51 6.43 2 7.17 2 8v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8c0-1.1-.9-2-2-2H8.3l8.26-3.34L15.88 1 3.24 6.15zM7 20c-1.66 0-3-1.34-3-3s1.34-3 3-3 3 1.34 3 3-1.34 3-3 3zm13-8h-2v-2h-2v2H4V8h16v4z',
     // delete (trash can) — remove from playlist
-    removeFromPlaylist: 'M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z'
+    removeFromPlaylist: 'M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z',
+    // link (chain) — copy YouTube link to the track
+    copyLink: 'M3.9 12c0-1.71 1.39-3.1 3.1-3.1h4V7H7c-2.76 0-5 2.24-5 5s2.24 5 5 5h4v-1.9H7c-1.71 0-3.1-1.39-3.1-3.1zM8 13h8v-2H8v2zm9-6h-4v1.9h4c1.71 0 3.1 1.39 3.1 3.1s-1.39 3.1-3.1 3.1h-4V17h4c2.76 0 5-2.24 5-5s-2.24-5-5-5z'
+  }
+
+  // Copies a shareable YouTube link for the track to the clipboard. Uses the
+  // music.youtube.com/watch?v=<id> form — same as YT Music's own Share — so
+  // the link opens as a music track, not a plain video. Clipboard write goes
+  // through main (Electron's clipboard module) so it's reliable regardless of
+  // the renderer's secure-context status.
+  async function copyTrackLink(track: SearchResult): Promise<void> {
+    const url = `https://music.youtube.com/watch?v=${track.id}`
+    const ok = await window.api.app.copyText(url)
+    showToast(ok ? t('ctx.linkCopied') : t('ctx.linkCopyFailed'))
   }
 
   // Builds the context menu items for a track. sourceList lets actions
@@ -1840,6 +1853,16 @@
       onSelect: () => void openAddToPlaylist(track),
       disabled: track.unavailable
     })
+    // Copy a shareable YouTube link. Gated to rows with a real videoId —
+    // unavailable rows carry a synthetic "__unavail__…" id (no real video),
+    // so there's nothing to link to.
+    if (!track.unavailable && !track.id.startsWith('__')) {
+      items.push({
+        label: t('ctx.copyLink'),
+        iconPath: CTX_ICONS.copyLink,
+        onSelect: () => void copyTrackLink(track)
+      })
+    }
     // Pin / unpin only makes sense in a playlist view (search results
     // aren't a list with persistent order). Detect by: openPlaylistId
     // is set AND this menu was opened on a row from the playlist view.
