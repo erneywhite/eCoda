@@ -819,6 +819,21 @@
     )
   }
 
+  // Thumbnails YT hands us for song rows are usually 120px; the Now-playing
+  // column shows ~300px. googleusercontent / ggpht URLs carry the size in a
+  // `=w120-h120…` suffix that can simply be asked for bigger. Anything else
+  // (i.ytimg.com, media://) is used as is; a failed hi-res load falls back
+  // to the normal cover.
+  function hiResThumb(url: string): string {
+    if (!/^https:\/\/[^/]*(googleusercontent\.com|ggpht\.com)\//.test(url)) return ''
+    return url.replace(/=w\d+-h\d+/, '=w544-h544')
+  }
+  let npCoverHiFailed = $state(false)
+  $effect(() => {
+    void playing?.id
+    npCoverHiFailed = false
+  })
+
   // Top-bar search field (the Search view no longer has its own input).
   let topSearchEl = $state<HTMLInputElement | null>(null)
 
@@ -2315,7 +2330,14 @@
       closeCtxMenu()
     }
     const onWindowKeyDown = (e: KeyboardEvent): void => {
-      if ((e.ctrlKey || e.metaKey) && !e.altKey && e.code === 'KeyF' && topSearchEl) {
+      if (
+        (e.ctrlKey || e.metaKey) &&
+        !e.altKey &&
+        e.code === 'KeyF' &&
+        topSearchEl &&
+        !confirmDialog &&
+        !addModal
+      ) {
         e.preventDefault()
         topSearchEl.focus()
         topSearchEl.select()
@@ -2696,7 +2718,18 @@
         // playback back to the seed would be jarring.
         const playingThisRadio = playing?.sourceListId === id
         if (!playingThisRadio && seed.id) {
-          await playTrack(seed, tracks, { id, title: playlistView.title })
+          if (playing && playing.id === seed.id) {
+            // Radio started from the track that's already playing (the
+            // Now-playing column, or the context menu on the current row):
+            // keep it playing and just switch its source to the radio, so
+            // next/prev walk the radio list — re-resolving would cut the
+            // sound and restart from 0:00.
+            playing.sourceList = tracks
+            playing.sourceListId = id
+            playing.sourceListTitle = playlistView.title
+          } else {
+            await playTrack(seed, tracks, { id, title: playlistView.title })
+          }
         }
       } catch (e) {
         playlistError = e instanceof Error ? e.message : String(e)
@@ -5003,12 +5036,18 @@
           <div class="np-top">
             {#if !isMac}{@render windowControls()}{/if}
           </div>
+          <div class="np-scroll">
           <div class="np-label" title={playing.sourceListTitle ?? ''}>
             {playing.sourceListTitle
               ? t('np.labelFrom', { title: playing.sourceListTitle })
               : t('np.label')}
           </div>
-          <img class="np-col-cover" src={coverUrl} alt="" />
+          <img
+            class="np-col-cover"
+            src={npCoverHiFailed ? coverUrl : (hiResThumb(playing.thumbnail) || coverUrl)}
+            alt=""
+            onerror={() => (npCoverHiFailed = true)}
+          />
           <div class="np-col-meta">
             <h2 class="np-col-title" title={playing.title}>{playing.title}</h2>
             {#if playingRow?.artistId}
@@ -5017,7 +5056,7 @@
                 onclick={() => openArtist(playingRow!.artistId!)}
                 title={playing.artist}
               >
-                {playing.artist}
+                <span>{playing.artist}</span>
               </button>
             {:else}
               <div class="np-col-artist" title={playing.artist}>{playing.artist}</div>
@@ -5039,6 +5078,7 @@
           </div>
           <div class="np-queue">
             {@render upNextList()}
+          </div>
           </div>
         </aside>
       {/if}
@@ -5113,7 +5153,7 @@
                   onclick={() => openArtist(playingRow!.artistId!)}
                   title={playing.artist}
                 >
-                  {playing.artist}
+                  <span>{playing.artist}</span>
                 </button>
               {:else}
                 <div class="np-artist" title={playing.artist || playing.format}>
@@ -6421,17 +6461,20 @@
     /* Tighter in short windows so the pinned list doesn't get squeezed
        into a scroll box at the 560px minimum height. */
     gap: clamp(14px, 3.5vh, 28px);
-    padding: 18px 12px 16px 16px;
+    padding: 0 12px 16px 16px;
     min-height: 0;
   }
-  /* macOS: the traffic lights sit top-left (trafficLightPosition in main);
-     drop the wordmark below them. */
-  main.platform-mac .sidebar {
-    padding-top: 46px;
-  }
+  /* The top padding lives on the brand block (a drag region), so the
+     strip above the wordmark still moves the window. */
   .sidebar-brand {
     flex: none;
+    padding-top: 18px;
     -webkit-app-region: drag;
+  }
+  /* macOS: the traffic lights sit top-left (trafficLightPosition in main);
+     drop the wordmark below them — the strip around them stays draggable. */
+  main.platform-mac .sidebar-brand {
+    padding-top: 46px;
   }
   .sidebar-brand .wordmark {
     width: 150px;
@@ -6474,6 +6517,10 @@
     padding: 0 20px 0 32px;
     -webkit-app-region: drag;
   }
+  /* Connect screen: keep the controls off the window's very edge. */
+  header .window-controls {
+    padding-right: 12px;
+  }
   .top-search {
     flex: 0 1 460px;
     min-width: 0;
@@ -6508,17 +6555,26 @@
   .np-col {
     display: flex;
     flex-direction: column;
-    gap: 14px;
     min-width: 0;
     min-height: 0;
-    padding: 0 24px 20px;
-    overflow-y: auto;
+    overflow: hidden;
     background: rgba(0, 0, 0, 0.22);
     border-left: 1px solid var(--hairline);
   }
-  /* The column scrolls as a whole when the queue is long; without this
-     the flex children shrink instead (the label collapsed to 0px). */
-  .np-col > * {
+  /* Everything below the window controls scrolls; the controls (and the
+     drag strip around them) stay put. */
+  .np-scroll {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    padding: 0 24px 20px;
+  }
+  /* Without this the flex children shrink instead of the area scrolling
+     (the label collapsed to 0px). */
+  .np-scroll > * {
     flex-shrink: 0;
   }
   .np-top {
@@ -6526,6 +6582,7 @@
     flex: none;
     display: flex;
     align-items: center;
+    padding: 0 20px 0 24px;
     -webkit-app-region: drag;
   }
   .np-label {
@@ -6549,6 +6606,7 @@
   .np-col-meta {
     display: flex;
     flex-direction: column;
+    align-items: flex-start;
     gap: 6px;
     min-width: 0;
   }
@@ -6568,6 +6626,7 @@
     overflow-wrap: anywhere;
   }
   .np-col-artist {
+    max-width: 100%;
     font-size: var(--text-lg);
     font-weight: 400;
     color: #e3d9e6;
@@ -6582,6 +6641,13 @@
     background: none;
     font-family: inherit;
     cursor: pointer;
+  }
+  button.np-col-artist > span,
+  button.np-artist > span {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   button.np-col-artist:hover {
     color: #ffffff;

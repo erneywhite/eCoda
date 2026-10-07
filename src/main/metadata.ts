@@ -173,10 +173,12 @@ function pickThumbnail(item: Record<string, unknown>): string {
 export async function searchSongs(query: string): Promise<SearchResult[]> {
   const yt = await getInnertube()
   const raw = (await yt.music.search(query, { type: 'song' })) as unknown
-  // Older youtubei.js exposed the song shelf as `.songs`; current versions
-  // return `.contents` = [ItemSection, MusicShelf "Songs"] instead, and
-  // `.songs` is gone — reading only `.songs` made every search come back
-  // empty. Take whichever shape is there.
+  // `.songs` is a youtubei.js getter that finds the shelf whose title is
+  // the English "Songs" — but Innertube runs in the UI language, so a
+  // Russian session gets a shelf titled "Треки"/"Песни" and `.songs` is
+  // undefined → every search came back empty. Don't go back to relying on
+  // it: fall back to the first MusicShelf in `.contents` (the filtered
+  // song search returns exactly one).
   const top = raw as { songs?: { contents?: unknown[] }; contents?: unknown[] }
   let items: unknown[] = top.songs?.contents ?? []
   if (items.length === 0 && Array.isArray(top.contents)) {
@@ -188,6 +190,7 @@ export async function searchSongs(query: string): Promise<SearchResult[]> {
         Array.isArray((s as { contents?: unknown }).contents)
     )
     items = shelf?.contents ?? []
+    if (!shelf) console.warn('[search] no song shelf in the response — youtubei.js shape changed again?')
   }
 
   const out: SearchResult[] = []
@@ -200,7 +203,9 @@ export async function searchSongs(query: string): Promise<SearchResult[]> {
         : typeof item.video_id === 'string'
           ? item.video_id
           : ''
-    if (!id) continue
+    // Only real 11-char video ids — a browse id (album / artist) slipping
+    // in from some other shelf layout must not end up "played".
+    if (!/^[\w-]{11}$/.test(id)) continue
     const title = asText(item.title) || asText(item.name)
     if (!title) continue
     const artist = pickArtist(item)
