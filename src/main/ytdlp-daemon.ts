@@ -220,6 +220,10 @@ export class YtdlpDaemonPool {
     this.daemons = []
   }
 
+  pendingCount(): number {
+    return this.daemons.reduce((n, d) => n + d.pendingCount(), 0)
+  }
+
   resolve(videoId: string, browser: string, denoPath: string): Promise<DaemonResolveResult> {
     if (this.daemons.length === 0) this.start()
     return this.pickFreest().resolve(videoId, browser, denoPath)

@@ -11,6 +11,7 @@ npm-debug.log*
 # Extraction binaries are fetched on postinstall (scripts/fetch-*.mjs)
 resources/yt-dlp.exe
 resources/yt-dlp
+resources/yt-dlp.version
 resources/deno.exe
 resources/deno
 # Bundled standalone Python for the desktop builds (~65 MB each, see

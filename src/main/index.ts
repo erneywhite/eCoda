@@ -3,7 +3,7 @@ import { join } from 'path'
 import { createReadStream, readFileSync, statSync } from 'node:fs'
 import { Readable } from 'node:stream'
 import icon from '../../resources/icon.png?asset'
-import { verifyBrowserLogin, startYtdlpDaemon, stopYtdlpDaemon } from './ytdlp'
+import { verifyBrowserLogin, startYtdlpDaemon, stopYtdlpDaemon, initYtdlp } from './ytdlp'
 import {
   detectBrowsers,
   getBrowser,
@@ -438,6 +438,10 @@ app.whenReady().then(async () => {
   // to the user; without this we'd be flying blind whenever a bug needs
   // diagnosing from a real install.
   installLogger()
+  // Pick the yt-dlp copy to run (bundled vs. a newer download in userData)
+  // and schedule the background update checks. Must precede anything that
+  // spawns yt-dlp — the startup reconnect below does.
+  initYtdlp()
   // Wire up media:// — translates media://<kind>/<videoId> to the file
   // on disk and lets Electron's net module stream it (Range requests,
   // content-type sniffing, the lot). HTML5 <audio>/<img>/background-image

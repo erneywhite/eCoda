@@ -5,6 +5,12 @@ import { dirname, delimiter, join } from 'node:path'
 import { existsSync, writeFileSync } from 'node:fs'
 import { getCookiesFilePath } from './auth'
 import { YtdlpDaemon, YtdlpDaemonPool } from './ytdlp-daemon'
+import {
+  checkYtdlpUpdateAfterFailure,
+  getActiveYtdlpPath,
+  initYtdlpUpdater,
+  scheduleYtdlpUpdates
+} from './ytdlp-updater'
 
 // Cross-platform binary paths. Resolved at runtime so the build
 // machine doesn't need both .exe and bare binaries present. See
@@ -26,7 +32,10 @@ const binDir = app.isPackaged
 // `_macos` suffix — same file on every OS). The daemon imports
 // `yt_dlp` from it via zipimport; per-call fallback runs it through
 // bundled standalone Python.
-const ytdlpPath = join(binDir, 'yt-dlp')
+// This is the copy shipped with the installer. The one we actually run
+// may be a newer download from <userData>/yt-dlp/ — always go through
+// getActiveYtdlpPath() (see ytdlp-updater.ts).
+const bundledYtdlpPath = join(binDir, 'yt-dlp')
 const denoPath = join(binDir, isWin ? 'deno.exe' : 'deno')
 
 const run = promisify(execFile)
@@ -73,7 +82,7 @@ function bundledPython3Path(): string {
 // Returns the [command, args] tuple to spawn yt-dlp with the given
 // user-supplied args. Always: bundled Python + the zipapp.
 export function ytdlpInvocation(userArgs: string[]): [string, string[]] {
-  return [bundledPython3Path(), [ytdlpPath, ...userArgs]]
+  return [bundledPython3Path(), [getActiveYtdlpPath(), ...userArgs]]
 }
 
 // Persistent yt-dlp worker pool. Same code path on macOS and Windows
@@ -105,7 +114,7 @@ function getYtdlpDaemonPool(): YtdlpDaemonPool | null {
   }
   daemonPool = new YtdlpDaemonPool(
     POOL_SIZE,
-    () => new YtdlpDaemon(python, daemonScript, ytdlpPath, ytdlpEnv)
+    () => new YtdlpDaemon(python, daemonScript, getActiveYtdlpPath(), ytdlpEnv)
   )
   daemonPool.start()
   return daemonPool
@@ -126,6 +135,40 @@ export function startYtdlpDaemon(): void {
 export function stopYtdlpDaemon(): void {
   daemonPool?.stop()
   daemonPool = null
+}
+
+// A newer yt-dlp was just installed. Daemons have the old zipapp imported,
+// so they need a restart — but killing one mid-resolve would fail the
+// user's click. Wait until the pool is idle, then drop it; the next
+// resolve lazily builds a fresh pool on the new zipapp. Per-call spawns
+// (downloads, login check) pick up the new path immediately.
+let swapTimer: ReturnType<typeof setInterval> | null = null
+function swapDaemonPoolWhenIdle(): void {
+  if (swapTimer) return
+  const trySwap = (): boolean => {
+    if (!daemonPool) return true
+    if (daemonPool.pendingCount() > 0) return false
+    console.log('[ytdlp] restarting daemon pool on the updated yt-dlp')
+    stopYtdlpDaemon()
+    return true
+  }
+  if (trySwap()) return
+  swapTimer = setInterval(() => {
+    if (trySwap() && swapTimer) {
+      clearInterval(swapTimer)
+      swapTimer = null
+    }
+  }, 2000)
+}
+
+// Called once from app startup, before anything resolves.
+export function initYtdlp(): void {
+  initYtdlpUpdater({
+    bundledZipapp: bundledYtdlpPath,
+    pythonPath: bundledPython3Path,
+    onUpdated: swapDaemonPoolWhenIdle
+  })
+  scheduleYtdlpUpdates()
 }
 
 // yt-dlp solves YouTube's signature/nsig JS challenges with a JS runtime it
@@ -183,10 +226,22 @@ function extractVideoId(input: string): string | null {
 // extractor-args player_client=web_music,web tells yt-dlp to try the YT
 // Music client first (sees Music-specific availability), then fall back
 // to standard web. Some tracks are only resolvable via the music client.
+//
+// A failed resolve is the typical symptom of YouTube breaking yt-dlp, so it
+// also nudges the updater to look for a fresh release.
 export async function resolveAudio(input: string, browser: string): Promise<ResolvedAudio> {
-  // Mac path: route through the persistent daemon (saves ~2s of
-  // Python+extractor init per call vs a fresh spawn). Per-call spawn
-  // stays as a fallback if the daemon couldn't be started.
+  try {
+    return await resolveAudioInner(input, browser)
+  } catch (err) {
+    checkYtdlpUpdateAfterFailure()
+    throw err
+  }
+}
+
+async function resolveAudioInner(input: string, browser: string): Promise<ResolvedAudio> {
+  // Route through the persistent daemon (saves ~2s of Python+extractor
+  // init per call vs a fresh spawn). Per-call spawn stays as a fallback
+  // if the daemon couldn't be started.
   const pool = getYtdlpDaemonPool()
   const videoId = extractVideoId(input)
   if (pool && videoId) {
