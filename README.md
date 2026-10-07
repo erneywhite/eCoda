@@ -29,7 +29,9 @@
 - 🎛️ **10-полосный эквалайзер** — пресеты (Бас, Вокал, Рок и др.) + ручные ползунки ±12 дБ на каждую полосу
 - 🪟 **Мини-плеер** — компактное окно поверх всех окон, чтобы переключать треки и крутить громкость не отрываясь от работы. Два варианта: тонкая полоска или квадратик с обложкой
 - ⌨️ **Медиа-клавиши работают** — Play/Pause/Next/Prev на клавиатуре, виджет на lockscreen Windows и в Now Playing на macOS
-- 🎨 **8 цветовых тем** — от пастельных до неоновых
+- 🎨 **Цвет от обложки** — фоном лежит размытая обложка текущего трека, а кнопки и акценты берут её цвет. Сменился трек — сменился и цвет
+- 📜 **Очередь на виду** — справа колонка «Сейчас играет»: обложка, «Радио по треку» и то, что заиграет дальше
+- ⚡ **Горячие клавиши** — пробел ставит на паузу, стрелки перематывают и переключают треки, Ctrl+F открывает поиск. Полный список в настройках
 - 🦝 **Сворачивается в трей** — закрыл окно крестиком, музыка продолжает играть в фоне (можно отключить если бесит)
 - 🌍 **Русский + English** интерфейс
 - 🔁 **Помнит где остановился** — закрыл посреди трека, открыл назавтра, продолжил с той же секунды
@@ -89,13 +91,15 @@
 
 После того как подключил браузер:
 
-- **Слева сайдбар** — Главная (рекомендации YT), Поиск, Библиотека (твои плейлисты), Скачанные (то что лежит на диске)
+- **Слева сайдбар** — Главная (закреплённые плейлисты и рекомендации YT), Библиотека (твои плейлисты), Скачанные (то что лежит на диске)
+- **Поиск** — строка сверху, или Ctrl+F
 - **Понравившаяся музыка** автоматически появится в сайдбаре сверху как закреплённый плейлист
 - **Любой плейлист можно закрепить** в сайдбаре кнопкой 📌 — будет всегда под рукой
 - **Правый клик по треку** — меню: «Играть следующим», «В очередь», «Радио по треку», «Добавить в плейлист», «Удалить из плейлиста», «Закрепить позицию»
 - **Сердечко рядом с треком** — лайкнуть/убрать. Лайки синхронятся с YT
-- **Кнопка ⛶ в шапке** (рядом со стрелками) — мини-плеер
-- **⚙️ Настройки** внизу сайдбара — темы, язык, качество скачивания, кросс-фейд, поведение крестика, и т.д.
+- **Справа колонка «Сейчас играет»** — обложка, «Радио по треку» и очередь. В узком окне колонка прячется, а очередь открывается кнопкой в плеере
+- **Мини-плеер** — кнопка в нижнем плеере, справа рядом с громкостью
+- **⚙️ Настройки** внизу сайдбара — язык, качество скачивания, кросс-фейд, эквалайзер, устройство вывода, поведение крестика, горячие клавиши и т.д.
 
 ---
 
@@ -216,7 +220,9 @@ Just open the app and listen.
 - 🎛️ **10-band equalizer** — presets (Bass, Vocal, Rock, etc.) + manual sliders, ±12 dB per band
 - 🪟 **Mini-player** — always-on-top compact window to skip tracks and adjust volume without leaving what you're doing. Two layouts: horizontal pill or square cover-focused
 - ⌨️ **Hardware media keys work** — Play/Pause/Next/Prev on your keyboard, Windows lockscreen widget, macOS Now Playing
-- 🎨 **8 colour themes** — pastel to neon
+- 🎨 **Colour from the cover** — the playing track's cover, blurred, is the window background, and buttons and accents take its colour. New track, new colour
+- 📜 **Up next in view** — a "Now playing" column on the right: cover, track radio and what plays next
+- ⚡ **Keyboard shortcuts** — Space pauses, arrows seek and switch tracks, Ctrl+F opens search. Full list in Settings
 - 🦝 **Closes to system tray** — hit the X, music keeps playing in the background (toggleable if you'd rather it actually quit)
 - 🌍 **Russian + English** UI
 - 🔁 **Remembers where you left off** — close mid-track, reopen tomorrow, picks up at the same second
@@ -276,13 +282,15 @@ Plus dozens of small touches you'll only notice while using it.
 
 After connecting a browser:
 
-- **Sidebar on the left** — Home (YT recommendations), Search, Library (your playlists), Downloaded (what's saved to disk)
+- **Sidebar on the left** — Home (your pinned playlists + YT recommendations), Library (your playlists), Downloaded (what's saved to disk)
+- **Search** — the field at the top, or Ctrl+F
 - **Liked Music** automatically appears in the sidebar at the top as a pinned playlist
 - **Any playlist can be pinned** to the sidebar with the 📌 button — always one click away
 - **Right-click any track** — menu: "Play next", "Add to queue", "Start radio from track", "Add to playlist", "Remove from playlist", "Pin position"
 - **Heart next to a track** — like / unlike. Syncs to YT
-- **⛶ button in the header** (next to back/forward arrows) — opens mini-player
-- **⚙️ Settings** at the bottom of the sidebar — themes, language, download quality, crossfade, close-button behaviour, etc.
+- **"Now playing" column on the right** — cover, track radio and the queue. In a narrow window the column hides and the queue opens from a button in the player
+- **Mini-player** — button in the bottom player, right next to the volume
+- **⚙️ Settings** at the bottom of the sidebar — language, download quality, crossfade, equalizer, output device, close-button behaviour, keyboard shortcuts, etc.
 
 ---
 
