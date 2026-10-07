@@ -3758,6 +3758,44 @@
       </div>
   {/snippet}
 
+  <!-- Loading skeletons: grey placeholders in the shape of what's coming
+       (rows, shelves, tiles) with a soft shimmer, instead of a lone
+       spinner in the corner. Widths vary per row so it doesn't read as a
+       barcode. The shimmer stops under prefers-reduced-motion (app.css). -->
+  {#snippet skelRows(n: number)}
+    <div class="skel-rows" role="status" aria-busy="true">
+      <span class="sr-only">{t('common.loading')}</span>
+      {#each Array.from({ length: n }) as _, i (i)}
+        <div class="skel-row" aria-hidden="true">
+          <span class="skel skel-num"></span>
+          <span class="skel skel-thumb"></span>
+          <span class="skel-lines">
+            <span class="skel skel-line" style:width="{42 + ((i * 37) % 38)}%"></span>
+            <span class="skel skel-line short" style:width="{22 + ((i * 23) % 26)}%"></span>
+          </span>
+          <span class="skel skel-time"></span>
+        </div>
+      {/each}
+    </div>
+  {/snippet}
+  {#snippet skelCards(n: number, row: boolean)}
+    <div class={row ? 'shelf-row' : 'grid'} aria-hidden="true">
+      {#each Array.from({ length: n }) as _, i (i)}
+        <div class="card-tile skel-card">
+          <div class="skel tile-thumb"></div>
+          <span class="skel skel-line" style:width="{60 + ((i * 29) % 30)}%"></span>
+          <span class="skel skel-line short" style:width="{40 + ((i * 17) % 30)}%"></span>
+        </div>
+      {/each}
+    </div>
+  {/snippet}
+  {#snippet skelShelf()}
+    <section class="section shelf">
+      <div class="shelf-head"><span class="skel skel-heading"></span></div>
+      {@render skelCards(8, true)}
+    </section>
+  {/snippet}
+
   <!-- Up next: the user's queue, then the source list (or a note when
        shuffle / repeat-one make the order unknowable). Shared by the
        Now-playing column and the queue popover. -->
@@ -3974,7 +4012,22 @@
       <section class="view-wrap">
         {#if view === 'home'}
           {#if homeLoading}
-            <div class="spinner"></div>
+            <div class="skel-page" role="status" aria-busy="true">
+              <span class="sr-only">{t('home.loading')}</span>
+              <section class="section" aria-hidden="true">
+                <span class="skel skel-heading"></span>
+                <div class="pin-tiles">
+                  {#each Array.from({ length: 3 }) as _, i (i)}
+                    <div class="pin-tile skel-pin">
+                      <span class="skel pin-tile-cover"></span>
+                      <span class="skel skel-line" style:width="{45 + i * 12}%"></span>
+                    </div>
+                  {/each}
+                </div>
+              </section>
+              {@render skelShelf()}
+              {@render skelShelf()}
+            </div>
           {:else if homeError}
             <p class="status error">{t('home.error', { error: homeError })}</p>
             <button onclick={() => loadHome()}>{t('home.retry')}</button>
@@ -4067,7 +4120,7 @@
             <p class="status">{t('search.hint')}</p>
           {/if}
           {#if searching}
-            <div class="spinner"></div>
+            {@render skelRows(8)}
           {/if}
           {#if searchError}
             <p class="status error">{t('search.error', { error: searchError })}</p>
@@ -4375,7 +4428,9 @@
               </div>
             </div>
           {/if}
-          {#if playlistLoading}
+          {#if playlistLoading && !(playlistView && playlistView.tracks.length > 0)}
+            {@render skelRows(10)}
+          {:else if playlistLoading}
             <div class="spinner"></div>
           {/if}
           {#if playlistError}
@@ -4557,7 +4612,17 @@
           {/if}
         {:else if view === 'artist'}
           {#if artistLoading && !artistView}
-            <div class="spinner"></div>
+            <div class="skel-page" role="status" aria-busy="true">
+              <span class="sr-only">{t('common.loading')}</span>
+              <div class="artist-header" aria-hidden="true">
+                <span class="skel artist-photo"></span>
+                <div class="artist-info skel-artist-info">
+                  <span class="skel skel-title"></span>
+                  <span class="skel skel-line short" style:width="40%"></span>
+                </div>
+              </div>
+              {@render skelRows(6)}
+            </div>
           {/if}
           {#if artistError}
             <p class="status error">{t('home.error', { error: artistError })}</p>
@@ -5164,7 +5229,11 @@
                the real authenticated library response, then we render the
                cards ourselves with the same grid as Home. -->
           {#if libraryLoading}
-            <div class="spinner"></div>
+            <div class="skel-page" role="status" aria-busy="true">
+              <span class="sr-only">{t('common.loading')}</span>
+              <span class="skel skel-heading" aria-hidden="true"></span>
+              {@render skelCards(12, false)}
+            </div>
           {:else if libraryError}
             <p class="status error">{t('home.error', { error: libraryError })}</p>
             <button onclick={openLibrary}>{t('home.retry')}</button>
@@ -7768,7 +7837,7 @@
     border: 3px solid rgba(255, 255, 255, 0.08);
     border-top-color: var(--accent);
     border-radius: 50%;
-    margin: 1.5rem 0 0 0;
+    margin: 1.5rem auto 0;
     animation: spin 0.8s linear infinite;
   }
   .spinner-inline {
@@ -9558,5 +9627,121 @@
   .resolving-bar.error {
     color: #ff6b9d;
     background: rgba(255, 60, 120, 0.1);
+  }
+  /* ---- loading skeletons ------------------------------------------------
+     Defined last so .skel's background wins over the shapes it borrows
+     (.tile-thumb, .pin-tile-cover, .artist-photo). */
+  .skel {
+    display: block;
+    position: relative;
+    overflow: hidden;
+    background: rgba(255, 255, 255, 0.07) !important;
+    border-radius: var(--radius-sm);
+    box-shadow: none !important;
+  }
+  .skel::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    transform: translateX(-100%);
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.07), transparent);
+    animation: skel-shimmer 1.6s var(--ease-in-out) infinite;
+  }
+  @keyframes skel-shimmer {
+    to {
+      transform: translateX(100%);
+    }
+  }
+  .skel-page {
+    display: flex;
+    flex-direction: column;
+    gap: 1.6rem;
+  }
+  .skel-heading {
+    width: 180px;
+    height: 20px;
+    border-radius: 6px;
+  }
+  .skel-title {
+    width: min(360px, 60%);
+    height: 34px;
+    border-radius: 8px;
+  }
+  .skel-line {
+    height: 12px;
+    border-radius: 6px;
+  }
+  .skel-line.short {
+    height: 10px;
+  }
+  .skel-rows {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .skel-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-height: 52px;
+    padding: 6px 10px;
+  }
+  .skel-num {
+    flex: 0 0 14px;
+    height: 10px;
+    margin-left: 14px;
+    border-radius: 4px;
+  }
+  .skel-thumb {
+    flex: 0 0 40px;
+    height: 40px;
+    border-radius: var(--radius-xs);
+  }
+  .skel-lines {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .skel-time {
+    flex: 0 0 34px;
+    height: 10px;
+    margin-right: 6px;
+    border-radius: 4px;
+  }
+  .skel-card {
+    cursor: default;
+  }
+  .skel-card:hover .tile-thumb {
+    transform: none;
+  }
+  .skel-pin:hover {
+    background: var(--surface-1);
+  }
+  .skel-card .skel-line {
+    margin-top: 2px;
+  }
+  .skel-pin {
+    cursor: default;
+  }
+  .skel-pin .skel-line {
+    flex: 1;
+    max-width: 60%;
+  }
+  .skel-artist-info {
+    flex: 1;
+    gap: 12px;
+  }
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
   }
 </style>

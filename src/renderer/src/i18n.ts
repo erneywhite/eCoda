@@ -69,6 +69,7 @@ const RU: Strings = {
 
   // Home / Library generic
   'home.loading': 'Загружаю главную…',
+  'common.loading': 'Загружаю…',
   'home.error': 'Не получилось: {error}',
   'home.retry': 'Попробовать ещё раз',
   'home.empty': 'Главная пуста.',
@@ -368,6 +369,7 @@ const EN: Strings = {
   'search.error': 'Search failed: {error}',
 
   'home.loading': 'Loading home…',
+  'common.loading': 'Loading…',
   'home.error': 'Failed: {error}',
   'home.retry': 'Try again',
   'home.empty': 'Home is empty.',
