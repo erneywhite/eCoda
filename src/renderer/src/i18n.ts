@@ -224,6 +224,13 @@ const RU: Strings = {
   'settings.cache.clearing': 'Чищу…',
   'settings.cache.clearConfirm':
     'Очистить весь оффлайн-кеш? Все скачанные треки будут удалены с диска. Действие нельзя отменить.',
+  'settings.keys.title': 'Горячие клавиши',
+  'settings.keys.space': 'Пробел',
+  'settings.keys.playPause': 'Пауза / играть',
+  'settings.keys.seek': 'Перемотка на 5 секунд',
+  'settings.keys.track': 'Предыдущий / следующий трек',
+  'settings.keys.volume': 'Громкость',
+  'settings.keys.search': 'Поиск',
   'settings.quality.title': 'Качество скачивания',
   'settings.quality.hint':
     'Применяется к новым загрузкам. Уже скачанные треки не перекодируются.',
@@ -504,6 +511,13 @@ const EN: Strings = {
   'settings.cache.clearing': 'Clearing…',
   'settings.cache.clearConfirm':
     'Clear the entire offline cache? All downloaded tracks will be deleted from disk. This can’t be undone.',
+  'settings.keys.title': 'Keyboard shortcuts',
+  'settings.keys.space': 'Space',
+  'settings.keys.playPause': 'Play / pause',
+  'settings.keys.seek': 'Seek 5 seconds',
+  'settings.keys.track': 'Previous / next track',
+  'settings.keys.volume': 'Volume',
+  'settings.keys.search': 'Search',
   'settings.quality.title': 'Download quality',
   'settings.quality.hint':
     'Applies to new downloads. Already-downloaded tracks aren’t re-encoded.',

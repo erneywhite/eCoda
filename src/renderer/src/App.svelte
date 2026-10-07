@@ -873,6 +873,13 @@
     })
   }
 
+  // Svelte transitions run through the Web Animations API, which the CSS
+  // prefers-reduced-motion rule in app.css can't reach — route their
+  // durations through this instead.
+  function motion(ms: number): number {
+    return prefersReducedMotion.current ? 0 : ms
+  }
+
   // Top-bar search field (the Search view no longer has its own input).
   let topSearchEl = $state<HTMLInputElement | null>(null)
 
@@ -2381,6 +2388,41 @@
         topSearchEl.focus()
         topSearchEl.select()
         return
+      }
+      // Playback hotkeys. Not while typing, not while a dialog is open, and
+      // Space is left alone on buttons/links (there it already "clicks").
+      const tgt = e.target as HTMLElement | null
+      const typing = !!tgt?.closest('input, textarea, select, [contenteditable="true"]')
+      if (!typing && !confirmDialog && !addModal && playing && !e.altKey && !miniMode) {
+        const mod = e.ctrlKey || e.metaKey
+        if (e.code === 'Space' && !mod && !tgt?.closest('button, a, [role="button"], [role="link"]')) {
+          e.preventDefault()
+          togglePlay()
+          return
+        }
+        if (mod && e.code === 'ArrowRight') {
+          e.preventDefault()
+          void playNext({ fromUserClick: true })
+          return
+        }
+        if (mod && e.code === 'ArrowLeft') {
+          e.preventDefault()
+          void playPrev()
+          return
+        }
+        if (!mod && (e.code === 'ArrowRight' || e.code === 'ArrowLeft') && audioEl && duration) {
+          e.preventDefault()
+          const next = Math.min(duration, Math.max(0, audioEl.currentTime + (e.code === 'ArrowRight' ? 5 : -5)))
+          audioEl.currentTime = next
+          currentTime = next
+          return
+        }
+        if (mod && (e.code === 'ArrowUp' || e.code === 'ArrowDown')) {
+          e.preventDefault()
+          volume = Math.min(1, Math.max(0, Math.round((volume + (e.code === 'ArrowUp' ? 0.05 : -0.05)) * 100) / 100))
+          if (volume > 0 && muted) muted = false
+          return
+        }
       }
       if (e.key === 'Escape') {
         // Confirm dialog wins over context menu — both shouldn't be
@@ -4358,7 +4400,7 @@
                   ondragover={(e) => onRowDragOver(e, idx)}
                   ondrop={(e) => onRowDrop(e, idx)}
                   ondragend={onRowDragEnd}
-                  animate:flip={{ duration: 240, easing: quintOut }}
+                  animate:flip={{ duration: motion(240), easing: quintOut }}
                 >
                   <button
                     class="track-row"
@@ -4707,21 +4749,21 @@
                   class:active={defaultTab === 'home'}
                   onclick={() => changeDefaultTab('home')}
                 >
-                  🏠 {t('nav.home')}
+                  {t('nav.home')}
                 </button>
                 <button
                   class="seg-btn"
                   class:active={defaultTab === 'search'}
                   onclick={() => changeDefaultTab('search')}
                 >
-                  🔍 {t('nav.search')}
+                  {t('nav.search')}
                 </button>
                 <button
                   class="seg-btn"
                   class:active={defaultTab === 'library'}
                   onclick={() => changeDefaultTab('library')}
                 >
-                  📚 {t('nav.library')}
+                  {t('nav.library')}
                 </button>
               </div>
               <p class="settings-hint">{t('settings.behaviour.hint')}</p>
@@ -4765,6 +4807,22 @@
                 </button>
               </div>
               <p class="settings-hint">{t('settings.mediaKeys.hint')}</p>
+            </section>
+
+            <section class="settings-card">
+              <h4>{t('settings.keys.title')}</h4>
+              <dl class="keys-list">
+                <dt><kbd>{t('settings.keys.space')}</kbd></dt>
+                <dd>{t('settings.keys.playPause')}</dd>
+                <dt><kbd>←</kbd> <kbd>→</kbd></dt>
+                <dd>{t('settings.keys.seek')}</dd>
+                <dt><kbd>{isMac ? '⌘' : 'Ctrl'}</kbd> + <kbd>←</kbd> <kbd>→</kbd></dt>
+                <dd>{t('settings.keys.track')}</dd>
+                <dt><kbd>{isMac ? '⌘' : 'Ctrl'}</kbd> + <kbd>↑</kbd> <kbd>↓</kbd></dt>
+                <dd>{t('settings.keys.volume')}</dd>
+                <dt><kbd>{isMac ? '⌘' : 'Ctrl'}</kbd> + <kbd>F</kbd></dt>
+                <dd>{t('settings.keys.search')}</dd>
+              </dl>
             </section>
 
             <section class="settings-card">
@@ -5083,13 +5141,7 @@
 
             <p class="settings-sig">
               © 2026 Erney White ·
-              <a
-                href="#"
-                onclick={(e) => {
-                  e.preventDefault()
-                  window.open('https://github.com/erneywhite/eCoda', '_blank')
-                }}
-              >
+              <a href="https://github.com/erneywhite/eCoda" target="_blank" rel="noreferrer">
                 github.com/erneywhite/eCoda
               </a>
             </p>
@@ -5274,8 +5326,8 @@
                 <div
                   class="np-cover"
                   style:background-image={`url("${thumbnailFor(playing.id, playing.thumbnail)}")`}
-                  in:fade={{ duration: 260, easing: quintOut }}
-                  out:fade={{ duration: 200 }}
+                  in:fade={{ duration: motion(260), easing: quintOut }}
+                  out:fade={{ duration: motion(200) }}
                 ></div>
               {/key}
             </div>
@@ -5565,7 +5617,7 @@
         ></audio>
       </div>
       {#if queueOpen && !npVisible && !miniMode}
-        <div class="queue-pop" role="dialog" aria-label={t('player.queue')} transition:fade={{ duration: 120 }}>
+        <div class="queue-pop" role="dialog" aria-label={t('player.queue')} transition:fade={{ duration: motion(120) }}>
           {@render upNextList()}
         </div>
       {/if}
@@ -5782,7 +5834,7 @@
       bind:this={ctxMenuEl}
       style:left="{ctxMenu.x}px"
       style:top="{ctxMenu.y}px"
-      transition:scale={{ duration: 130, start: 0.94, opacity: 0, easing: quintOut }}
+      transition:scale={{ duration: motion(130), start: 0.94, opacity: 0, easing: quintOut }}
     >
       {#each ctxMenu.items as item}
         <button
@@ -6114,7 +6166,7 @@
     white-space: nowrap;
   }
   .mini-artist {
-    color: #a99bc9;
+    color: var(--ink-2);
     font-size: 0.74rem;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -6142,7 +6194,7 @@
     border: none;
     border-radius: 8px;
     background: transparent;
-    color: #b9acd6;
+    color: var(--ink-2);
     cursor: pointer;
     display: inline-flex;
     align-items: center;
@@ -6326,6 +6378,7 @@
     flex: 0 0 auto;
   }
   .mini-cover-lg {
+    color: #ffffff;
     -webkit-app-region: no-drag;
     flex: 0 0 auto;
     align-self: center;
@@ -6438,10 +6491,10 @@
 
   .ghost {
     padding: 0.5rem 1rem;
-    border: 1px solid #34284e;
+    border: 1px solid rgba(255, 255, 255, 0.14);
     border-radius: 9px;
     background: transparent;
-    color: #b9acd6;
+    color: var(--ink-2);
     font-size: 0.82rem;
     font-weight: 600;
     cursor: pointer;
@@ -6561,7 +6614,7 @@
 
   .hint {
     margin: 0;
-    color: #b9acd6;
+    color: var(--ink-2);
     font-size: 0.92rem;
     line-height: 1.5;
   }
@@ -7104,33 +7157,59 @@
   .settings-page {
     display: flex;
     flex-direction: column;
-    gap: 1.2rem;
+    gap: 16px;
     max-width: 720px;
+  }
+  /* Wide view: cards flow into two columns (CSS columns = masonry, so
+     cards of different heights don't leave holes). */
+  @container view (min-width: 900px) {
+    .settings-page {
+      display: block;
+      max-width: 1180px;
+      columns: 2;
+      column-gap: 16px;
+    }
+    .settings-page > h3 {
+      column-span: all;
+      margin-bottom: 16px;
+    }
+    .settings-page > .settings-card {
+      break-inside: avoid;
+      margin-bottom: 16px;
+    }
+    .settings-page > .settings-sig {
+      column-span: all;
+    }
+  }
+  @container view (min-width: 1500px) {
+    .settings-page {
+      max-width: 1700px;
+      columns: 3;
+    }
   }
 
   .settings-card {
     display: flex;
     flex-direction: column;
-    gap: 0.5rem;
-    padding: 1.1rem 1.3rem;
-    border: 1px solid rgba(255, 255, 255, 0.07);
-    border-radius: 16px;
-    background: rgba(255, 255, 255, 0.04);
-    backdrop-filter: blur(20px);
-    -webkit-backdrop-filter: blur(20px);
+    gap: 8px;
+    padding: 18px 20px;
+    border: 1px solid var(--hairline);
+    border-radius: var(--radius-lg);
+    background: rgba(12, 10, 16, 0.45);
   }
 
   .settings-card h4 {
-    margin: 0 0 0.3rem 0;
-    color: #ffffff;
-    font-size: 0.95rem;
-    font-weight: 700;
+    margin: 0 0 4px 0;
+    color: var(--ink-1);
+    font-family: var(--font-display);
+    font-size: var(--text-base);
+    font-weight: 600;
   }
 
   .settings-line {
     margin: 0;
-    color: #d4c9e8;
-    font-size: 0.9rem;
+    color: #e6dfea;
+    font-size: var(--text-md);
   }
 
   .settings-line strong {
@@ -7138,30 +7217,57 @@
     font-weight: 600;
   }
 
+  .keys-list {
+    display: grid;
+    grid-template-columns: max-content 1fr;
+    gap: 8px 16px;
+    margin: 0;
+    font-size: var(--text-md);
+  }
+  .keys-list dt {
+    color: var(--ink-1);
+    white-space: nowrap;
+  }
+  .keys-list dd {
+    margin: 0;
+    color: var(--ink-2);
+  }
+  .keys-list kbd {
+    display: inline-block;
+    min-width: 1.8em;
+    padding: 1px 6px;
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.06);
+    font-family: inherit;
+    font-size: var(--text-sm);
+    text-align: center;
+  }
+
   .settings-hint {
     margin: 0;
-    color: #8c7da8;
-    font-size: 0.8rem;
-    line-height: 1.45;
+    color: var(--ink-2);
+    font-size: var(--text-sm);
+    line-height: 1.5;
   }
 
   .settings-btn {
     align-self: flex-start;
-    margin-top: 0.3rem;
-    padding: 0.55rem 1.1rem;
-    border: 1px solid #34284e;
-    border-radius: 9px;
+    margin-top: 4px;
+    padding: 8px 16px;
+    border: 1px solid var(--outline);
+    border-radius: 999px;
     background: transparent;
-    color: #d4c9e8;
-    font-size: 0.85rem;
-    font-weight: 600;
+    color: var(--ink-1);
+    font-size: var(--text-md);
+    font-weight: 500;
     cursor: pointer;
-    transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+    transition: background var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out),
+      color var(--dur-fast) var(--ease-out);
   }
 
   .settings-btn:hover:not(:disabled) {
-    background: rgba(var(--accent-rgb), 0.18);
-    border-color: rgba(var(--accent-rgb), 0.5);
+    background: rgba(255, 255, 255, 0.08);
     color: #ffffff;
   }
 
@@ -7216,7 +7322,7 @@
   .diag-list code {
     font-family: var(--font-mono);
     font-size: 0.72rem;
-    color: #d4c9e8;
+    color: #e6dfea;
     overflow-wrap: anywhere;
     word-break: break-all;
     background: rgba(0, 0, 0, 0.3);
@@ -7238,7 +7344,7 @@
   }
 
   .settings-sig a {
-    color: #a99bc9;
+    color: var(--ink-2);
     text-decoration: none;
     border-bottom: 1px dotted rgba(255, 255, 255, 0.18);
     transition: color 0.15s ease, border-color 0.15s ease;
@@ -7288,26 +7394,28 @@
   }
 
   .seg-btn {
-    padding: 0.45rem 0.9rem;
-    border: 1px solid #34284e;
+    padding: 7px 14px;
+    border: 1px solid rgba(255, 255, 255, 0.14);
     border-radius: 999px;
     background: transparent;
-    color: #b9acd6;
-    font-size: 0.82rem;
-    font-weight: 600;
+    color: var(--ink-2);
+    font-size: var(--text-sm);
+    font-weight: 500;
     cursor: pointer;
-    transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+    transition: background var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out),
+      color var(--dur-fast) var(--ease-out);
   }
 
   .seg-btn:hover:not(.active) {
-    background: rgba(var(--accent-rgb), 0.1);
+    background: rgba(255, 255, 255, 0.06);
     color: #ffffff;
   }
 
   .seg-btn.active {
-    background: rgba(var(--accent-rgb), 0.22);
-    border-color: rgba(var(--accent-rgb), 0.55);
+    background: var(--surface-2);
+    border-color: rgba(255, 255, 255, 0.3);
     color: #ffffff;
+    font-weight: 600;
   }
 
   /* Quality picker — three tiles with a bold label + a faint
@@ -7402,7 +7510,7 @@
   .crossfade-value {
     min-width: 70px;
     text-align: right;
-    color: #d4c9e8;
+    color: #e6dfea;
     font-size: 0.88rem;
     font-weight: 600;
     font-variant-numeric: tabular-nums;
@@ -7416,6 +7524,7 @@
   }
   /* iOS-style toggle switch for the EQ on/off */
   .eq-toggle {
+    color: #ffffff;
     position: relative;
     width: 44px;
     height: 24px;
@@ -7457,10 +7566,10 @@
   }
   .eq-preset {
     padding: 0.32rem 0.7rem;
-    border: 1px solid #34284e;
+    border: 1px solid rgba(255, 255, 255, 0.14);
     border-radius: 8px;
     background: transparent;
-    color: #b9acd6;
+    color: var(--ink-2);
     font-size: 0.8rem;
     font-weight: 600;
     cursor: pointer;
@@ -7503,13 +7612,13 @@
   }
   .eq-band-db {
     font-size: 0.68rem;
-    color: #8c7da8;
+    color: var(--ink-3);
     font-variant-numeric: tabular-nums;
     min-height: 0.9rem;
   }
   .eq-band-label {
     font-size: 0.68rem;
-    color: #8c7da8;
+    color: var(--ink-3);
   }
   .eq-slider {
     appearance: none;
@@ -7534,7 +7643,7 @@
   }
   .eq-slider:disabled::-webkit-slider-thumb {
     background: #6b6280;
-    border-color: #b9acd6;
+    border-color: var(--ink-2);
   }
   .quality-btn {
     flex: 1 1 130px;
@@ -7542,10 +7651,10 @@
     flex-direction: column;
     gap: 0.2rem;
     padding: 0.7rem 0.85rem;
-    border: 1px solid #34284e;
+    border: 1px solid rgba(255, 255, 255, 0.14);
     border-radius: 10px;
     background: transparent;
-    color: #b9acd6;
+    color: var(--ink-2);
     cursor: pointer;
     transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
     text-align: left;
@@ -7565,10 +7674,10 @@
   }
   .quality-sub {
     font-size: 0.74rem;
-    color: #8c7da8;
+    color: var(--ink-3);
   }
   .quality-btn.active .quality-sub {
-    color: #b9acd6;
+    color: var(--ink-2);
   }
 
   .settings-btn.donate {
@@ -7596,14 +7705,16 @@
 
   /* ---- search ------------------------------------------------------------- */
 
+  /* Base button = primary action: solid accent pill (the accent follows
+     the cover). Every specialised button overrides what it needs. */
   button {
-    padding: 0.65rem 1.4rem;
+    padding: 0.6rem 1.2rem;
     border: none;
-    border-radius: 9px;
-    background: linear-gradient(135deg, #a22ff0, #e24dff);
-    color: #ffffff;
-    font-size: 0.9rem;
-    font-weight: 700;
+    border-radius: 999px;
+    background: var(--accent);
+    color: #150b18;
+    font-size: var(--text-md);
+    font-weight: 600;
     cursor: pointer;
   }
 
@@ -7614,8 +7725,8 @@
 
   .status {
     margin: 0;
-    color: #b9acd6;
-    font-size: 0.88rem;
+    color: var(--ink-2);
+    font-size: var(--text-md);
   }
 
   /* Generic spinner — replaces "Загружаю..." text. Spins one accent-coloured
@@ -8203,7 +8314,7 @@
     background: rgba(255, 60, 120, 0.07);
   }
   .bulk-result-line {
-    color: #d4c9e8;
+    color: #e6dfea;
     font-size: 0.85rem;
   }
   .bulk-result-actions {
@@ -8479,7 +8590,7 @@
     letter-spacing: -0.01em;
   }
   .artist-sub {
-    color: #a99bc9;
+    color: var(--ink-2);
     font-size: 0.92rem;
   }
   .artist-actions {
@@ -8557,6 +8668,15 @@
   .seek:focus,
   .seek:focus-visible {
     outline: none;
+  }
+  /* Keyboard focus: no ring around the 25px hit area — show the thumb
+     and thicken the track instead, same as hover. */
+  .seek:focus-visible::-webkit-slider-thumb {
+    opacity: 1;
+    margin-top: -3px;
+  }
+  .seek:focus-visible::-webkit-slider-runnable-track {
+    height: 5px;
   }
   .seek-wrap,
   .seek-wrap:focus-within {
@@ -8879,7 +8999,7 @@
     z-index: 1000;
     min-width: 200px;
     padding: 0.3rem;
-    background: rgba(26, 18, 44, 0.96);
+    background: rgba(22, 19, 28, 0.96);
     backdrop-filter: blur(18px);
     -webkit-backdrop-filter: blur(18px);
     border: 1px solid rgba(255, 255, 255, 0.08);
@@ -8909,7 +9029,7 @@
     border: none;
     border-radius: 6px;
     background: transparent;
-    color: #d4c9e8;
+    color: #e6dfea;
     font-size: 0.85rem;
     font-weight: 500;
     text-align: left;
@@ -8937,7 +9057,7 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    color: #a99bc9;
+    color: var(--ink-2);
   }
   .ctx-item:hover:not(:disabled) .ctx-icon {
     color: #ffffff;
@@ -8971,7 +9091,7 @@
     min-width: 340px;
     max-width: 460px;
     padding: 1.4rem 1.5rem 1.2rem;
-    background: rgba(26, 18, 44, 0.97);
+    background: rgba(22, 19, 28, 0.97);
     backdrop-filter: blur(24px);
     -webkit-backdrop-filter: blur(24px);
     border: 1px solid rgba(255, 255, 255, 0.1);
@@ -8996,7 +9116,7 @@
     border: 1px solid rgba(255, 255, 255, 0.12);
     border-radius: 9px;
     background: transparent;
-    color: #d4c9e8;
+    color: #e6dfea;
     font-size: 0.88rem;
     font-weight: 600;
     cursor: pointer;
@@ -9052,7 +9172,7 @@
     width: min(440px, 92vw);
     max-height: min(560px, 82vh);
     padding: 1.1rem 1.2rem 1.2rem;
-    background: rgba(26, 18, 44, 0.97);
+    background: rgba(22, 19, 28, 0.97);
     backdrop-filter: blur(24px);
     -webkit-backdrop-filter: blur(24px);
     border: 1px solid rgba(255, 255, 255, 0.1);
@@ -9082,7 +9202,7 @@
     border: none;
     border-radius: 8px;
     background: transparent;
-    color: #a99bc9;
+    color: var(--ink-2);
     cursor: pointer;
     transition: background 0.12s ease, color 0.12s ease;
   }
@@ -9119,7 +9239,7 @@
   }
   .add-track-artist {
     font-size: 0.78rem;
-    color: #a99bc9;
+    color: var(--ink-2);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -9132,7 +9252,7 @@
   .add-empty {
     padding: 1.2rem 0.2rem;
     text-align: center;
-    color: #a99bc9;
+    color: var(--ink-2);
     font-size: 0.88rem;
   }
   .add-search {
@@ -9168,7 +9288,7 @@
     padding: 0;
     border: none;
     background: transparent;
-    color: #d4c9e8;
+    color: #e6dfea;
     cursor: pointer;
     text-align: left;
   }
@@ -9228,7 +9348,7 @@
     border: 1px solid rgba(255, 255, 255, 0.12);
     border-radius: 9px;
     background: transparent;
-    color: #d4c9e8;
+    color: #e6dfea;
     font-size: 0.83rem;
     font-weight: 600;
     cursor: pointer;
@@ -9246,7 +9366,7 @@
     transform: translateX(-50%);
     z-index: 999;
     padding: 0.6rem 1.1rem;
-    background: rgba(40, 26, 70, 0.92);
+    background: rgba(28, 24, 34, 0.94);
     backdrop-filter: blur(14px);
     -webkit-backdrop-filter: blur(14px);
     border: 1px solid rgba(var(--accent-rgb), 0.35);
@@ -9331,6 +9451,9 @@
   .vol:focus-visible {
     outline: none;
   }
+  .vol:focus-visible::-webkit-slider-thumb {
+    opacity: 1;
+  }
 
   .vol::-webkit-slider-runnable-track {
     height: 3px;
@@ -9384,7 +9507,7 @@
 
   .resolving-bar {
     padding: 0.4rem 2rem;
-    color: #b9acd6;
+    color: var(--ink-2);
     font-size: 0.84rem;
     background: rgba(var(--accent-rgb), 0.08);
     border-top: 1px solid #241a38;

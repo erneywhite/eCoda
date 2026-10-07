@@ -76,6 +76,27 @@
   padding: 0;
 }
 
+/* Keyboard focus ring for everything that doesn't style its own focus.
+   :focus-visible only — mouse clicks don't show it. */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* Reduced motion: CSS transitions and animations collapse to nothing,
+   except the loading spinners (their spin IS the information). Svelte
+   transitions are handled in App.svelte via motion(). */
+@media (prefers-reduced-motion: reduce) {
+  *:not(.spinner):not(.thumb-spinner),
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
 /* Form controls don't inherit the page font in Chromium. Family only —
    sizes stay as each control sets them. */
 button,
