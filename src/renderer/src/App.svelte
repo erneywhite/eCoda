@@ -794,6 +794,34 @@
   } | null>(null)
   let playStatus = $state<PlayStatus>('idle')
 
+  // ---- shell: "Now playing" column ----------------------------------------
+  // Right-hand column with the loaded track (cover, title, artist, like,
+  // radio). Only while something is loaded and the window is wide enough
+  // for three columns; below that the bottom player alone carries it.
+  const NP_COLUMN_MIN_WIDTH = 1180
+  let winWidth = $state(typeof window === 'undefined' ? 1200 : window.innerWidth)
+  const npVisible = $derived(!!playing && winWidth >= NP_COLUMN_MIN_WIDTH)
+  // The playing row as it appears in its source list — carries artistId
+  // (for the artist link) and is the seed for "track radio".
+  const playingRow = $derived(
+    playing ? (playing.sourceList?.find((r) => r.id === playing!.id) ?? null) : null
+  )
+  function startRadioFromPlaying(): void {
+    if (!playing) return
+    void startRadioFromTrack(
+      playingRow ?? {
+        id: playing.id,
+        title: playing.title,
+        artist: playing.artist,
+        duration: '',
+        thumbnail: playing.thumbnail
+      }
+    )
+  }
+
+  // Top-bar search field (the Search view no longer has its own input).
+  let topSearchEl = $state<HTMLInputElement | null>(null)
+
   // Cover of whatever is loaded (playing or paused) — drives the accent and
   // the blurred window background. Resolved ONCE per track: downloadedIds is
   // read untracked, so a track finishing its download mid-song doesn't swap
@@ -2229,6 +2257,12 @@
       closeCtxMenu()
     }
     const onWindowKeyDown = (e: KeyboardEvent): void => {
+      if ((e.ctrlKey || e.metaKey) && !e.altKey && e.code === 'KeyF' && topSearchEl) {
+        e.preventDefault()
+        topSearchEl.focus()
+        topSearchEl.select()
+        return
+      }
       if (e.key === 'Escape') {
         // Confirm dialog wins over context menu — both shouldn't be
         // open at the same time, but if they are, dismissing the
@@ -3456,6 +3490,8 @@
   }
 </script>
 
+<svelte:window bind:innerWidth={winWidth} />
+
 <main class:mini={miniMode} class:platform-mac={isMac}>
   {#if !miniMode}
     <!-- The playing cover, blurred, behind the whole window. Keyed on the
@@ -3478,100 +3514,67 @@
       <div class="cover-backdrop-shade"></div>
     </div>
   {/if}
-  {#if !miniMode}
-    <header>
-    <img class="wordmark" src={wordmark} alt="eCoda" />
-    {#if connectedBrowser}
-      <div class="history-nav">
+  <!-- Custom window controls. Hidden on macOS where the native traffic
+       lights (left side, positioned via trafficLightPosition in main)
+       cover min/max/close already. Rendered in the window's top-right
+       corner: the "Now playing" column when it's open, otherwise the end
+       of the top bar (or the connect-screen header). The maximize/restore
+       icon swaps based on `windowMaximized`, seeded on mount and re-synced
+       via window:maximize-changed so Aero snap / OS gestures stay
+       reflected. -->
+  {#snippet windowControls()}
+      <div class="window-controls">
         <button
-          class="hist"
-          onclick={goBack}
-          disabled={!canBack}
-          aria-label={t('nav.back')}
-          title={t('nav.back')}
+          class="win-ctrl"
+          onclick={() => void window.api.window.minimize()}
+          aria-label={t('window.minimize')}
+          title={t('window.minimize')}
         >
-          ‹
+          <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+            <line x1="5" y1="13" x2="19" y2="13" />
+          </svg>
         </button>
         <button
-          class="hist"
-          onclick={goForward}
-          disabled={!canForward}
-          aria-label={t('nav.forward')}
-          title={t('nav.forward')}
+          class="win-ctrl"
+          onclick={async () => {
+            windowMaximized = await window.api.window.toggleMaximize()
+          }}
+          aria-label={windowMaximized ? t('window.restore') : t('window.maximize')}
+          title={windowMaximized ? t('window.restore') : t('window.maximize')}
         >
-          ›
-        </button>
-        {#if playing}
-          <!-- Mini-player entry button — only shown when a track is
-               loaded, since there's nothing for the mini view to
-               render otherwise. Sits next to nav since it's a window-
-               level switch, like the window controls on the right. -->
-          <button
-            class="hist mini-enter"
-            onclick={() => void window.api.window.enterMini('compact')}
-            aria-label={t('mini.enter')}
-            title={t('mini.enter')}
-          >
-            <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
-              <path d="M19 11h-8v6h8v-6zm4 8V4.98C23 3.88 22.1 3 21 3H3c-1.1 0-2 .88-2 1.98V19c0 1.1.9 2 2 2h18c1.1 0 2-.9 2-2zm-2 .02H3V4.97h18v14.05z"/>
+          {#if windowMaximized}
+            <!-- Restore icon: two overlapping rectangles -->
+            <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round">
+              <rect x="7" y="4" width="13" height="13" rx="1.5" />
+              <path d="M4 7v13h13" />
             </svg>
-          </button>
-        {/if}
+          {:else}
+            <!-- Maximize icon: single rounded rectangle -->
+            <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.8">
+              <rect x="5" y="5" width="14" height="14" rx="1.5" />
+            </svg>
+          {/if}
+        </button>
+        <button
+          class="win-ctrl close"
+          onclick={() => void window.api.window.close()}
+          aria-label={t('window.close')}
+          title={t('window.close')}
+        >
+          <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+            <path d="M6 6l12 12M18 6L6 18" />
+          </svg>
+        </button>
       </div>
+  {/snippet}
+
+  {#if !miniMode}
+    {#if !connectedBrowser}
+      <header>
+        <img class="wordmark" src={wordmark} alt="eCoda" />
+        {#if !isMac}{@render windowControls()}{/if}
+      </header>
     {/if}
-    <!-- Custom window controls. Hidden on macOS where the native traffic
-         lights (left side, positioned via trafficLightPosition in main)
-         cover min/max/close already. On Windows our `titleBarStyle:
-         'hidden'` leaves no native controls, so these three render. The
-         maximize/restore icon swaps based on `windowMaximized`, which
-         is seeded on mount and re-synced via window:maximize-changed
-         so Aero snap / OS gestures stay reflected. -->
-    {#if !isMac}
-    <div class="window-controls">
-      <button
-        class="win-ctrl"
-        onclick={() => void window.api.window.minimize()}
-        aria-label={t('window.minimize')}
-        title={t('window.minimize')}
-      >
-        <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
-          <line x1="5" y1="13" x2="19" y2="13" />
-        </svg>
-      </button>
-      <button
-        class="win-ctrl"
-        onclick={async () => {
-          windowMaximized = await window.api.window.toggleMaximize()
-        }}
-        aria-label={windowMaximized ? t('window.restore') : t('window.maximize')}
-        title={windowMaximized ? t('window.restore') : t('window.maximize')}
-      >
-        {#if windowMaximized}
-          <!-- Restore icon: two overlapping rectangles -->
-          <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round">
-            <rect x="7" y="4" width="13" height="13" rx="1.5" />
-            <path d="M4 7v13h13" />
-          </svg>
-        {:else}
-          <!-- Maximize icon: single rounded rectangle -->
-          <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.8">
-            <rect x="5" y="5" width="14" height="14" rx="1.5" />
-          </svg>
-        {/if}
-      </button>
-      <button
-        class="win-ctrl close"
-        onclick={() => void window.api.window.close()}
-        aria-label={t('window.close')}
-        title={t('window.close')}
-      >
-        <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
-          <path d="M6 6l12 12M18 6L6 18" />
-        </svg>
-      </button>
-    </div>
-    {/if}
-  </header>
 
   {#if !connectedBrowser}
     <section class="card">
@@ -3606,53 +3609,39 @@
   {:else}
     <div class="layout">
       <aside class="sidebar">
-        <button
-          class="nav"
-          class:active={view === 'home'}
-          onclick={() => navigate({ kind: 'home' })}
-        >
-          <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
-            <path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z" />
-          </svg>
-          {t('nav.home')}
-        </button>
-        <button
-          class="nav"
-          class:active={view === 'search'}
-          onclick={() => navigate({ kind: 'search' })}
-        >
-          <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
-            <path
-              d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"
-            />
-          </svg>
-          {t('nav.search')}
-        </button>
-        <button
-          class="nav"
-          class:active={view === 'library'}
-          onclick={openLibrary}
-        >
-          <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
-            <path
-              d="M4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6zm16-4H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-1 9H9V9h10v2zm-4 4H9v-2h6v2zm4-8H9V5h10v2z"
-            />
-          </svg>
-          {t('nav.library')}
-        </button>
-        <button
-          class="nav"
-          class:active={view === 'playlist' && isDownloadedId(openPlaylistId)}
-          onclick={() => navigate({ kind: 'playlist', id: DOWNLOADED_ID })}
-        >
-          <!-- material download icon: down-arrow into a tray -->
-          <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
-            <path d="M5 20h14v-2H5v2zM19 9h-4V3H9v6H5l7 7 7-7z" />
-          </svg>
-          {t('nav.downloaded')}
-        </button>
+        <div class="sidebar-brand">
+          <img class="wordmark" src={wordmark} alt="eCoda" />
+        </div>
+        <nav class="side-nav" aria-label={t('nav.sections')}>
+          <button
+            class="nav"
+            class:active={view === 'home'}
+            onclick={() => navigate({ kind: 'home' })}
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M3 10.5 12 3l9 7.5V21h-6v-6H9v6H3z" /></svg>
+            {t('nav.home')}
+          </button>
+          <button
+            class="nav"
+            class:active={view === 'library'}
+            onclick={openLibrary}
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M5 4v16M10 4v16M15 4l5 16" /></svg>
+            {t('nav.library')}
+          </button>
+          <button
+            class="nav"
+            class:active={view === 'playlist' && isDownloadedId(openPlaylistId)}
+            onclick={() => navigate({ kind: 'playlist', id: DOWNLOADED_ID })}
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11m0 0-4-4m4 4 4-4M5 20h14" /></svg>
+            {t('nav.downloaded')}
+          </button>
+        </nav>
 
         {#if pinnedPlaylists.length > 0}
+          <div class="side-group">
+          <div class="side-label">{t('nav.pinned')}</div>
           <div class="pin-list">
             {#each pinnedPlaylists as p (p.id)}
               <button
@@ -3664,11 +3653,12 @@
               >
                 <div
                   class="pin-thumb"
+                  class:liked-thumb={!p.thumbnail && isLikedMusicId(p.id)}
                   style:background-image={p.thumbnail ? `url("${p.thumbnail}")` : 'none'}
                 >
                   {#if !p.thumbnail && isLikedMusicId(p.id)}
-                    <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
-                      <path d="M9 21h10a2 2 0 0 0 2-2v-9a2 2 0 0 0-2-2h-6.31l.95-4.57.03-.32a1.5 1.5 0 0 0-.44-1.06L12.17 1 5.59 7.59A2 2 0 0 0 5 9v10a2 2 0 0 0 2 2h2zM1 9h4v12H1z"/>
+                    <svg viewBox="0 0 24 24" width="17" height="17" fill="currentColor" aria-hidden="true">
+                      <path d="M12 20s-7-4.5-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.5-7 10-7 10z" />
                     </svg>
                   {/if}
                 </div>
@@ -3700,6 +3690,7 @@
               </button>
             {/each}
           </div>
+          </div>
         {/if}
 
         <div class="nav-spacer"></div>
@@ -3708,14 +3699,62 @@
           class:active={view === 'settings'}
           onclick={() => navigate({ kind: 'settings' })}
         >
-          <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
-            <path
-              d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58a.49.49 0 0 0 .12-.61l-1.92-3.32a.488.488 0 0 0-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.488.488 0 0 0-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58a.49.49 0 0 0-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6A3.6 3.6 0 0 1 8.4 12 3.6 3.6 0 0 1 12 8.4a3.6 3.6 0 0 1 3.6 3.6 3.6 3.6 0 0 1-3.6 3.6z"
-            />
-          </svg>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M4 6h9M17 6h3M4 12h3M11 12h9M4 18h11M19 18h1" /><circle cx="15" cy="6" r="2" /><circle cx="9" cy="12" r="2" /><circle cx="17" cy="18" r="2" /></svg>
           {t('nav.settings')}
         </button>
       </aside>
+
+      <div class="center">
+        <div class="topbar">
+            <div class="history-nav">
+              <button
+                class="hist"
+                onclick={goBack}
+                disabled={!canBack}
+                aria-label={t('nav.back')}
+                title={t('nav.back')}
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7" /></svg>
+              </button>
+              <button
+                class="hist"
+                onclick={goForward}
+                disabled={!canForward}
+                aria-label={t('nav.forward')}
+                title={t('nav.forward')}
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 5l7 7-7 7" /></svg>
+              </button>
+              {#if playing}
+                <!-- Mini-player entry button — only shown when a track is
+                     loaded, since there's nothing for the mini view to
+                     render otherwise. Sits next to nav since it's a window-
+                     level switch, like the window controls on the right. -->
+                <button
+                  class="hist mini-enter"
+                  onclick={() => void window.api.window.enterMini('compact')}
+                  aria-label={t('mini.enter')}
+                  title={t('mini.enter')}
+                >
+                  <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
+                    <path d="M19 11h-8v6h8v-6zm4 8V4.98C23 3.88 22.1 3 21 3H3c-1.1 0-2 .88-2 1.98V19c0 1.1.9 2 2 2h18c1.1 0 2-.9 2-2zm-2 .02H3V4.97h18v14.05z"/>
+                  </svg>
+                </button>
+              {/if}
+            </div>
+          <label class="top-search">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="M20 20l-3.5-3.5" /></svg>
+            <input
+              type="search"
+              bind:this={topSearchEl}
+              bind:value={query}
+              placeholder={t('search.placeholder')}
+              aria-label={t('nav.search')}
+              onkeydown={(e) => e.key === 'Enter' && doSearch()}
+            />
+          </label>
+          {#if !npVisible && !isMac}{@render windowControls()}{/if}
+        </div>
 
       <section class="view-wrap">
         {#if view === 'home'}
@@ -3748,17 +3787,12 @@
             <p class="status">Главная пуста.</p>
           {/if}
         {:else if view === 'search'}
-          <div class="search-bar">
-            <input
-              type="text"
-              bind:value={query}
-              placeholder={t('search.placeholder')}
-              onkeydown={(e) => e.key === 'Enter' && doSearch()}
-            />
-            <button onclick={doSearch} disabled={searching}>
-              {searching ? t('search.button.busy') : t('search.button.idle')}
-            </button>
-          </div>
+          {#if !searched && !searching && !searchError}
+            <p class="status">{t('search.hint')}</p>
+          {/if}
+          {#if searching}
+            <div class="spinner"></div>
+          {/if}
           {#if searchError}
             <p class="status error">{t('search.error', { error: searchError })}</p>
           {/if}
@@ -4875,6 +4909,49 @@
           {/if}
         {/if}
       </section>
+      </div>
+
+      {#if npVisible && playing}
+        <aside class="np-col" aria-label={t('np.label')}>
+          <div class="np-top">
+            {#if !isMac}{@render windowControls()}{/if}
+          </div>
+          <div class="np-label" title={playing.sourceListTitle ?? ''}>
+            {playing.sourceListTitle
+              ? t('np.labelFrom', { title: playing.sourceListTitle })
+              : t('np.label')}
+          </div>
+          <img class="np-col-cover" src={coverUrl} alt="" />
+          <div class="np-col-meta">
+            <h2 class="np-col-title" title={playing.title}>{playing.title}</h2>
+            {#if playingRow?.artistId}
+              <button
+                class="np-col-artist link"
+                onclick={() => openArtist(playingRow!.artistId!)}
+                title={playing.artist}
+              >
+                {playing.artist}
+              </button>
+            {:else}
+              <div class="np-col-artist" title={playing.artist}>{playing.artist}</div>
+            {/if}
+          </div>
+          <div class="np-col-actions">
+            <button
+              class="np-icon-btn"
+              class:liked={playingLiked}
+              onclick={() => void togglePlayingLikeFromBar()}
+              aria-label={playingLiked ? t('like.remove') : t('like.add')}
+              title={playingLiked ? t('like.remove') : t('like.add')}
+            >
+              <svg width="22" height="22" viewBox="0 0 24 24" fill={playingLiked ? 'currentColor' : 'none'} stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M12 20s-7-4.5-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.5-7 10-7 10z" /></svg>
+            </button>
+            <button class="np-pill" onclick={startRadioFromPlaying}>
+              {t('ctx.startRadio')}
+            </button>
+          </div>
+        </aside>
+      {/if}
     </div>
   {/if}
   {/if}
@@ -6040,7 +6117,8 @@
      otherwise clicks land as drag attempts and the buttons feel dead. */
   .wordmark,
   .hist,
-  .win-ctrl {
+  .win-ctrl,
+  .top-search {
     -webkit-app-region: no-drag;
   }
 
@@ -6077,33 +6155,34 @@
   /* History (back / forward) controls — sit next to the disconnect button
      in the right side of the header. Disabled state reads dimmer. */
   .history-nav {
-    margin-left: auto;
     display: flex;
-    gap: 0.3rem;
+    align-items: center;
+    gap: var(--space-2);
+    flex: none;
   }
 
   .hist {
-    width: 32px;
-    height: 32px;
+    width: 34px;
+    height: 34px;
     padding: 0;
-    border: 1px solid #34284e;
+    border: 0;
     border-radius: 50%;
-    background: transparent;
-    color: #b9acd6;
-    font-size: 1.2rem;
-    line-height: 1;
+    background: var(--scrim);
+    color: var(--ink-1);
+    display: inline-grid;
+    place-items: center;
     cursor: pointer;
-    transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+    transition: background var(--dur-base) var(--ease-out), color var(--dur-base) var(--ease-out);
   }
 
   .hist:hover:not(:disabled) {
-    background: rgba(var(--accent-rgb), 0.18);
-    border-color: rgba(var(--accent-rgb), 0.5);
+    background: rgba(255, 255, 255, 0.14);
     color: #ffffff;
   }
 
   .hist:disabled {
-    opacity: 0.4;
+    color: var(--ink-3);
+    opacity: 0.6;
     cursor: default;
   }
 
@@ -6118,35 +6197,32 @@
   .window-controls {
     display: flex;
     align-self: center;
-    gap: 0.3rem;
-    margin-left: 0.6rem;
-    padding-right: 0.8rem;
+    gap: 2px;
+    margin-left: auto;
   }
   .win-ctrl {
-    width: 32px;
-    height: 32px;
+    width: 36px;
+    height: 30px;
     padding: 0;
-    border: 1px solid #34284e;
-    border-radius: 8px;
+    border: 0;
+    border-radius: var(--radius-xs);
     background: transparent;
-    color: #b9acd6;
+    color: var(--ink-2);
     display: inline-flex;
     align-items: center;
     justify-content: center;
     cursor: pointer;
-    transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+    transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
   }
   .win-ctrl:hover {
-    background: rgba(var(--accent-rgb), 0.18);
-    border-color: rgba(var(--accent-rgb), 0.5);
+    background: rgba(255, 255, 255, 0.08);
     color: #ffffff;
   }
   .win-ctrl:active {
-    background: rgba(var(--accent-rgb), 0.32);
+    background: rgba(255, 255, 255, 0.14);
   }
   .win-ctrl.close:hover {
-    background: rgba(255, 60, 120, 0.85);
-    border-color: rgba(255, 107, 157, 0.8);
+    background: rgba(232, 17, 35, 0.9);
     color: #ffffff;
   }
   .win-ctrl.close:active {
@@ -6203,50 +6279,243 @@
 
   /* ---- layout ------------------------------------------------------------- */
 
+  /* ---- shell (1.6.0) ---------------------------------------------------
+     Three columns over the blurred cover: sidebar · centre (top bar +
+     view) · "Now playing" (only while a track is loaded and the window
+     is ≥ NP_COLUMN_MIN_WIDTH wide). No glass cards — the panels sit
+     straight on the background, the column gets a light scrim. */
   .layout {
     display: grid;
-    /* 200px wide enough to show "Понравившаяся музыка" without an
-       ellipsis and to keep pinned playlist names mostly readable.
-       Left page padding is reduced from 2rem → 1rem to give the
-       sidebar that extra space rather than leaving an empty gutter
-       between window edge and the card. */
-    grid-template-columns: 200px 1fr;
+    grid-template-columns: 232px minmax(0, 1fr);
     flex: 1;
     min-height: 0;
-    gap: 1rem;
-    padding: 0 2rem 0 1rem;
+  }
+  .layout:has(> .np-col) {
+    grid-template-columns: 232px minmax(0, 1fr) clamp(300px, 24vw, 360px);
   }
 
   .sidebar {
     display: flex;
     flex-direction: column;
-    gap: 0.25rem;
-    padding: 0.8rem 0.5rem;
-    background: rgba(255, 255, 255, 0.04);
-    border: 1px solid rgba(255, 255, 255, 0.07);
-    border-radius: 16px;
-    backdrop-filter: blur(24px);
-    -webkit-backdrop-filter: blur(24px);
-    /* Stretch the full layout height so .nav-spacer can push Settings
-       to the bottom of the card. */
-    margin: 0.5rem 0;
+    gap: 28px;
+    padding: 18px 12px 16px 16px;
     min-height: 0;
+  }
+  /* macOS: the traffic lights sit top-left (trafficLightPosition in main);
+     drop the wordmark below them. */
+  main.platform-mac .sidebar {
+    padding-top: 46px;
+  }
+  .sidebar-brand {
+    flex: none;
+    -webkit-app-region: drag;
+  }
+  .sidebar-brand .wordmark {
+    width: 150px;
+    height: 49px;
+    object-position: left center;
+    -webkit-app-region: drag;
+  }
+  .side-nav {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .side-group {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+    min-height: 0;
+  }
+  .side-label {
+    font-size: var(--text-sm);
+    font-weight: 600;
+    color: var(--ink-3);
+    padding: 0 12px 6px;
+  }
+
+  .center {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    min-height: 0;
+  }
+  /* Top bar = drag region of the frameless window (buttons and the search
+     field opt out via the no-drag list above). */
+  .topbar {
+    height: 64px;
+    flex: none;
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    padding: 0 20px 0 32px;
+    -webkit-app-region: drag;
+  }
+  .top-search {
+    flex: 0 1 460px;
+    min-width: 0;
+    height: 40px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 0 16px;
+    border-radius: 20px;
+    background: rgba(0, 0, 0, 0.32);
+    color: var(--ink-2);
+    cursor: text;
+    transition: box-shadow var(--dur-base) var(--ease-out);
+  }
+  .top-search:focus-within {
+    box-shadow: 0 0 0 2px rgba(var(--accent-rgb), 0.7);
+  }
+  .top-search input {
+    flex: 1;
+    min-width: 0;
+    border: 0;
+    outline: 0;
+    background: transparent;
+    color: var(--ink-1);
+    font-size: var(--text-md);
+  }
+  .top-search input::placeholder {
+    color: var(--ink-3);
+  }
+
+  /* ---- "Now playing" column ---- */
+  .np-col {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    min-width: 0;
+    min-height: 0;
+    padding: 0 24px 20px;
+    overflow-y: auto;
+    background: rgba(0, 0, 0, 0.22);
+    border-left: 1px solid var(--hairline);
+  }
+  .np-top {
+    height: 64px;
+    flex: none;
+    display: flex;
+    align-items: center;
+    -webkit-app-region: drag;
+  }
+  .np-label {
+    font-size: var(--text-md);
+    font-weight: 600;
+    color: var(--accent);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .np-col-cover {
+    width: 100%;
+    aspect-ratio: 1 / 1;
+    flex: none;
+    object-fit: cover;
+    border-radius: var(--radius-lg);
+    box-shadow: 0 24px 60px rgba(0, 0, 0, 0.55);
+  }
+  .np-col-meta {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
+  }
+  .np-col-title {
+    margin: 0;
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-size: 26px;
+    line-height: 1.1;
+    letter-spacing: -0.01em;
+    color: var(--ink-1);
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    overflow-wrap: anywhere;
+  }
+  .np-col-artist {
+    font-size: var(--text-lg);
+    font-weight: 400;
+    color: #e3d9e6;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    text-align: left;
+  }
+  button.np-col-artist {
+    padding: 0;
+    border: 0;
+    background: none;
+    font-family: inherit;
+    cursor: pointer;
+  }
+  button.np-col-artist:hover {
+    color: #ffffff;
+    text-decoration: underline;
+    text-underline-offset: 3px;
+  }
+  .np-col-actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .np-icon-btn {
+    width: 44px;
+    height: 44px;
+    flex: none;
+    padding: 0;
+    border-radius: 50%;
+    border: 0;
+    background: transparent;
+    color: #e3d9e6;
+    display: grid;
+    place-items: center;
+    cursor: pointer;
+    transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
+  }
+  .np-icon-btn:hover {
+    background: rgba(255, 255, 255, 0.08);
+    color: #ffffff;
+  }
+  .np-icon-btn.liked {
+    color: var(--accent);
+  }
+  .np-pill {
+    height: 40px;
+    padding: 0 18px;
+    border-radius: 20px;
+    border: 1px solid var(--outline);
+    background: transparent;
+    color: var(--ink-1);
+    font-size: var(--text-md);
+    font-weight: 500;
+    cursor: pointer;
+    transition: background var(--dur-fast) var(--ease-out);
+  }
+  .np-pill:hover {
+    background: rgba(255, 255, 255, 0.08);
   }
 
   .nav {
     display: flex;
     align-items: center;
-    gap: 0.65rem;
+    gap: 12px;
+    height: 40px;
+    flex: none;
     text-align: left;
-    padding: 0.6rem 0.85rem;
+    padding: 0 12px;
     border: none;
-    border-radius: 9px;
+    border-radius: var(--radius-md);
     background: transparent;
-    color: #b9acd6;
-    font-size: 0.9rem;
-    font-weight: 600;
+    color: var(--ink-nav);
+    font-size: var(--text-base);
+    font-weight: 500;
     cursor: pointer;
-    transition: background 0.15s ease, color 0.15s ease;
+    transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
   }
 
   .nav svg {
@@ -6259,18 +6528,14 @@
   }
 
   .nav:hover:not(:disabled) {
-    background: rgba(255, 255, 255, 0.05);
+    background: var(--surface-hover);
     color: #ffffff;
   }
 
   .nav.active {
-    background: linear-gradient(
-      90deg,
-      rgba(var(--accent-rgb), 0.28),
-      rgba(var(--accent-rgb), 0.10)
-    );
+    background: var(--surface-2);
     color: #ffffff;
-    box-shadow: 0 4px 18px rgba(var(--accent-rgb), 0.18);
+    font-weight: 600;
   }
 
   .nav:disabled {
@@ -6291,10 +6556,7 @@
   .pin-list {
     display: flex;
     flex-direction: column;
-    gap: 0.15rem;
-    margin: 0.4rem 0 0.4rem 0.4rem;
-    padding-top: 0.4rem;
-    border-top: 1px solid rgba(255, 255, 255, 0.06);
+    gap: 2px;
     overflow-y: auto;
     min-height: 0;
     flex-shrink: 1;
@@ -6304,34 +6566,35 @@
     position: relative;
     display: flex;
     align-items: center;
-    gap: 0.5rem;
-    padding: 0.4rem 0.55rem;
+    gap: 10px;
+    padding: 6px 12px;
     border: none;
-    border-radius: 8px;
+    border-radius: var(--radius-md);
     background: transparent;
-    color: #a99bc9;
-    font-size: 0.82rem;
+    color: #e6dfea;
+    font-size: var(--text-md);
     font-weight: 500;
     cursor: pointer;
     text-align: left;
-    transition: background 0.15s ease, color 0.15s ease;
+    transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
   }
 
   .pin-row:hover {
-    background: rgba(255, 255, 255, 0.04);
+    background: var(--surface-hover);
     color: #ffffff;
   }
 
   .pin-row.active {
-    background: rgba(var(--accent-rgb), 0.18);
+    background: var(--surface-2);
     color: #ffffff;
+    font-weight: 600;
   }
 
   .pin-thumb {
     flex: 0 0 auto;
-    width: 24px;
-    height: 24px;
-    border-radius: 5px;
+    width: 36px;
+    height: 36px;
+    border-radius: var(--radius-sm);
     background-color: rgba(255, 255, 255, 0.06);
     background-position: center;
     background-size: cover;
@@ -6340,6 +6603,10 @@
     align-items: center;
     justify-content: center;
     color: rgba(255, 255, 255, 0.7);
+  }
+  .pin-thumb.liked-thumb {
+    background-image: linear-gradient(135deg, #8e5cf6, #ff6f91) !important;
+    color: #ffffff;
   }
 
   .pin-title {
@@ -6990,38 +7257,16 @@
   }
 
   .view-wrap {
+    flex: 1;
+    min-height: 0;
     overflow-y: auto;
-    padding: 0.5rem 0 1.5rem 0;
+    padding: 8px 32px 24px 32px;
     display: flex;
     flex-direction: column;
     gap: 1.6rem;
   }
 
   /* ---- search ------------------------------------------------------------- */
-
-  .search-bar {
-    display: flex;
-    gap: 0.6rem;
-    margin-bottom: 0.4rem;
-  }
-
-  /* Scoped to the search bar — was a global `input` rule, which also
-     bled onto .seek and .vol (range inputs) and put a 1px purple line
-     around them on focus, reading as a halo around the player card. */
-  .search-bar input {
-    flex: 1;
-    padding: 0.65rem 0.85rem;
-    border: 1px solid #34284e;
-    border-radius: 9px;
-    background: #0e0a16;
-    color: #ffffff;
-    font-size: 0.9rem;
-    outline: none;
-  }
-
-  .search-bar input:focus {
-    border-color: #a22ff0;
-  }
 
   button {
     padding: 0.65rem 1.4rem;

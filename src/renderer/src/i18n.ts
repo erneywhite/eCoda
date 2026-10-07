@@ -18,6 +18,10 @@ const RU: Strings = {
   'nav.library': 'Библиотека',
   'nav.downloaded': 'Скачанные',
   'nav.settings': 'Настройки',
+  'nav.pinned': 'Закреплённые',
+  'nav.sections': 'Разделы',
+  'np.label': 'Сейчас играет',
+  'np.labelFrom': 'Сейчас играет · из «{title}»',
   'downloaded.title': 'Скачанные',
   'downloaded.subtitle': 'Доступны оффлайн',
   'downloaded.empty': 'Ничего ещё не скачано. Используй ↓ на треке или 📥 на плейлисте.',
@@ -49,6 +53,7 @@ const RU: Strings = {
   'search.button.idle': 'Найти',
   'search.button.busy': 'Ищу…',
   'search.empty': 'Ничего не нашлось по запросу.',
+  'search.hint': 'Введи название трека, альбома или исполнителя в строке поиска сверху.',
   'search.error': 'Поиск не получился: {error}',
 
   // Home / Library generic
@@ -294,6 +299,10 @@ const EN: Strings = {
   'nav.library': 'Library',
   'nav.downloaded': 'Downloaded',
   'nav.settings': 'Settings',
+  'nav.pinned': 'Pinned',
+  'nav.sections': 'Sections',
+  'np.label': 'Now playing',
+  'np.labelFrom': 'Now playing · from “{title}”',
   'downloaded.title': 'Downloaded',
   'downloaded.subtitle': 'Available offline',
   'downloaded.empty': 'Nothing downloaded yet. Use ↓ on a track or 📥 on a playlist.',
@@ -323,6 +332,7 @@ const EN: Strings = {
   'search.button.idle': 'Search',
   'search.button.busy': 'Searching…',
   'search.empty': 'Nothing matched your query.',
+  'search.hint': 'Type a track, album or artist into the search field at the top.',
   'search.error': 'Search failed: {error}',
 
   'home.loading': 'Loading home…',
