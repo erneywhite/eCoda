@@ -148,6 +148,9 @@
 
   // ---- search view ----------------------------------------------------------
   let query = $state('')
+  // The query the current results belong to (the field may have been
+  // edited since) — shown in the results heading.
+  let searchedQuery = $state('')
   let searching = $state(false)
   let searchError = $state('')
   let searchResults = $state<SearchResult[]>([])
@@ -2692,6 +2695,7 @@
     searchError = ''
     try {
       searchResults = await window.api.metadata.search(q)
+      searchedQuery = q
       searched = true
     } catch (e) {
       searchError = e instanceof Error ? e.message : String(e)
@@ -4017,8 +4021,9 @@
             <p class="status">{t('search.empty')}</p>
           {/if}
           {#if searchResults.length > 0}
+            <h3 class="results-title">{t('search.resultsFor', { query: searchedQuery })}</h3>
             <ul class="track-list">
-              {#each searchResults as r (r.id)}
+              {#each searchResults as r, i (r.id)}
                 <li class="track-li">
                   <button
                     class="track-row"
@@ -4026,6 +4031,13 @@
                     onclick={() => playTrack(r, searchResults)}
                     oncontextmenu={(e) => openCtxMenu(e, r, searchResults)}
                   >
+                    <span class="row-num" aria-hidden="true">
+                      {#if playing?.id === r.id}
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M7 4v16l13-8z" /></svg>
+                      {:else}
+                        {i + 1}
+                      {/if}
+                    </span>
                     <div
                       class="thumb"
                       class:resolving={resolvingId === r.id}
@@ -4066,8 +4078,8 @@
                     aria-label={r.liked ? t('like.remove') : t('like.add')}
                     title={r.liked ? t('like.remove') : t('like.add')}
                   >
-                    <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
-                      <path d={r.liked ? CTX_ICONS.like : CTX_ICONS.unlike} />
+                    <svg viewBox="0 0 24 24" width="18" height="18" fill={r.liked ? 'currentColor' : 'none'} stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true">
+                      <path d="M12 20s-7-4.5-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.5-7 10-7 10z" />
                     </svg>
                   </button>
                   <div class="duration">{r.duration}</div>
@@ -4318,6 +4330,17 @@
             <p class="status empty">{t('downloaded.empty')}</p>
           {/if}
           {#if playlistView && playlistView.tracks.length > 0}
+            <div class="track-head" aria-hidden="true">
+              <span class="row-num">#</span>
+              <span class="th-thumb"></span>
+              <span class="th-meta">
+                <span>{t('tracks.title')}</span>
+                <span class="th-artist">{t('tracks.artist')}</span>
+              </span>
+              <span class="th-like"></span>
+              <span class="duration">{t('tracks.time')}</span>
+              <span class="th-dl"></span>
+            </div>
             <ul class="track-list">
               <!-- Key by index+id rather than r.id alone — a playlist
                    can legitimately contain the same videoId twice (user
@@ -4353,6 +4376,13 @@
                     disabled={r.unavailable}
                     title={r.unavailable ? t('track.unavailable') : undefined}
                   >
+                    <span class="row-num" aria-hidden="true">
+                      {#if playing?.id === r.id}
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M7 4v16l13-8z" /></svg>
+                      {:else}
+                        {idx + 1}
+                      {/if}
+                    </span>
                     <div
                       class="thumb"
                       class:resolving={resolvingId === r.id}
@@ -4409,8 +4439,8 @@
                     title={r.liked ? t('like.remove') : t('like.add')}
                     disabled={r.unavailable}
                   >
-                    <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
-                      <path d={r.liked ? CTX_ICONS.like : CTX_ICONS.unlike} />
+                    <svg viewBox="0 0 24 24" width="18" height="18" fill={r.liked ? 'currentColor' : 'none'} stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true">
+                      <path d="M12 20s-7-4.5-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.5-7 10-7 10z" />
                     </svg>
                   </button>
                   <div class="duration">{r.duration}</div>
@@ -4429,7 +4459,7 @@
                     disabled={r.unavailable}
                   >
                     {#if downloadedIds.has(r.id)}
-                      ✓
+                      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5 9-10" /></svg>
                     {:else if downloadingIds.has(r.id)}
                       <!-- Filling progress ring driven by yt-dlp's live
                            percent. Background arc + foreground arc using
@@ -4463,7 +4493,7 @@
                       </span>
                       <span class="cancel-x" aria-hidden="true">✕</span>
                     {:else}
-                      ↓
+                      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11m0 0-4-4m4 4 4-4M5 20h14" /></svg>
                     {/if}
                   </button>
                 </li>
@@ -4530,7 +4560,14 @@
                         disabled={r.unavailable}
                         title={r.unavailable ? t('track.unavailable') : undefined}
                       >
-                        <div
+                        <span class="row-num" aria-hidden="true">
+                              {#if playing?.id === r.id}
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M7 4v16l13-8z" /></svg>
+                              {:else}
+                                {idx + 1}
+                              {/if}
+                            </span>
+                            <div
                           class="thumb"
                           class:resolving={resolvingId === r.id}
                           style:background-image={`url("${thumbnailFor(r.id, r.thumbnail)}")`}
@@ -4573,8 +4610,8 @@
                         title={r.liked ? t('like.remove') : t('like.add')}
                         disabled={r.unavailable}
                       >
-                        <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
-                          <path d={r.liked ? CTX_ICONS.like : CTX_ICONS.unlike} />
+                        <svg viewBox="0 0 24 24" width="18" height="18" fill={r.liked ? 'currentColor' : 'none'} stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true">
+                          <path d="M12 20s-7-4.5-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.5-7 10-7 10z" />
                         </svg>
                       </button>
                       <div class="duration">{r.duration}</div>
@@ -4593,7 +4630,7 @@
                         disabled={r.unavailable}
                       >
                         {#if downloadedIds.has(r.id)}
-                          ✓
+                          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5 9-10" /></svg>
                         {:else if downloadingIds.has(r.id)}
                           <span class="busy-content">
                             <svg class="dl-ring" viewBox="0 0 36 36" width="18" height="18">
@@ -4603,7 +4640,7 @@
                           </span>
                           <span class="cancel-x" aria-hidden="true">✕</span>
                         {:else}
-                          ↓
+                          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11m0 0-4-4m4 4 4-4M5 20h14" /></svg>
                         {/if}
                       </button>
                     </li>
@@ -6958,8 +6995,8 @@
   .playlist-actions {
     display: flex;
     align-items: center;
-    gap: 0.6rem;
-    margin-top: 0.6rem;
+    gap: 10px;
+    margin-top: 10px;
     flex-wrap: wrap;
   }
 
@@ -6974,20 +7011,19 @@
     padding: 0;
     border-radius: 50%;
     border: none;
-    background: linear-gradient(135deg, var(--accent), var(--accent-2));
-    color: #ffffff;
+    background: var(--accent);
+    color: #150b18;
     cursor: pointer;
     display: flex;
     align-items: center;
     justify-content: center;
     flex: 0 0 auto;
-    box-shadow: 0 8px 22px rgba(var(--accent-rgb), 0.35);
-    transition: transform 0.12s ease, filter 0.12s ease, box-shadow 0.12s ease;
+    box-shadow: 0 10px 28px rgba(0, 0, 0, 0.4);
+    transition: transform var(--dur-fast) var(--ease-out), filter var(--dur-fast) var(--ease-out);
   }
   .play-big:hover {
     filter: brightness(1.08);
     transform: scale(1.04);
-    box-shadow: 0 10px 26px rgba(var(--accent-rgb), 0.45);
   }
   .play-big:active {
     transform: scale(0.97);
@@ -6999,26 +7035,25 @@
     position: relative;
     height: 40px;
     min-width: 40px;
-    padding: 0 0.55rem;
+    padding: 0 14px;
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    gap: 0.25rem;
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    border-radius: 999px;
-    background: rgba(255, 255, 255, 0.04);
-    color: #d4c9e8;
+    gap: 6px;
+    border: 1px solid var(--outline);
+    border-radius: 20px;
+    background: transparent;
+    color: var(--ink-1);
+    font-weight: 500;
     cursor: pointer;
-    transition: background 0.15s, border-color 0.15s, color 0.15s;
+    transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
   }
   .dl-icon-btn:hover:not(:disabled):not(.busy) {
-    background: rgba(var(--accent-rgb), 0.18);
-    border-color: rgba(var(--accent-rgb), 0.55);
+    background: rgba(255, 255, 255, 0.08);
     color: #ffffff;
   }
   .dl-icon-btn.done {
-    color: #9eef9e;
-    border-color: rgba(158, 239, 158, 0.35);
+    color: var(--accent);
   }
   .dl-icon-btn:disabled {
     cursor: default;
@@ -7026,7 +7061,7 @@
   }
   .dl-icon-btn.busy {
     cursor: default;
-    color: #c9b8e6;
+    color: var(--ink-2);
   }
   .dl-count {
     font-size: 0.78rem;
@@ -7040,22 +7075,21 @@
   .pin-toggle {
     display: inline-flex;
     align-items: center;
-    gap: 0.4rem;
+    gap: 8px;
     height: 40px;
-    padding: 0 0.85rem;
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    border-radius: 999px;
-    background: transparent;
-    color: #d4c9e8;
-    font-size: 0.82rem;
-    font-weight: 600;
+    padding: 0 16px;
+    border: 1px solid var(--outline);
+    border-radius: 20px;
+    background: rgba(255, 255, 255, 0.08);
+    color: var(--ink-1);
+    font-size: var(--text-md);
+    font-weight: 500;
     cursor: pointer;
-    transition: background 0.15s, border-color 0.15s, color 0.15s;
+    transition: background var(--dur-fast) var(--ease-out);
   }
 
   .pin-toggle:hover {
-    background: rgba(var(--accent-rgb), 0.14);
-    border-color: rgba(var(--accent-rgb), 0.45);
+    background: rgba(255, 255, 255, 0.14);
     color: #ffffff;
   }
 
@@ -7550,6 +7584,7 @@
   }
 
   .view-wrap {
+    container: view / inline-size;
     flex: 1;
     min-height: 0;
     overflow-y: auto;
@@ -7873,46 +7908,50 @@
 
   .playlist-header {
     display: flex;
-    gap: 1.3rem;
+    gap: 28px;
     align-items: flex-end;
   }
 
   .playlist-cover {
     flex: 0 0 auto;
-    width: 200px;
-    height: 200px;
-    border-radius: 14px;
-    background-color: #0e0a16;
+    width: clamp(140px, 24cqi, 210px);
+    aspect-ratio: 1 / 1;
+    height: auto;
+    border-radius: var(--radius-lg);
+    background-color: var(--surface-base);
     background-position: center;
     background-size: cover;
     background-repeat: no-repeat;
-    box-shadow: 0 18px 44px rgba(0, 0, 0, 0.55);
+    box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5);
   }
 
   .playlist-info {
     display: flex;
     flex-direction: column;
-    gap: 0.4rem;
-    padding-bottom: 0.6rem;
+    gap: 8px;
+    min-width: 0;
   }
 
   .playlist-title {
-    color: #ffffff;
+    color: var(--ink-1);
     font-family: var(--font-display);
-    font-size: 1.8rem;
+    /* sized by the view's width (container units), not the window's */
+    font-size: clamp(24px, 4.4cqi, 44px);
     font-weight: 600;
-    line-height: 1.1;
+    line-height: 1.08;
     letter-spacing: -0.01em;
+    overflow-wrap: anywhere;
   }
 
   .playlist-subtitle {
-    color: #b9acd6;
-    font-size: 0.92rem;
+    color: #e6dcea;
+    font-size: var(--text-md);
+    font-weight: 600;
   }
 
   .playlist-count {
-    color: #8c7da8;
-    font-size: 0.82rem;
+    color: var(--ink-2);
+    font-size: var(--text-base);
   }
 
   /* (.library-frame removed — Phase B replaced the embedded webview with
@@ -7924,7 +7963,7 @@
   .track-li {
     display: flex;
     align-items: center;
-    gap: 0.4rem;
+    gap: var(--space-2);
     position: relative;
     /* Drag pickup needs to smoothly fade in the shadow + grow the
        scale; same eased values back when the row is dropped. background
@@ -7952,23 +7991,24 @@
     border: none;
     border-radius: 50%;
     background: transparent;
-    color: #b9acd6;
+    color: var(--ink-3);
     cursor: pointer;
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    transition: background 0.15s ease, color 0.15s ease, transform 0.12s ease;
+    transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out),
+      transform var(--dur-fast) var(--ease-out);
   }
   .like-btn:hover:not(:disabled) {
-    background: rgba(255, 90, 130, 0.16);
-    color: #ff6b9d;
+    background: rgba(255, 255, 255, 0.08);
+    color: #ffffff;
   }
   .like-btn.liked {
-    color: #ff5577;
+    color: var(--accent);
   }
   .like-btn.liked:hover:not(:disabled) {
-    background: rgba(255, 90, 130, 0.22);
-    color: #ff7da0;
+    background: rgba(255, 255, 255, 0.08);
+    color: var(--accent);
   }
   .like-btn:active:not(:disabled) {
     transform: scale(0.88);
@@ -8046,10 +8086,10 @@
     width: 32px;
     height: 32px;
     padding: 0;
-    border: 1px solid #2a2040;
+    border: 0;
     border-radius: 50%;
     background: transparent;
-    color: #b9acd6;
+    color: var(--ink-3);
     font-size: 1rem;
     font-weight: 700;
     line-height: 1;
@@ -8057,19 +8097,16 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+    transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
   }
 
   .dl-btn:hover:not(:disabled) {
-    background: rgba(var(--accent-rgb), 0.18);
-    border-color: rgba(var(--accent-rgb), 0.5);
+    background: rgba(255, 255, 255, 0.08);
     color: #ffffff;
   }
 
   .dl-btn.done {
-    border-color: rgba(120, 200, 120, 0.55);
-    background: rgba(120, 200, 120, 0.15);
-    color: #9eef9e;
+    color: var(--accent);
   }
 
   .dl-btn.busy {
@@ -8189,37 +8226,103 @@
 
   /* ---- track list (shared between search + playlist) ---------------------- */
 
+  /* Track tables (playlist / album / Downloaded / search / artist top
+     songs). The view is a size container: from 760px of width the artist
+     gets its own column (A layout), below that it sits under the title
+     so a quarter-screen window keeps readable titles. */
   .track-list {
     list-style: none;
     margin: 0;
     padding: 0;
     display: flex;
     flex-direction: column;
-    gap: 0.15rem;
+    gap: 2px;
+  }
+  .row-num {
+    flex: 0 0 28px;
+    text-align: right;
+    color: var(--ink-3);
+    font-size: var(--text-sm);
+    font-variant-numeric: tabular-nums;
+    display: inline-flex;
+    justify-content: flex-end;
+    align-items: center;
+  }
+  .track-row.current .row-num {
+    color: var(--accent);
+  }
+  .track-head {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: 0 0 8px;
+    margin-bottom: 4px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    color: var(--ink-3);
+    font-size: var(--text-sm);
+  }
+  .track-head .row-num {
+    margin-left: 10px;
+  }
+  /* .view-wrap spaces its children 1.6rem apart; the header belongs to
+     the table, so pull the list back up under it. */
+  .results-title + .track-list {
+    margin-top: calc(14px - 1.6rem);
+  }
+  .track-head + .track-list {
+    margin-top: calc(4px - 1.6rem);
+  }
+  .th-thumb {
+    flex: 0 0 40px;
+    margin-left: 4px;
+  }
+  /* Header cells line up with the row: the row button adds 10px padding
+     and 12px gaps where the header row has 8px gaps. */
+  .th-meta {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    gap: 16px;
+    margin: 0 10px 0 4px;
+  }
+  .th-meta > span {
+    flex: 1.5;
+  }
+  .th-meta > .th-artist {
+    flex: 1;
+    display: none;
+  }
+  .th-like,
+  .th-dl {
+    flex: 0 0 32px;
   }
 
   .track-row {
     display: flex;
     align-items: center;
-    gap: 0.85rem;
+    gap: 12px;
     width: 100%;
-    padding: 0.5rem;
+    min-height: 52px;
+    padding: 6px 10px;
     border: none;
-    border-radius: 9px;
+    border-radius: var(--radius-sm);
     background: transparent;
-    color: #ffffff;
-    font-size: 0.9rem;
+    color: var(--ink-1);
+    font-size: var(--text-base);
     font-weight: normal;
     cursor: pointer;
     text-align: left;
   }
 
   .track-row:hover:not(:disabled) {
-    background: rgba(var(--accent-rgb), 0.09);
+    background: var(--surface-hover);
   }
 
   .track-row.current {
-    background: rgba(var(--accent-rgb), 0.18);
+    background: rgba(255, 255, 255, 0.1);
+  }
+  .track-row.current .title {
+    color: var(--accent);
   }
 
   .track-row:disabled {
@@ -8248,10 +8351,10 @@
 
   .thumb {
     flex: 0 0 auto;
-    width: 48px;
-    height: 48px;
-    border-radius: 6px;
-    background-color: #0e0a16;
+    width: 40px;
+    height: 40px;
+    border-radius: var(--radius-xs);
+    background-color: rgba(255, 255, 255, 0.06);
     background-position: center;
     background-size: cover;
     background-repeat: no-repeat;
@@ -8289,12 +8392,12 @@
     min-width: 0;
     display: flex;
     flex-direction: column;
-    gap: 0.15rem;
+    gap: 2px;
   }
 
   .title {
-    color: #ffffff;
-    font-size: 0.92rem;
+    color: var(--ink-1);
+    font-size: var(--text-base);
     font-weight: 600;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -8302,11 +8405,25 @@
   }
 
   .artist {
-    color: #a99bc9;
-    font-size: 0.8rem;
+    color: var(--ink-2);
+    font-size: var(--text-sm);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+  @container view (min-width: 760px) {
+    .meta {
+      display: grid;
+      grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr);
+      align-items: center;
+      column-gap: 16px;
+    }
+    .artist {
+      font-size: var(--text-md);
+    }
+    .th-meta > .th-artist {
+      display: block;
+    }
   }
 
   /* Clickable artist name inside a track row's artist line. Hover
@@ -8378,9 +8495,10 @@
   }
 
   .duration {
-    flex: 0 0 auto;
-    color: #8c7da8;
-    font-size: 0.82rem;
+    flex: 0 0 44px;
+    text-align: right;
+    color: var(--ink-2);
+    font-size: var(--text-sm);
     font-variant-numeric: tabular-nums;
   }
 

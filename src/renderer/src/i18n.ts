@@ -60,6 +60,10 @@ const RU: Strings = {
   'search.button.idle': 'Найти',
   'search.button.busy': 'Ищу…',
   'search.empty': 'Ничего не нашлось по запросу.',
+  'tracks.title': 'Название',
+  'search.resultsFor': 'Треки по запросу «{query}»',
+  'tracks.artist': 'Исполнитель',
+  'tracks.time': 'Время',
   'search.hint': 'Введи название трека, альбома или исполнителя в строке поиска сверху.',
   'search.error': 'Поиск не получился: {error}',
 
@@ -349,6 +353,10 @@ const EN: Strings = {
   'search.button.idle': 'Search',
   'search.button.busy': 'Searching…',
   'search.empty': 'Nothing matched your query.',
+  'tracks.title': 'Title',
+  'search.resultsFor': 'Tracks for “{query}”',
+  'tracks.artist': 'Artist',
+  'tracks.time': 'Time',
   'search.hint': 'Type a track, album or artist into the search field at the top.',
   'search.error': 'Search failed: {error}',
 
