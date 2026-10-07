@@ -5686,6 +5686,15 @@
           class:layout-square={miniLayout === 'square'}
           style:--seek-pct={duration > 0 ? `${(currentTime / duration) * 100}%` : '0%'}
         >
+          <!-- The playing cover, blurred, as the card's background — the
+               same look as the main window. Painted under the content via
+               the shell's isolation + z-index:-1, so no child's
+               positioning changes (the volume popup relies on it). -->
+          <div
+            class="mini-backdrop"
+            aria-hidden="true"
+            style:background-image={coverUrl ? `url("${coverUrl}")` : 'none'}
+          ></div>
           <!-- Thin seek strip at the very top of the shell — same role
                as the one on the full player bar. Renders as a block at
                the top so it's never clipped by overflow. -->
@@ -6110,8 +6119,9 @@
        would just leave dark body-coloured triangles in the corners. */
     position: fixed;
     inset: 0;
-    background: rgba(20, 12, 36, 0.96);
+    background: var(--surface-base);
     color: #ffffff;
+    isolation: isolate;
     -webkit-app-region: drag;
     display: flex;
     flex-direction: column;
@@ -6202,7 +6212,7 @@
     transition: background 0.12s ease, color 0.12s ease, transform 0.1s ease;
   }
   .mini-btn:hover {
-    background: rgba(var(--accent-rgb), 0.18);
+    background: rgba(255, 255, 255, 0.12);
     color: #ffffff;
   }
   .mini-btn:active {
@@ -6213,23 +6223,34 @@
     height: 22px;
   }
   .mini-btn-like.liked {
-    color: #ff5577;
+    color: var(--accent);
   }
   .mini-btn-like:hover {
-    color: #ff7da0;
-    background: rgba(255, 90, 130, 0.18);
+    color: #ffffff;
+    background: rgba(255, 255, 255, 0.12);
   }
+  .mini-backdrop {
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    background-size: cover;
+    background-position: center;
+    filter: blur(28px) saturate(1.4) brightness(0.45);
+    /* blur pulls the edges in; overscale so they stay outside the card */
+    transform: scale(1.3);
+  }
+
   .mini-btn-primary {
     width: 34px;
     height: 34px;
     border-radius: 50%;
-    background: linear-gradient(135deg, var(--accent), var(--accent-2));
-    color: #0a0612;
-    box-shadow: 0 4px 12px rgba(var(--accent-rgb), 0.45);
+    background: var(--ink-1);
+    color: var(--surface-base);
   }
   .mini-btn-primary:hover {
-    color: #0a0612;
-    filter: brightness(1.08);
+    background: #ffffff;
+    color: var(--surface-base);
   }
 
   /* Mini volume: a mute button with a slider that pops out on hover. The
@@ -6251,7 +6272,7 @@
     opacity: 0;
     pointer-events: none;
     padding: 0.5rem 0.55rem;
-    background: rgba(26, 18, 44, 0.98);
+    background: rgba(22, 19, 28, 0.98);
     border: 1px solid rgba(255, 255, 255, 0.1);
     border-radius: 10px;
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
