@@ -822,6 +822,52 @@
   // Top-bar search field (the Search view no longer has its own input).
   let topSearchEl = $state<HTMLInputElement | null>(null)
 
+  // ---- up next (Now-playing column + queue popover) ------------------------
+  // What plays after the current track, by the same rules playNext uses:
+  // the user's queue first, then the source list. Shuffle picks at random
+  // at the moment of the switch, so its "next" can't be listed honestly —
+  // the UI says so instead of inventing an order.
+  const UP_NEXT_LIMIT = 20
+  const upNext = $derived.by(() => {
+    const p = playing
+    if (!p) return { queued: [] as SearchResult[], next: [] as SearchResult[], mode: 'list' as const }
+    const queued = userQueue
+    if (repeatMode === 'one') return { queued, next: [] as SearchResult[], mode: 'repeatOne' as const }
+    if (shuffleMode) return { queued, next: [] as SearchResult[], mode: 'shuffle' as const }
+    const list = p.sourceList
+    const idx = list.findIndex((r) => r.id === p.id)
+    const next: SearchResult[] = []
+    if (idx >= 0) {
+      for (let k = 1; k < list.length && next.length < UP_NEXT_LIMIT; k++) {
+        const j = idx + k
+        if (j >= list.length && repeatMode !== 'all') break
+        const r = list[j % list.length]
+        if (!r.unavailable && r.id !== p.id) next.push(r)
+      }
+    }
+    return { queued, next, mode: 'list' as const }
+  })
+  function playQueuedAt(i: number): void {
+    if (!playing) return
+    const track = userQueue[i]
+    if (!track) return
+    userQueue = userQueue.filter((_, k) => k !== i)
+    void playTrack(track, playing.sourceList, {
+      id: playing.sourceListId,
+      title: playing.sourceListTitle
+    })
+  }
+  function playFromUpNext(track: SearchResult): void {
+    if (!playing) return
+    void playTrack(track, playing.sourceList, {
+      id: playing.sourceListId,
+      title: playing.sourceListTitle
+    })
+  }
+  // Queue popover over the player — for when the window is too narrow for
+  // the Now-playing column (which shows the same list).
+  let queueOpen = $state(false)
+
   // Cover of whatever is loaded (playing or paused) — drives the accent and
   // the blurred window background. Resolved ONCE per track: downloadedIds is
   // read untracked, so a track finishing its download mid-song doesn't swap
@@ -832,6 +878,17 @@
     const id = p.id
     const thumb = p.thumbnail
     return untrack(() => thumbnailFor(id, thumb))
+  })
+  // downloadedIds is filled from whatever lists were opened this session, so
+  // a track started from the restored session (or the queue) could show the
+  // player's download chip as "not downloaded". Ask about the loaded track
+  // itself whenever it changes.
+  $effect(() => {
+    const id = playing?.id
+    if (!id) return
+    untrack(() => {
+      if (!downloadedIds.has(id)) void refreshDownloadStatus([{ id } as SearchResult])
+    })
   })
   // Backdrop brightness: 0.5 for ordinary covers, lower for bright ones so
   // text keeps its contrast over a near-white cover.
@@ -2251,8 +2308,9 @@
     // fires (handler order: item onSelect → closeCtxMenu inside the
     // item-click handler in the menu DOM).
     const onWindowMouseDown = (e: MouseEvent): void => {
-      if (!ctxMenu) return
       const el = e.target as HTMLElement | null
+      if (queueOpen && !(el && el.closest('.queue-pop, .queue-btn'))) queueOpen = false
+      if (!ctxMenu) return
       if (el && el.closest('.ctx-menu')) return
       closeCtxMenu()
     }
@@ -2273,6 +2331,10 @@
         }
         if (addModal) {
           closeAddToPlaylist()
+          return
+        }
+        if (queueOpen) {
+          queueOpen = false
           return
         }
         if (ctxMenu) closeCtxMenu()
@@ -3568,6 +3630,47 @@
       </div>
   {/snippet}
 
+  <!-- Up next: the user's queue, then the source list (or a note when
+       shuffle / repeat-one make the order unknowable). Shared by the
+       Now-playing column and the queue popover. -->
+  {#snippet queueRow(r: SearchResult, onPlay: () => void)}
+    <button class="q-row" onclick={onPlay} title={r.artist ? `${r.title} — ${r.artist}` : r.title}>
+      <span
+        class="q-thumb"
+        style:background-image={r.thumbnail ? `url("${thumbnailFor(r.id, r.thumbnail)}")` : 'none'}
+      ></span>
+      <span class="q-meta">
+        <span class="q-title">{r.title}</span>
+        <span class="q-artist">{r.artist}</span>
+      </span>
+      <span class="q-time">{r.duration}</span>
+    </button>
+  {/snippet}
+  {#snippet upNextList()}
+    {#if upNext.queued.length > 0}
+      <div class="q-label">{t('np.queued')}</div>
+      {#each upNext.queued as r, i (i + ':' + r.id)}
+        {@render queueRow(r, () => playQueuedAt(i))}
+      {/each}
+    {/if}
+    <div class="q-label">{t('np.queue')}</div>
+    {#if upNext.mode === 'shuffle'}
+      <p class="q-note">
+        {playing?.sourceListTitle
+          ? t('np.queueShuffle', { title: playing.sourceListTitle })
+          : t('np.queueShuffleNoTitle')}
+      </p>
+    {:else if upNext.mode === 'repeatOne'}
+      <p class="q-note">{t('np.queueRepeatOne')}</p>
+    {:else if upNext.next.length === 0}
+      <p class="q-note">{t('np.queueEnd')}</p>
+    {:else}
+      {#each upNext.next as r, i (i + ':' + r.id)}
+        {@render queueRow(r, () => playFromUpNext(r))}
+      {/each}
+    {/if}
+  {/snippet}
+
   {#if !miniMode}
     {#if !connectedBrowser}
       <header>
@@ -3725,22 +3828,6 @@
               >
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 5l7 7-7 7" /></svg>
               </button>
-              {#if playing}
-                <!-- Mini-player entry button — only shown when a track is
-                     loaded, since there's nothing for the mini view to
-                     render otherwise. Sits next to nav since it's a window-
-                     level switch, like the window controls on the right. -->
-                <button
-                  class="hist mini-enter"
-                  onclick={() => void window.api.window.enterMini('compact')}
-                  aria-label={t('mini.enter')}
-                  title={t('mini.enter')}
-                >
-                  <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
-                    <path d="M19 11h-8v6h8v-6zm4 8V4.98C23 3.88 22.1 3 21 3H3c-1.1 0-2 .88-2 1.98V19c0 1.1.9 2 2 2h18c1.1 0 2-.9 2-2zm-2 .02H3V4.97h18v14.05z"/>
-                  </svg>
-                </button>
-              {/if}
             </div>
           <label class="top-search">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="M20 20l-3.5-3.5" /></svg>
@@ -4950,6 +5037,9 @@
               {t('ctx.startRadio')}
             </button>
           </div>
+          <div class="np-queue">
+            {@render upNextList()}
+          </div>
         </aside>
       {/if}
     </div>
@@ -5017,10 +5107,33 @@
             </div>
             <div class="np-meta">
               <div class="np-title" title={playing.title}>{playing.title}</div>
-              <div class="np-artist" title={playing.artist || playing.format}>
-                {playing.artist || playing.format}
-              </div>
+              {#if playingRow?.artistId}
+                <button
+                  class="np-artist link"
+                  onclick={() => openArtist(playingRow!.artistId!)}
+                  title={playing.artist}
+                >
+                  {playing.artist}
+                </button>
+              {:else}
+                <div class="np-artist" title={playing.artist || playing.format}>
+                  {playing.artist || playing.format}
+                </div>
+              {/if}
             </div>
+            {#if playing.streamUrl}
+              <button
+                class="ctrl small like-bar"
+                class:liked={playingLiked}
+                onclick={() => void togglePlayingLikeFromBar()}
+                aria-label={playingLiked ? t('like.remove') : t('like.add')}
+                title={playingLiked ? t('like.remove') : t('like.add')}
+              >
+                <svg viewBox="0 0 24 24" width="20" height="20" fill={playingLiked ? 'currentColor' : 'none'} stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true">
+                  <path d="M12 20s-7-4.5-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.5-7 10-7 10z" />
+                </svg>
+              </button>
+            {/if}
           </div>
 
           <div class="transport-buttons">
@@ -5033,10 +5146,8 @@
               aria-label={t('player.shuffle')}
               title={t('player.shuffle')}
             >
-              <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
-                <path
-                  d="M10.59 9.17 5.41 4 4 5.41l5.17 5.17 1.42-1.41zM14.5 4l2.04 2.04L4 18.59 5.41 20 17.96 7.46 20 9.5V4h-5.5zm.33 9.41-1.41 1.41 3.13 3.13L14.5 20H20v-5.5l-2.04 2.04-3.13-3.13z"
-                />
+              <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M16 4h4v4M4 20 20 4M16 20h4v-4M15 15l5 5M4 4l5 5" />
               </svg>
               {#if shuffleMode}
                 <span class="mode-dot"></span>
@@ -5108,23 +5219,10 @@
             <span class="time-inline">
               {fmtTime(currentTime)} / {fmtTime(duration)}
             </span>
-            <!-- Like + download chips for the currently-playing track.
-                 Both hidden when nothing is actively playing (no track
-                 to act on). The like state is derived from sourceList so
-                 it stays in sync with optimistic updates done from the
-                 inline row hearts. -->
-            {#if playing && playing.streamUrl}
-              <button
-                class="ctrl small like-bar"
-                class:liked={playingLiked}
-                onclick={() => void togglePlayingLikeFromBar()}
-                aria-label={playingLiked ? t('like.remove') : t('like.add')}
-                title={playingLiked ? t('like.remove') : t('like.add')}
-              >
-                <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
-                  <path d={playingLiked ? CTX_ICONS.like : CTX_ICONS.unlike} />
-                </svg>
-              </button>
+          </div>
+
+          <div class="player-extras">
+            {#if playing.streamUrl}
               <button
                 class="ctrl small dl"
                 class:done={downloadedIds.has(playing.id)}
@@ -5190,8 +5288,31 @@
                 {/if}
               </button>
             {/if}
-          </div>
-
+            {#if !npVisible}
+              <button
+                class="ctrl small queue-btn"
+                class:active={queueOpen}
+                onclick={() => (queueOpen = !queueOpen)}
+                aria-label={t('player.queue')}
+                aria-expanded={queueOpen}
+                title={t('player.queue')}
+              >
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="M4 6h12M4 12h12M4 18h7M17 15v6l5-3z" />
+                </svg>
+              </button>
+            {/if}
+            <button
+              class="ctrl small"
+              onclick={() => void window.api.window.enterMini('compact')}
+              aria-label={t('mini.enter')}
+              title={t('mini.enter')}
+            >
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+                <rect x="3" y="5" width="18" height="14" rx="2" />
+                <rect x="12" y="12" width="6" height="4" rx="1" />
+              </svg>
+            </button>
           <div class="volume">
             <button class="ctrl small" onclick={toggleMute} aria-label={muted ? 'Включить звук' : 'Выключить звук'}>
               {#if muted || volume === 0}
@@ -5222,6 +5343,7 @@
               oninput={onVolumeInput}
               style:--p="{(muted ? 0 : volume) * 100}%"
             />
+          </div>
           </div>
         </div>
 
@@ -5268,6 +5390,11 @@
           onwaiting={() => onAudioStall('b', 'waiting')}
         ></audio>
       </div>
+      {#if queueOpen && !npVisible && !miniMode}
+        <div class="queue-pop" role="dialog" aria-label={t('player.queue')} transition:fade={{ duration: 120 }}>
+          {@render upNextList()}
+        </div>
+      {/if}
       <!-- Mini-player volume control: a mute button whose icon reflects the
            current volume/mute state, with a slider that slides out on hover.
            Reuses the SAME `volume`/`muted` state + handlers as the full bar
@@ -6061,12 +6188,6 @@
     opacity: 1;
   }
 
-  /* Entry button in the header next to the back/forward chips —
-     same .hist shape, just a left margin so it doesn't kiss them. */
-  .hist.mini-enter {
-    margin-left: 0.5rem;
-  }
-
   header {
     display: flex;
     align-items: center;
@@ -6392,6 +6513,11 @@
     overflow-y: auto;
     background: rgba(0, 0, 0, 0.22);
     border-left: 1px solid var(--hairline);
+  }
+  /* The column scrolls as a whole when the queue is long; without this
+     the flex children shrink instead (the label collapsed to 0px). */
+  .np-col > * {
+    flex-shrink: 0;
   }
   .np-top {
     height: 64px;
@@ -7966,22 +8092,17 @@
 
   /* ---- player bar (YT Music style) -------------------------------------- */
 
+  /* Bottom player (1.6.0): full width under all three columns, glass over
+     the cover background, progress line along its top edge. */
   .player-bar {
     display: flex;
     flex-direction: column;
-    background: rgba(20, 12, 36, 0.55);
+    position: relative;
+    background: rgba(12, 10, 16, 0.72);
     backdrop-filter: blur(28px);
     -webkit-backdrop-filter: blur(28px);
-    border: 1px solid rgba(255, 255, 255, 0.07);
-    border-radius: 18px;
-    /* Match .layout's horizontal padding so the player's left edge
-       sits flush with the sidebar's left edge and the right edge sits
-       flush with the content column's right edge — visually one column
-       of UI all the way down instead of three subtly mis-aligned ones. */
-    margin: 0 2rem 1.2rem 1rem;
-    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.4);
+    border-top: 1px solid var(--hairline);
     flex-shrink: 0;
-    overflow: hidden;
   }
 
   /* The seek bar sits at the top of the floating player card. Player has
@@ -7995,15 +8116,13 @@
      effects (track thickening, thumb fade-in) happen entirely inside the
      absolute input, so they never push anything in the .player-bar
      column up or down. */
+  /* The progress line hugs the bar's top edge, full width. The input
+     itself is taller (25px hit area) and hangs above the line; hover
+     thickens the visible track inside it, so nothing shifts. */
   .seek-wrap {
     position: relative;
-    /* Total reserved layout space ≈ original (6px margin + 12px input
-       = 18px). Wrapper sits 10px below the player-bar top edge and is
-       8px tall; the absolute input extends from y=0 (10-10) down to
-       y=25, so its content-box centre lines up with where the 3px
-       track used to render (~y=12 from the player-bar top). */
-    height: 8px;
-    margin: 10px 12px 0;
+    height: 3px;
+    margin: 0;
   }
   .seek {
     -webkit-appearance: none;
@@ -8012,7 +8131,7 @@
     position: absolute;
     left: 0;
     right: 0;
-    top: -10px;
+    top: -11px;
     height: 25px;
     padding: 0;
     margin: 0;
@@ -8034,15 +8153,16 @@
 
   .bottom-row {
     display: grid;
-    grid-template-columns: minmax(220px, 1fr) auto minmax(140px, 1fr);
-    gap: 1.5rem;
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+    gap: var(--space-6);
     align-items: center;
-    padding: 0.55rem 1.3rem 0.85rem;
+    min-height: 84px;
+    padding: 0 var(--space-6);
   }
 
   .now-playing {
     display: flex;
-    gap: 0.85rem;
+    gap: 14px;
     align-items: center;
     min-width: 0;
   }
@@ -8052,49 +8172,65 @@
   .np-cover-wrap {
     flex: 0 0 auto;
     position: relative;
-    width: 56px;
-    height: 56px;
+    width: 54px;
+    height: 54px;
   }
   .np-cover {
     position: absolute;
     inset: 0;
-    border-radius: 10px;
-    background-color: #0e0a16;
+    border-radius: var(--radius-sm);
+    background-color: var(--surface-base);
     background-position: center;
     background-size: cover;
     background-repeat: no-repeat;
-    box-shadow: 0 8px 22px rgba(0, 0, 0, 0.45);
   }
 
   .np-meta {
     min-width: 0;
     display: flex;
     flex-direction: column;
-    gap: 0.18rem;
+    align-items: flex-start;
+    gap: 2px;
   }
 
   .np-title {
-    color: #ffffff;
-    font-size: 0.92rem;
-    font-weight: 700;
+    max-width: 100%;
+    color: var(--ink-1);
+    font-size: var(--text-base);
+    font-weight: 600;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
 
   .np-artist {
-    color: #8c7da8;
-    font-size: 0.78rem;
+    max-width: 100%;
+    color: var(--ink-2);
+    font-size: var(--text-sm);
+    font-weight: 400;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+  button.np-artist {
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: none;
+    text-align: left;
+    cursor: pointer;
+  }
+  button.np-artist:hover {
+    color: var(--ink-1);
+    text-decoration: underline;
+    text-underline-offset: 3px;
   }
 
   /* ---- transport (center column) ---- */
 
   .transport-buttons {
     display: flex;
-    gap: 0.7rem;
+    gap: 10px;
     align-items: center;
     justify-content: center;
   }
@@ -8102,28 +8238,31 @@
   /* Override the global purple-gradient button rule for control buttons —
      they're icon buttons, not full-width CTAs. */
   .ctrl {
-    width: 40px;
-    height: 40px;
+    width: 44px;
+    height: 44px;
     padding: 0;
     border: none;
     border-radius: 50%;
     background: transparent;
-    color: #d4c9e8;
+    color: #e9e3ee;
     cursor: pointer;
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    transition: background 0.15s ease, color 0.15s ease, transform 0.1s ease;
+    transition:
+      background var(--dur-fast) var(--ease-out),
+      color var(--dur-fast) var(--ease-out),
+      transform var(--dur-fast) var(--ease-out);
   }
 
   .ctrl:hover {
-    background: rgba(var(--accent-rgb), 0.18);
+    background: rgba(255, 255, 255, 0.08);
     color: #ffffff;
   }
 
   .ctrl.small {
-    width: 30px;
-    height: 30px;
+    width: 36px;
+    height: 36px;
   }
 
   /* Shuffle / repeat mode buttons in the player bar. Plain icon when
@@ -8156,20 +8295,19 @@
      position:relative so the .cancel-x overlay can inset against it
      when downloading. */
   .ctrl.small.like-bar {
-    color: #b9acd6;
-    margin-left: 0.25rem;
-    transition: color 0.15s ease, background 0.15s ease, transform 0.12s ease;
+    flex: none;
+    color: var(--ink-2);
   }
   .ctrl.small.like-bar:hover {
-    background: rgba(255, 90, 130, 0.16);
-    color: #ff6b9d;
+    background: rgba(255, 255, 255, 0.08);
+    color: #ffffff;
   }
   .ctrl.small.like-bar.liked {
-    color: #ff5577;
+    color: var(--accent);
   }
   .ctrl.small.like-bar.liked:hover {
-    background: rgba(255, 90, 130, 0.22);
-    color: #ff7da0;
+    background: rgba(255, 255, 255, 0.08);
+    color: var(--accent);
   }
   .ctrl.small.like-bar:active {
     transform: scale(0.88);
@@ -8177,15 +8315,14 @@
 
   .ctrl.small.dl {
     position: relative;
-    margin-left: 0.25rem;
-    color: #b9acd6;
+    color: var(--ink-2);
   }
   .ctrl.small.dl.busy:hover {
     color: #ff8db5;
     background: rgba(255, 60, 120, 0.18);
   }
   .ctrl.small.dl.done {
-    color: #9eef9e;
+    color: var(--accent);
   }
   .ctrl.small.dl.done:hover {
     background: rgba(255, 60, 120, 0.18);
@@ -8199,27 +8336,126 @@
   .ctrl.play {
     width: 48px;
     height: 48px;
-    background: linear-gradient(135deg, var(--accent), var(--accent-2));
-    color: #0a0612;
-    box-shadow: 0 8px 22px rgba(var(--accent-rgb), 0.5);
+    background: var(--ink-1);
+    color: var(--surface-base);
   }
 
   .ctrl.play:hover {
-    background: linear-gradient(135deg, var(--accent), var(--accent-2));
-    filter: brightness(1.1);
-    color: #0a0612;
-    transform: scale(1.06);
-    box-shadow: 0 10px 28px rgba(var(--accent-rgb), 0.65);
+    background: #ffffff;
+    color: var(--surface-base);
+    transform: scale(1.05);
   }
 
   /* Inline time readout next to the transport buttons, YT-Music style:
      "0:50 / 2:44". One element, no fixed width, just sits right of next. */
   .time-inline {
-    color: #8c7da8;
-    font-size: 0.78rem;
+    color: var(--ink-2);
+    font-size: var(--text-sm);
     font-variant-numeric: tabular-nums;
-    margin-left: 0.6rem;
+    margin-left: var(--space-2);
     white-space: nowrap;
+  }
+
+  /* Right side of the player: download · queue · mini-player · volume. */
+  .player-extras {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: var(--space-1);
+    min-width: 0;
+  }
+  .ctrl.small.queue-btn.active {
+    color: var(--accent);
+    background: rgba(255, 255, 255, 0.08);
+  }
+
+  /* ---- up next (Now-playing column + queue popover) ---- */
+  .np-queue {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    margin: 4px -10px 0;
+  }
+  .q-label {
+    padding: 10px 10px 6px;
+    font-size: var(--text-md);
+    font-weight: 600;
+    color: var(--ink-2);
+  }
+  .q-note {
+    margin: 0;
+    padding: 0 10px 6px;
+    font-size: var(--text-sm);
+    color: var(--ink-3);
+  }
+  .q-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+    padding: 7px 10px;
+    border: 0;
+    border-radius: var(--radius-md);
+    background: transparent;
+    color: var(--ink-1);
+    font-weight: 400;
+    text-align: left;
+    cursor: pointer;
+    transition: background var(--dur-fast) var(--ease-out);
+  }
+  .q-row:hover {
+    background: var(--surface-hover);
+  }
+  .q-thumb {
+    flex: none;
+    width: 42px;
+    height: 42px;
+    border-radius: var(--radius-xs);
+    background-color: rgba(255, 255, 255, 0.06);
+    background-size: cover;
+    background-position: center;
+  }
+  .q-meta {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+  }
+  .q-title,
+  .q-artist {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .q-title {
+    font-size: var(--text-md);
+    font-weight: 600;
+  }
+  .q-artist {
+    font-size: var(--text-sm);
+    color: var(--ink-2);
+  }
+  .q-time {
+    flex: none;
+    font-size: var(--text-sm);
+    color: var(--ink-3);
+    font-variant-numeric: tabular-nums;
+  }
+  .queue-pop {
+    position: fixed;
+    right: var(--space-4);
+    bottom: 100px;
+    z-index: 40;
+    width: 360px;
+    max-height: min(60vh, 520px);
+    overflow-y: auto;
+    padding: var(--space-2);
+    border-radius: var(--radius-lg);
+    background: rgba(20, 16, 26, 0.94);
+    backdrop-filter: blur(28px);
+    -webkit-backdrop-filter: blur(28px);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5);
   }
 
   /* ---- floating context menu (right-click on tracks) ----
