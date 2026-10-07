@@ -6219,15 +6219,18 @@
 
   h2 {
     margin: 0;
+    font-family: var(--font-display);
     font-size: 1.15rem;
+    font-weight: 600;
     color: #ffffff;
   }
 
   h3 {
     margin: 0 0 0.7rem 0;
+    font-family: var(--font-display);
     font-size: 1.1rem;
     color: #ffffff;
-    font-weight: 700;
+    font-weight: 600;
   }
 
   .hint {
@@ -6662,7 +6665,7 @@
     font-size: 0.78rem;
   }
   .diag-list code {
-    font-family: 'Cascadia Mono', 'Consolas', monospace;
+    font-family: var(--font-mono);
     font-size: 0.72rem;
     color: #d4c9e8;
     overflow-wrap: anywhere;
@@ -7329,9 +7332,11 @@
 
   .playlist-title {
     color: #ffffff;
+    font-family: var(--font-display);
     font-size: 1.8rem;
-    font-weight: 800;
+    font-weight: 600;
     line-height: 1.1;
+    letter-spacing: -0.01em;
   }
 
   .playlist-subtitle {
@@ -7784,10 +7789,11 @@
   }
   .artist-name {
     color: #ffffff;
+    font-family: var(--font-display);
     font-size: 2.4rem;
-    font-weight: 800;
+    font-weight: 600;
     line-height: 1.05;
-    letter-spacing: -0.02em;
+    letter-spacing: -0.01em;
   }
   .artist-sub {
     color: #a99bc9;

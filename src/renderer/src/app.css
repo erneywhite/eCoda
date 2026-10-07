@@ -1,5 +1,72 @@
+/* Bundled variable fonts (OFL-1.1, @fontsource-variable). Vite copies the
+   woff2 files into the build, so nothing is fetched at runtime and the
+   Cyrillic subsets are always there. Onest = UI text, Unbounded = display
+   headings only. */
+@import '@fontsource-variable/onest';
+@import '@fontsource-variable/unbounded';
+
+/* ---- design tokens ------------------------------------------------------
+   The 1.6.0 redesign ("cover colour") builds on these. Areas move onto the
+   tokens as each one is restyled; until then the old hard-coded values in
+   App.svelte keep working side by side. --accent / --accent-rgb stay where
+   they are (App.svelte :root) and are driven at runtime. */
 :root {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  /* type */
+  --font-body: 'Onest Variable', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-display: 'Unbounded Variable', 'Onest Variable', -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: 'Cascadia Mono', 'Consolas', monospace;
+
+  --text-xs: 0.75rem; /* 12 — badges, keyboard hints */
+  --text-sm: 0.8125rem; /* 13 — secondary lines, durations */
+  --text-md: 0.875rem; /* 14 — list rows, buttons */
+  --text-base: 0.9375rem; /* 15 — primary UI text */
+  --text-lg: 1.0625rem; /* 17 — artist line under a title */
+  --text-xl: 1.25rem; /* 20 — section headings */
+  --text-2xl: 1.75rem; /* 28 — now-playing title */
+  --text-3xl: 2.5rem; /* 40 — playlist / artist title */
+
+  /* ink — text on the dark, cover-tinted background (all ≥ 4.5:1 on #0c0a10) */
+  --ink-1: #f5f1f6; /* primary */
+  --ink-2: #b8adbf; /* secondary: artist names, meta */
+  --ink-3: #9d92a6; /* tertiary: durations, captions */
+  --ink-nav: #c9bfd0; /* inactive navigation */
+
+  /* surfaces */
+  --surface-base: #0c0a10;
+  --surface-1: rgba(255, 255, 255, 0.07); /* tiles, pills */
+  --surface-2: rgba(255, 255, 255, 0.1); /* active nav, selected row */
+  --surface-hover: rgba(255, 255, 255, 0.06);
+  --scrim: rgba(0, 0, 0, 0.28); /* round icon buttons, search field */
+  --hairline: rgba(255, 255, 255, 0.06);
+  --outline: rgba(255, 255, 255, 0.22); /* outline buttons */
+
+  /* shape */
+  --radius-xs: 6px;
+  --radius-sm: 8px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-pill: 999px;
+
+  /* 4-pt spacing */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+
+  /* motion */
+  --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --dur-fast: 120ms;
+  --dur-base: 160ms;
+  --dur-slow: 320ms;
+  --dur-bg: 700ms; /* cover background crossfade */
+
+  font-family: var(--font-body);
   color-scheme: dark;
 }
 
@@ -7,6 +74,15 @@
   box-sizing: border-box;
   margin: 0;
   padding: 0;
+}
+
+/* Form controls don't inherit the page font in Chromium. Family only —
+   sizes stay as each control sets them. */
+button,
+input,
+select,
+textarea {
+  font-family: inherit;
 }
 
 html,
