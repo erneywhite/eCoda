@@ -831,10 +831,11 @@
     if (!/^https:\/\/[^/]*(googleusercontent\.com|ggpht\.com)\//.test(url)) return ''
     return url.replace(/=w\d+-h\d+/, '=w544-h544')
   }
-  let npCoverHiFailed = $state(false)
-  $effect(() => {
-    void playing?.id
-    npCoverHiFailed = false
+  let npCoverHiFailedUrl = $state('')
+  const npCoverSrc = $derived.by(() => {
+    if (!playing) return ''
+    const hi = hiResThumb(playing.thumbnail)
+    return hi && hi !== npCoverHiFailedUrl ? hi : coverUrl
   })
 
   // ---- home shelves --------------------------------------------------------
@@ -928,6 +929,12 @@
   // Queue popover over the player — for when the window is too narrow for
   // the Now-playing column (which shows the same list).
   let queueOpen = $state(false)
+  // Hidden (column open / mini mode / nothing loaded) = closed: otherwise it
+  // would pop back by itself after a resize, and Escape would be swallowed
+  // by an invisible popover.
+  $effect(() => {
+    if (npVisible || miniMode || !playing) queueOpen = false
+  })
 
   // Cover of whatever is loaded (playing or paused) — drives the accent and
   // the blurred window background. Resolved ONCE per track: downloadedIds is
@@ -2809,6 +2816,12 @@
             playing.sourceList = tracks
             playing.sourceListId = id
             playing.sourceListTitle = playlistView.title
+            // playTrack would have done these two: warm the next radio
+            // tracks and save the new source (a paused track wouldn't
+            // otherwise persist it before quit).
+            const ids = nextIdsFrom(seed.id, tracks)
+            if (ids.length > 0) void window.api.prefetchAudio(ids)
+            persistSession()
           } else {
             await playTrack(seed, tracks, { id, title: playlistView.title })
           }
@@ -5230,9 +5243,9 @@
           </div>
           <img
             class="np-col-cover"
-            src={npCoverHiFailed ? coverUrl : (hiResThumb(playing.thumbnail) || coverUrl)}
+            src={npCoverSrc}
             alt=""
-            onerror={() => (npCoverHiFailed = true)}
+            onerror={() => (npCoverHiFailedUrl = hiResThumb(playing?.thumbnail ?? ''))}
           />
           <div class="np-col-meta">
             <h2 class="np-col-title" title={playing.title}>{playing.title}</h2>
@@ -5503,14 +5516,10 @@
                   <span class="cancel-x" aria-hidden="true">✕</span>
                 {:else if downloadedIds.has(playing.id)}
                   <!-- ✓ filled checkmark -->
-                  <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
-                    <path d="M9 16.17 4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z" />
-                  </svg>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5 9-10" /></svg>
                 {:else}
                   <!-- ↓ download arrow -->
-                  <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
-                    <path d="M5 20h14v-2H5v2zM19 9h-4V3H9v6H5l7 7 7-7z" />
-                  </svg>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11m0 0-4-4m4 4 4-4M5 20h14" /></svg>
                 {/if}
               </button>
             {/if}
@@ -8198,16 +8207,22 @@
      meta and the duration column. The whole row stays clickable; only
      the pin glyph turns accent so it doesn't bleed into the row hover
      colour. */
+  /* Badge on the cover's top-right corner — kept out of the row's flex
+     flow so pinned rows line up with the column header. Cover sits at
+     10px padding + 28px number + 12px gap = 50px, 40px wide. */
   .pin-mark {
-    flex: 0 0 auto;
+    position: absolute;
+    left: 78px;
+    top: 4px;
     display: inline-flex;
     align-items: center;
     justify-content: center;
     width: 18px;
     height: 18px;
-    margin-left: 0.5rem;
+    border-radius: 50%;
+    background: rgba(12, 10, 16, 0.85);
     color: var(--accent);
-    opacity: 0.85;
+    opacity: 0.95;
   }
   .track-li.pinned .pin-mark {
     opacity: 1;
@@ -8430,6 +8445,7 @@
   }
 
   .track-row {
+    position: relative;
     display: flex;
     align-items: center;
     gap: 12px;
@@ -8675,8 +8691,11 @@
     position: absolute;
     left: 0;
     right: 0;
-    top: -11px;
-    height: 25px;
+    /* 13px hit area centred on the 3px line at the bar's top edge (the
+       track draws in the input's vertical middle): 5px above the bar —
+       it used to hang 11px over the rows above and steal their clicks */
+    top: -5px;
+    height: 13px;
     padding: 0;
     margin: 0;
     background: transparent;
@@ -9417,6 +9436,7 @@
   .seek:disabled {
     cursor: default;
     opacity: 0.5;
+    pointer-events: none;
   }
 
   .seek::-webkit-slider-runnable-track {
