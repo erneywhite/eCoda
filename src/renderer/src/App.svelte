@@ -834,6 +834,42 @@
     npCoverHiFailed = false
   })
 
+  // ---- home shelves --------------------------------------------------------
+  // A shelf is one horizontally scrolling row; the column count follows the
+  // shelf width (container queries in CSS). This action marks the section
+  // when its row overflows, which is what shows the ‹ › buttons. One
+  // ResizeObserver per shelf node — the node lives as long as its section.
+  function shelfOverflow(row: HTMLElement): { destroy: () => void } {
+    const section = row.closest('.shelf') as HTMLElement | null
+    const update = (): void => {
+      if (!section) return
+      const over = row.scrollWidth > row.clientWidth + 2
+      section.dataset.overflow = over ? '1' : ''
+      section.dataset.atStart = row.scrollLeft <= 2 ? '1' : ''
+      section.dataset.atEnd = row.scrollLeft + row.clientWidth >= row.scrollWidth - 2 ? '1' : ''
+    }
+    const ro = new ResizeObserver(update)
+    ro.observe(row)
+    row.addEventListener('scroll', update, { passive: true })
+    update()
+    return {
+      destroy: () => {
+        ro.disconnect()
+        row.removeEventListener('scroll', update)
+      }
+    }
+  }
+  function scrollShelf(e: MouseEvent, dir: 1 | -1): void {
+    const row = (e.currentTarget as HTMLElement)
+      .closest('.shelf')
+      ?.querySelector('.shelf-row') as HTMLElement | null
+    if (!row) return
+    row.scrollBy({
+      left: dir * row.clientWidth,
+      behavior: prefersReducedMotion.current ? 'auto' : 'smooth'
+    })
+  }
+
   // Top-bar search field (the Search view no longer has its own input).
   let topSearchEl = $state<HTMLInputElement | null>(null)
 
@@ -3884,12 +3920,73 @@
             <p class="status error">{t('home.error', { error: homeError })}</p>
             <button onclick={() => loadHome()}>{t('home.retry')}</button>
           {:else if homeSections && homeSections.length > 0}
+            <!-- Pinned playlists + Downloaded as wide tiles: the places the
+                 user actually returns to, one click from the start page. -->
+            <section class="section">
+              <h3>{t('nav.pinned')}</h3>
+              <div class="pin-tiles">
+                {#each pinnedPlaylists as p (p.id)}
+                  <button
+                    class="pin-tile"
+                    onclick={() =>
+                      openPlaylist(p.id, { fallbackTitle: p.title, fallbackThumbnail: p.thumbnail })}
+                  >
+                    <span
+                      class="pin-tile-cover"
+                      class:liked-thumb={!p.thumbnail && isLikedMusicId(p.id)}
+                      style:background-image={p.thumbnail ? `url("${p.thumbnail}")` : 'none'}
+                    >
+                      {#if !p.thumbnail && isLikedMusicId(p.id)}
+                        <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor" aria-hidden="true">
+                          <path d="M12 20s-7-4.5-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.5-7 10-7 10z" />
+                        </svg>
+                      {/if}
+                    </span>
+                    <span class="pin-tile-title">{isLikedMusicId(p.id) ? t('liked.music') : p.title}</span>
+                  </button>
+                {/each}
+                <button
+                  class="pin-tile"
+                  onclick={() => navigate({ kind: 'playlist', id: DOWNLOADED_ID })}
+                >
+                  <span class="pin-tile-cover downloaded">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                      <path d="M12 4v11m0 0-4-4m4 4 4-4M5 20h14" />
+                    </svg>
+                  </span>
+                  <span class="pin-tile-text">
+                    <span class="pin-tile-title">{t('nav.downloaded')}</span>
+                    <span class="pin-tile-sub">{t('home.downloadedSub')}</span>
+                  </span>
+                </button>
+              </div>
+            </section>
             {#each homeSections as section (section.title)}
-              <div class="section">
-                <h3>{section.title}</h3>
-                <div class="grid">
+              <section class="section shelf">
+                <div class="shelf-head">
+                  <h3>{section.title}</h3>
+                  <div class="shelf-nav">
+                    <button
+                      class="shelf-arrow prev"
+                      onclick={(e) => scrollShelf(e, -1)}
+                      aria-label={t('shelf.prev')}
+                      title={t('shelf.prev')}
+                    >
+                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7" /></svg>
+                    </button>
+                    <button
+                      class="shelf-arrow next"
+                      onclick={(e) => scrollShelf(e, 1)}
+                      aria-label={t('shelf.next')}
+                      title={t('shelf.next')}
+                    >
+                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 5l7 7-7 7" /></svg>
+                    </button>
+                  </div>
+                </div>
+                <div class="shelf-row" use:shelfOverflow>
                   {#each section.items as item (item.id)}
-                    <button class="card-tile" onclick={() => openCard(item)}>
+                    <button class="card-tile" onclick={() => openCard(item)} title={item.title}>
                       <div
                         class="tile-thumb"
                         style:background-image={item.thumbnail
@@ -3901,10 +3998,10 @@
                     </button>
                   {/each}
                 </div>
-              </div>
+              </section>
             {/each}
           {:else}
-            <p class="status">Главная пуста.</p>
+            <p class="status">{t('home.empty')}</p>
           {/if}
         {:else if view === 'search'}
           {#if !searched && !searching && !searchError}
@@ -7519,38 +7616,171 @@
   .section {
     display: flex;
     flex-direction: column;
+    gap: 14px;
+  }
+  .section > h3 {
+    margin: 0;
   }
 
   .grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-    gap: 1rem;
+    gap: 24px 20px;
   }
 
+  /* ---- home shelves ---------------------------------------------------
+     One row per section, as many columns as the width allows (container
+     queries on the shelf), the rest reachable with the ‹ › buttons or a
+     horizontal scroll. Cards always fill the row exactly. */
+  .shelf {
+    container-type: inline-size;
+    --shelf-n: 8;
+  }
+  @container (max-width: 1240px) { .shelf-row { --shelf-n: 7; } }
+  @container (max-width: 1080px) { .shelf-row { --shelf-n: 6; } }
+  @container (max-width: 920px) { .shelf-row { --shelf-n: 5; } }
+  @container (max-width: 760px) { .shelf-row { --shelf-n: 4; } }
+  @container (max-width: 560px) { .shelf-row { --shelf-n: 3; } }
+  .shelf-head {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+  }
+  .shelf-head h3 {
+    margin: 0;
+    flex: 1;
+    min-width: 0;
+  }
+  .shelf-nav {
+    display: none;
+    gap: var(--space-1);
+  }
+  .shelf:global([data-overflow='1']) .shelf-nav {
+    display: flex;
+  }
+  .shelf-arrow {
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    border: 0;
+    border-radius: 50%;
+    background: var(--scrim);
+    color: var(--ink-1);
+    display: grid;
+    place-items: center;
+    cursor: pointer;
+    transition: background var(--dur-fast) var(--ease-out), opacity var(--dur-fast) var(--ease-out);
+  }
+  .shelf-arrow:hover {
+    background: rgba(255, 255, 255, 0.14);
+  }
+  .shelf:global([data-at-start='1']) .shelf-arrow.prev,
+  .shelf:global([data-at-end='1']) .shelf-arrow.next {
+    opacity: 0.35;
+    pointer-events: none;
+  }
+  .shelf-row {
+    --shelf-gap: 20px;
+    display: grid;
+    grid-auto-flow: column;
+    grid-auto-columns: calc((100% - (var(--shelf-n) - 1) * var(--shelf-gap)) / var(--shelf-n));
+    gap: var(--shelf-gap);
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scroll-snap-type: x mandatory;
+    scrollbar-width: none;
+    /* room for the cover's hover lift so it isn't clipped */
+    padding-top: 4px;
+    margin-top: -4px;
+  }
+  .shelf-row::-webkit-scrollbar {
+    display: none;
+  }
+  .shelf-row > .card-tile {
+    scroll-snap-align: start;
+  }
+
+  /* ---- pinned tiles (home) ---- */
+  .pin-tiles {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    gap: 12px;
+  }
+  .pin-tile {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    min-width: 0;
+    padding: 10px;
+    border: 0;
+    border-radius: 12px;
+    background: var(--surface-1);
+    color: var(--ink-1);
+    font-weight: 400;
+    text-align: left;
+    cursor: pointer;
+    transition: background var(--dur-fast) var(--ease-out);
+  }
+  .pin-tile:hover {
+    background: rgba(255, 255, 255, 0.12);
+  }
+  .pin-tile-cover {
+    flex: none;
+    width: 56px;
+    height: 56px;
+    border-radius: var(--radius-sm);
+    background-color: rgba(255, 255, 255, 0.08);
+    background-size: cover;
+    background-position: center;
+    display: grid;
+    place-items: center;
+    color: #e3d9e6;
+  }
+  .pin-tile-cover.liked-thumb {
+    background-image: linear-gradient(135deg, #8e5cf6, #ff6f91) !important;
+    color: #ffffff;
+  }
+  .pin-tile-text {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+  }
+  .pin-tile-title {
+    font-size: var(--text-base);
+    font-weight: 600;
+    min-width: 0;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  .pin-tile-sub {
+    font-size: var(--text-sm);
+    color: var(--ink-2);
+  }
+
+  /* Cover-first cards (home shelves, library, artist pages): no frame, the
+     cover carries the card; hover lifts it a little. */
   .card-tile {
     position: relative;
     display: flex;
     flex-direction: column;
-    gap: 0.4rem;
-    padding: 0.6rem;
-    /* min-width:0 is required for the grid item to actually shrink to the
-       column width — without it, any long subtitle would push the tile
-       wider than its column and overlap the next tile. */
+    /* <button> defaults to align-items:flex-start in Chromium, which
+       sizes the text lines to their content and kills the ellipsis. */
+    align-items: stretch;
+    gap: 8px;
+    padding: 0;
+    /* min-width:0 lets the grid/shelf item shrink to its column. */
     min-width: 0;
-    overflow: hidden;
-    border: 1px solid rgba(255, 255, 255, 0.07);
-    border-radius: 14px;
-    background: rgba(255, 255, 255, 0.04);
-    backdrop-filter: blur(14px);
-    -webkit-backdrop-filter: blur(14px);
-    color: #ffffff;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    color: var(--ink-1);
+    font-weight: 400;
     text-align: left;
     cursor: pointer;
-    /* Longer transform with a snappy out-curve so the lift reads
-       deliberate rather than twitchy. The other props stay quick. */
-    transition: background 0.18s ease, border-color 0.18s ease,
-      transform 0.28s cubic-bezier(0.2, 0.8, 0.2, 1),
-      box-shadow 0.28s cubic-bezier(0.2, 0.8, 0.2, 1);
   }
 
   /* Pin/unpin overlay shown in the top-right of a Library card. Hidden
@@ -7559,8 +7789,8 @@
      keeps the outer card-tile from also opening the playlist. */
   .card-pin {
     position: absolute;
-    top: 0.9rem;
-    right: 0.9rem;
+    top: 8px;
+    right: 8px;
     width: 30px;
     height: 30px;
     border-radius: 50%;
@@ -7594,55 +7824,49 @@
     color: #ffffff;
   }
 
-  .card-tile:hover {
-    background: rgba(255, 255, 255, 0.07);
-    border-color: rgba(var(--accent-rgb), 0.45);
-    transform: translateY(-3px);
-    box-shadow: 0 14px 36px rgba(var(--accent-rgb), 0.18);
+  .card-tile:hover .tile-title {
+    color: #ffffff;
   }
 
   .tile-thumb {
     width: 100%;
     aspect-ratio: 1 / 1;
-    border-radius: 8px;
-    background-color: #0e0a16;
+    border-radius: var(--radius-md);
+    background-color: rgba(255, 255, 255, 0.06);
     background-position: center;
     background-size: cover;
     background-repeat: no-repeat;
-    transition: transform 0.4s cubic-bezier(0.2, 0.8, 0.2, 1);
+    transition:
+      transform var(--dur-base) var(--ease-out),
+      box-shadow var(--dur-base) var(--ease-out);
   }
   /* Subtle Spotify-style zoom on the cover when hovering the tile —
      gives the static grid some life without making any one tile shout.
      overflow:hidden on .card-tile keeps the scaled cover inside its
      rounded corners. */
   .card-tile:hover .tile-thumb {
-    transform: scale(1.04);
+    transform: translateY(-3px);
+    box-shadow: 0 12px 28px rgba(0, 0, 0, 0.35);
   }
 
   .tile-title {
-    font-size: 0.88rem;
+    font-size: var(--text-md);
     font-weight: 600;
-    line-height: 1.25;
-    color: #ffffff;
-    display: -webkit-box;
-    -webkit-line-clamp: 2;
-    line-clamp: 2;
-    -webkit-box-orient: vertical;
+    line-height: 1.3;
+    color: var(--ink-1);
+    white-space: nowrap;
     overflow: hidden;
+    text-overflow: ellipsis;
   }
 
   .tile-subtitle {
-    font-size: 0.78rem;
-    color: #8c7da8;
+    margin-top: -6px;
+    font-size: var(--text-sm);
     line-height: 1.3;
-    /* Clamp to 2 lines — long artist lists ("Ed Sheeran, Meghan Trainor,
-       Bruno Mars, Dua Lipa") render fully on a single line by default and
-       blow out the grid; clamping keeps the tile a stable height. */
-    display: -webkit-box;
-    -webkit-line-clamp: 2;
-    line-clamp: 2;
-    -webkit-box-orient: vertical;
+    color: var(--ink-2);
+    white-space: nowrap;
     overflow: hidden;
+    text-overflow: ellipsis;
   }
 
   /* ---- playlist header ---------------------------------------------------- */
