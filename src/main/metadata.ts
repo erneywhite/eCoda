@@ -140,6 +140,14 @@ function pickArtist(item: Record<string, unknown>): string {
   // Take the part before the first bullet so we don't render the album too.
   const subtitle = asText(item.subtitle)
   if (subtitle) return subtitle.split(/\s*[•·]\s*/)[0]
+  // Search rows for artists without a linked channel come with an empty
+  // `artists` array; the name is still in the second flex column,
+  // "Artist • Album • 3:38".
+  if (Array.isArray(item.flex_columns) && item.flex_columns.length > 1) {
+    const col = item.flex_columns[1] as Record<string, unknown> | null
+    const line = asText(col?.title)
+    if (line) return line.split(/\s*[•·]\s*/)[0]
+  }
   return ''
 }
 
@@ -165,8 +173,22 @@ function pickThumbnail(item: Record<string, unknown>): string {
 export async function searchSongs(query: string): Promise<SearchResult[]> {
   const yt = await getInnertube()
   const raw = (await yt.music.search(query, { type: 'song' })) as unknown
-  const top = raw as { songs?: { contents?: unknown[] } }
-  const items: unknown[] = top.songs?.contents ?? []
+  // Older youtubei.js exposed the song shelf as `.songs`; current versions
+  // return `.contents` = [ItemSection, MusicShelf "Songs"] instead, and
+  // `.songs` is gone — reading only `.songs` made every search come back
+  // empty. Take whichever shape is there.
+  const top = raw as { songs?: { contents?: unknown[] }; contents?: unknown[] }
+  let items: unknown[] = top.songs?.contents ?? []
+  if (items.length === 0 && Array.isArray(top.contents)) {
+    const shelf = top.contents.find(
+      (s): s is { type: string; contents: unknown[] } =>
+        !!s &&
+        typeof s === 'object' &&
+        (s as { type?: unknown }).type === 'MusicShelf' &&
+        Array.isArray((s as { contents?: unknown }).contents)
+    )
+    items = shelf?.contents ?? []
+  }
 
   const out: SearchResult[] = []
   for (const i of items) {
