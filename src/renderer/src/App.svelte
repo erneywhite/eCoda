@@ -2027,6 +2027,41 @@
 
   // ---- Like + Radio actions ---------------------------------------------
 
+  // Liked state shared by every view. A row only carries `liked` when YT
+  // sent it (playlists, Liked Music); Downloaded rows are built from local
+  // files and never have it, so their heart showed empty for liked tracks
+  // and a click tried to like them again. We keep the Liked Music ids
+  // (fetched in the background after connect, refreshed whenever that
+  // playlist is opened) plus this session's own toggles, and every heart
+  // reads through isLiked().
+  let likedMusicIds = $state.raw<Set<string>>(new Set())
+  let likeOverrides = $state.raw<Map<string, boolean>>(new Map())
+
+  function isLiked(track: { id: string; liked?: boolean }): boolean {
+    const override = likeOverrides.get(track.id)
+    if (override !== undefined) return override
+    return !!track.liked || likedMusicIds.has(track.id)
+  }
+
+  function setLikeOverride(videoId: string, liked: boolean): void {
+    const next = new Map(likeOverrides)
+    next.set(videoId, liked)
+    likeOverrides = next
+  }
+
+  function rememberLikedMusic(tracks: SearchResult[]): void {
+    likedMusicIds = new Set(tracks.filter((t) => !t.unavailable).map((t) => t.id))
+  }
+
+  async function loadLikedMusicIds(): Promise<void> {
+    try {
+      const data = await window.api.metadata.playlist('VLLM')
+      rememberLikedMusic(data.tracks)
+    } catch (err) {
+      console.warn('[likes] Liked Music prefetch failed:', err)
+    }
+  }
+
   // Mirror the new liked state across every place a copy of this track
   // lives — playlistView, searchResults, player's sourceList — so the
   // inline heart and any future row re-renders all agree without waiting
@@ -2070,13 +2105,15 @@
 
   async function toggleTrackLike(track: SearchResult): Promise<void> {
     if (!track.id || track.unavailable) return
-    const newLiked = !track.liked
+    const newLiked = !isLiked(track)
     // Optimistic: heart fills/empties before the network round-trip lands.
+    setLikeOverride(track.id, newLiked)
     setTrackLikedEverywhere(track.id, newLiked)
     const ok = await window.api.metadata.like(track.id, newLiked)
     if (!ok) {
       // Revert and tell the user; the heart visibly snaps back so they
       // know the action didn't take.
+      setLikeOverride(track.id, !newLiked)
       setTrackLikedEverywhere(track.id, !newLiked)
       showToast(t('toast.likeFailed'))
       return
@@ -2351,6 +2388,7 @@
       // fetches against the refreshed session next time it's opened.
       addablePlaylistsCache = null
       void loadPinned()
+      void loadLikedMusicIds()
       if (view === 'home') void loadHome()
       else if (view === 'library') void loadLibraryData()
       else if (view === 'playlist' && openPlaylistId) {
@@ -2536,6 +2574,7 @@
           if (id) accessDialog = { browser: browserName(id) }
         })
         void loadPinned()
+        void loadLikedMusicIds()
         // Honour the user's preferred startup tab.
         const initial = await window.api.settings.getDefaultTab()
         defaultTab = initial
@@ -2585,6 +2624,7 @@
       } else if (ok) {
         connectedBrowser = browser.id
         void loadPinned()
+        void loadLikedMusicIds()
         void loadHome()
       } else {
         connectError = t('connect.error', { browser: browser.name })
@@ -2919,6 +2959,7 @@
     playlistFallback = null
     try {
       const data = await window.api.metadata.playlist(id)
+      if (isLikedMusicId(id)) rememberLikedMusic(data.tracks)
       // Apply the user's saved override (reshuffle / drag / pin) on
       // top of YT's natural order. Liked Music is special-cased to
       // prepend new tracks; everything else appends.
@@ -3554,7 +3595,10 @@
   const playingLiked = $derived(
     playing == null
       ? false
-      : !!playing.sourceList?.find((t) => t.id === playing!.id)?.liked
+      : isLiked({
+          id: playing.id,
+          liked: playing.sourceList?.find((t) => t.id === playing!.id)?.liked
+        })
   )
 
   // Player-bar heart toggle. Synthesizes a minimal SearchResult so
@@ -4209,12 +4253,12 @@
                   </button>
                   <button
                     class="like-btn"
-                    class:liked={r.liked}
+                    class:liked={isLiked(r)}
                     onclick={() => void toggleTrackLike(r)}
-                    aria-label={r.liked ? t('like.remove') : t('like.add')}
-                    title={r.liked ? t('like.remove') : t('like.add')}
+                    aria-label={isLiked(r) ? t('like.remove') : t('like.add')}
+                    title={isLiked(r) ? t('like.remove') : t('like.add')}
                   >
-                    <svg viewBox="0 0 24 24" width="18" height="18" fill={r.liked ? 'currentColor' : 'none'} stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" width="18" height="18" fill={isLiked(r) ? 'currentColor' : 'none'} stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true">
                       <path d="M12 20s-7-4.5-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.5-7 10-7 10z" />
                     </svg>
                   </button>
@@ -4571,13 +4615,13 @@
                        if the IPC fails. Disabled on unavailable rows. -->
                   <button
                     class="like-btn"
-                    class:liked={r.liked}
+                    class:liked={isLiked(r)}
                     onclick={() => void toggleTrackLike(r)}
-                    aria-label={r.liked ? t('like.remove') : t('like.add')}
-                    title={r.liked ? t('like.remove') : t('like.add')}
+                    aria-label={isLiked(r) ? t('like.remove') : t('like.add')}
+                    title={isLiked(r) ? t('like.remove') : t('like.add')}
                     disabled={r.unavailable}
                   >
-                    <svg viewBox="0 0 24 24" width="18" height="18" fill={r.liked ? 'currentColor' : 'none'} stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" width="18" height="18" fill={isLiked(r) ? 'currentColor' : 'none'} stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true">
                       <path d="M12 20s-7-4.5-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.5-7 10-7 10z" />
                     </svg>
                   </button>
@@ -4752,13 +4796,13 @@
                       </button>
                       <button
                         class="like-btn"
-                        class:liked={r.liked}
+                        class:liked={isLiked(r)}
                         onclick={() => void toggleTrackLike(r)}
-                        aria-label={r.liked ? t('like.remove') : t('like.add')}
-                        title={r.liked ? t('like.remove') : t('like.add')}
+                        aria-label={isLiked(r) ? t('like.remove') : t('like.add')}
+                        title={isLiked(r) ? t('like.remove') : t('like.add')}
                         disabled={r.unavailable}
                       >
-                        <svg viewBox="0 0 24 24" width="18" height="18" fill={r.liked ? 'currentColor' : 'none'} stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true">
+                        <svg viewBox="0 0 24 24" width="18" height="18" fill={isLiked(r) ? 'currentColor' : 'none'} stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true">
                           <path d="M12 20s-7-4.5-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.5-7 10-7 10z" />
                         </svg>
                       </button>
