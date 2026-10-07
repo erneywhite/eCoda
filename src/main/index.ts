@@ -3,7 +3,14 @@ import { join } from 'path'
 import { createReadStream, readFileSync, statSync } from 'node:fs'
 import { Readable } from 'node:stream'
 import icon from '../../resources/icon.png?asset'
-import { verifyBrowserLogin, startYtdlpDaemon, stopYtdlpDaemon, initYtdlp } from './ytdlp'
+import {
+  verifyBrowserLogin,
+  startYtdlpDaemon,
+  stopYtdlpDaemon,
+  initYtdlp,
+  checkYtdlpUpdate,
+  getYtdlpVersionInfo
+} from './ytdlp'
 import {
   detectBrowsers,
   getBrowser,
@@ -816,6 +823,14 @@ app.whenReady().then(async () => {
   // Copy text to the OS clipboard. Goes through main's `clipboard` module
   // rather than the renderer's navigator.clipboard so it works regardless of
   // the renderer's secure-context status (file:// in the packaged build).
+  // yt-dlp version + manual update check for the Settings "Updates" card.
+  // The background checks run on their own (ytdlp-updater.ts); this is the
+  // "check now" button, so it ignores the daily schedule.
+  ipcMain.handle('ytdlp:info', () => getYtdlpVersionInfo())
+  ipcMain.handle('ytdlp:check', async () => {
+    const result = await checkYtdlpUpdate()
+    return { result, info: getYtdlpVersionInfo() }
+  })
   ipcMain.handle('app:copyText', (_event, text: string) => {
     if (typeof text !== 'string' || text === '') return false
     clipboard.writeText(text)

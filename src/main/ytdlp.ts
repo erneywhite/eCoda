@@ -11,6 +11,7 @@ import {
   initYtdlpUpdater,
   scheduleYtdlpUpdates
 } from './ytdlp-updater'
+export { checkYtdlpUpdate, getYtdlpVersionInfo } from './ytdlp-updater'
 
 // Cross-platform binary paths. Resolved at runtime so the build
 // machine doesn't need both .exe and bare binaries present. See

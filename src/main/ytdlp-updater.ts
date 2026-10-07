@@ -56,7 +56,7 @@ let bundledPath = ''
 let bundledVersion: string | null = null
 let state: UpdaterState | null = null
 let activePath = ''
-let checkInFlight: Promise<boolean> | null = null
+let checkInFlight: Promise<YtdlpCheckResult> | null = null
 let lastFailureCheck = 0
 let pythonPathGetter: (() => string) | null = null
 let onUpdated: (() => void) | null = null
@@ -226,14 +226,14 @@ async function downloadAndVerify(version: string, sha256: string): Promise<strin
   return fileName
 }
 
-async function doCheck(): Promise<boolean> {
+async function doCheck(): Promise<YtdlpCheckResult> {
   const t0 = Date.now()
   const { version, sha256 } = await fetchLatest()
   const current = getYtdlpVersionInfo().active
   if (current && compareYtdlpVersions(version, current) <= 0) {
     console.log(`[ytdlp-update] up to date (${current})`)
     await writeState({ version: state?.version ?? '', file: state?.file ?? '', checkedAt: Date.now() })
-    return false
+    return { kind: 'up-to-date' }
   }
   console.log(`[ytdlp-update] ${current ?? 'unknown'} → ${version}, downloading`)
   const file = await downloadAndVerify(version, sha256)
@@ -241,18 +241,24 @@ async function doCheck(): Promise<boolean> {
   pickActivePath()
   console.log(`[ytdlp-update] installed ${version} in ${Date.now() - t0}ms`)
   onUpdated?.()
-  return true
+  return { kind: 'updated', version }
 }
 
-// Single-flight: concurrent callers share one check. Resolves true when a
-// new version was installed. Never rejects — errors are logged and the
-// current copy stays in use.
-export function checkYtdlpUpdate(): Promise<boolean> {
+export type YtdlpCheckResult =
+  | { kind: 'updated'; version: string }
+  | { kind: 'up-to-date' }
+  | { kind: 'error'; message: string }
+
+// Single-flight: concurrent callers share one check. Never rejects —
+// errors are logged and reported in the result, and the current copy
+// stays in use.
+export function checkYtdlpUpdate(): Promise<YtdlpCheckResult> {
   if (!checkInFlight) {
     checkInFlight = doCheck()
-      .catch((err) => {
-        console.warn('[ytdlp-update] check failed:', (err as Error).message)
-        return false
+      .catch((err): YtdlpCheckResult => {
+        const message = (err as Error).message
+        console.warn('[ytdlp-update] check failed:', message)
+        return { kind: 'error', message }
       })
       .finally(() => {
         checkInFlight = null

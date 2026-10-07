@@ -25,7 +25,9 @@
     SearchResult,
     SessionTrack,
     Theme,
-    UpdaterEvent
+    UpdaterEvent,
+    YtdlpCheckResult,
+    YtdlpVersionInfo
   } from '../../preload/index.d'
 
   type View = 'home' | 'search' | 'playlist' | 'library' | 'settings' | 'artist'
@@ -490,6 +492,33 @@
   async function checkForUpdate(): Promise<void> {
     await window.api.updater.check()
   }
+
+  // yt-dlp keeps itself fresh in the background (main/ytdlp-updater.ts);
+  // the Updates card shows the running version and offers a manual check.
+  let ytdlpInfo = $state<YtdlpVersionInfo | null>(null)
+  let ytdlpChecking = $state(false)
+  let ytdlpResult = $state<YtdlpCheckResult | null>(null)
+
+  async function checkYtdlpNow(): Promise<void> {
+    ytdlpChecking = true
+    ytdlpResult = null
+    try {
+      const { result, info } = await window.api.ytdlp.check()
+      ytdlpResult = result
+      ytdlpInfo = info
+    } catch (err) {
+      ytdlpResult = { kind: 'error', message: (err as Error).message }
+    } finally {
+      ytdlpChecking = false
+    }
+  }
+
+  function formatCheckedAt(ts: number): string {
+    return new Date(ts).toLocaleString(lang === 'ru' ? 'ru-RU' : 'en-US', {
+      dateStyle: 'medium',
+      timeStyle: 'short'
+    })
+  }
   async function downloadUpdate(): Promise<void> {
     await window.api.updater.download()
   }
@@ -566,6 +595,7 @@
 
   async function loadSettings(): Promise<void> {
     appInfo = await window.api.app.info()
+    ytdlpInfo = await window.api.ytdlp.info()
     cacheStats = await window.api.downloads.stats()
     defaultTab = await window.api.settings.getDefaultTab()
     audioQuality = await window.api.settings.getAudioQuality()
@@ -4727,6 +4757,38 @@
                   </button>
                 {/if}
               </div>
+
+              <div class="ytdlp-block">
+                <p class="settings-line">
+                  {t('settings.ytdlp.label')}
+                  <strong>{ytdlpInfo?.active ?? t('settings.ytdlp.unknown')}</strong>
+                </p>
+                {#if ytdlpChecking}
+                  <p class="settings-hint">{t('settings.ytdlp.checking')}</p>
+                {:else if ytdlpResult?.kind === 'updated'}
+                  <p class="settings-hint">
+                    {t('settings.ytdlp.updated', { version: ytdlpResult.version })}
+                  </p>
+                {:else if ytdlpResult?.kind === 'up-to-date'}
+                  <p class="settings-hint">{t('settings.ytdlp.upToDate')}</p>
+                {:else if ytdlpResult?.kind === 'error'}
+                  <p class="settings-hint" style:color="#ff8db5">
+                    {t('settings.ytdlp.error', { message: ytdlpResult.message })}
+                  </p>
+                {:else}
+                  <p class="settings-hint">
+                    {t('settings.ytdlp.hint')}
+                    {ytdlpInfo?.checkedAt
+                      ? t('settings.ytdlp.lastCheck', { when: formatCheckedAt(ytdlpInfo.checkedAt) })
+                      : t('settings.ytdlp.never')}
+                  </p>
+                {/if}
+                <div class="upd-actions">
+                  <button class="settings-btn" onclick={checkYtdlpNow} disabled={ytdlpChecking}>
+                    {ytdlpChecking ? t('settings.ytdlp.checkingBtn') : t('settings.ytdlp.checkBtn')}
+                  </button>
+                </div>
+              </div>
             </section>
 
             <section class="settings-card">
@@ -4748,7 +4810,7 @@
               <p class="settings-hint">{t('settings.donate.hint')}</p>
               <button
                 class="settings-btn donate"
-                onclick={() => window.open('https://dalink.to/toristarm', '_blank')}
+                onclick={() => window.open('https://ko-fi.com/erneywhite', '_blank')}
               >
                 {t('settings.donate.button')}
               </button>
@@ -6655,6 +6717,13 @@
     display: flex;
     gap: 0.5rem;
     margin-top: 0.5rem;
+  }
+  /* yt-dlp sub-block inside the Updates card — a hairline separates it
+     from the app's own update controls above. */
+  .ytdlp-block {
+    margin-top: 0.9rem;
+    padding-top: 0.9rem;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
   }
 
   /* Theme picker — one row per palette: a coloured dot + the label,

@@ -93,6 +93,19 @@ export type UpdaterEvent =
   | { kind: 'downloaded'; version: string }
   | { kind: 'error'; message: string }
 
+export interface YtdlpVersionInfo {
+  active: string | null
+  source: 'bundled' | 'downloaded'
+  bundled: string | null
+  downloaded: string | null
+  checkedAt: number | null
+}
+
+export type YtdlpCheckResult =
+  | { kind: 'updated'; version: string }
+  | { kind: 'up-to-date' }
+  | { kind: 'error'; message: string }
+
 export type Lang = 'ru' | 'en'
 
 export type AudioQuality = 'best' | 'medium' | 'low'
@@ -271,6 +284,10 @@ export interface EcodaApi {
     onMiniChanged: (
       cb: (state: { active: boolean; layout: MiniLayout }) => void
     ) => () => void
+  }
+  ytdlp: {
+    info: () => Promise<YtdlpVersionInfo>
+    check: () => Promise<{ result: YtdlpCheckResult; info: YtdlpVersionInfo }>
   }
   updater: {
     check: () => Promise<boolean>

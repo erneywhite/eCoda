@@ -132,6 +132,10 @@ const api = {
       return () => ipcRenderer.removeListener('window:mini-changed', wrapped)
     }
   },
+  ytdlp: {
+    info: () => ipcRenderer.invoke('ytdlp:info'),
+    check: () => ipcRenderer.invoke('ytdlp:check')
+  },
   updater: {
     check: () => ipcRenderer.invoke('update:check'),
     download: () => ipcRenderer.invoke('update:download'),
