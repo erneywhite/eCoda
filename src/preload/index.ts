@@ -9,6 +9,16 @@ const api = {
     connect: (browser: string) => ipcRenderer.invoke('auth:connect', browser),
     disconnect: () => ipcRenderer.invoke('auth:disconnect'),
     openYouTube: () => ipcRenderer.invoke('auth:open-youtube'),
+    // macOS Full Disk Access flow: the startup reconnect found the
+    // browser's data unreadable. Pull (status) + push (onNeedsAccess).
+    needsAccessStatus: () => ipcRenderer.invoke('auth:needs-access-status'),
+    onNeedsAccess: (cb: (browser: string) => void) => {
+      const wrapped = (_e: unknown, browser: string): void => cb(browser)
+      ipcRenderer.on('auth:needs-access', wrapped)
+      return () => ipcRenderer.removeListener('auth:needs-access', wrapped)
+    },
+    openAccessSettings: () => ipcRenderer.invoke('auth:open-access-settings'),
+    relaunch: () => ipcRenderer.invoke('app:relaunch'),
     // Fires after the main process silently refreshed cookies on launch.
     // The renderer should drop any auth-bound caches and re-fetch the
     // current view so an initially-empty Library/Home is repopulated.

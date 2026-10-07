@@ -55,6 +55,18 @@
   let miniLayout = $state<'compact' | 'square'>('compact')
   let browsers = $state<{ id: string; name: string }[]>([])
   let connecting = $state<string | null>(null)
+  // macOS Full Disk Access prompt — set when the browser's data dir can't be
+  // read (connect returned 'needs-access', or the startup reconnect flagged
+  // it). Holds the browser's display name for the message.
+  let accessDialog = $state<{ browser: string } | null>(null)
+
+  async function openAccessSettings(): Promise<void> {
+    await window.api.auth.openAccessSettings()
+  }
+
+  async function relaunchApp(): Promise<void> {
+    await window.api.auth.relaunch()
+  }
   let connectError = $state('')
 
   // ---- navigation -----------------------------------------------------------
@@ -2327,6 +2339,9 @@
     // logged-in-required caches and re-fetch whatever the user is
     // currently looking at. Stops the "empty Library on first launch
     // after upgrade until you Disconnect+Connect" bug.
+    const unsubAccess = window.api.auth.onNeedsAccess((id) => {
+      accessDialog = { browser: browserName(id) }
+    })
     const unsubAuth = window.api.auth.onRefreshed(() => {
       console.log('[renderer] auth refreshed — re-fetching current view')
       homeSections = null
@@ -2389,7 +2404,8 @@
         e.code === 'KeyF' &&
         topSearchEl &&
         !confirmDialog &&
-        !addModal
+        !addModal &&
+        !accessDialog
       ) {
         e.preventDefault()
         topSearchEl.focus()
@@ -2400,7 +2416,7 @@
       // Space is left alone on buttons/links (there it already "clicks").
       const tgt = e.target as HTMLElement | null
       const typing = !!tgt?.closest('input, textarea, select, [contenteditable="true"]')
-      if (!typing && !confirmDialog && !addModal && playing && !e.altKey && !miniMode) {
+      if (!typing && !confirmDialog && !addModal && !accessDialog && playing && !e.altKey && !miniMode) {
         const mod = e.ctrlKey || e.metaKey
         if (e.code === 'Space' && !mod && !tgt?.closest('button, a, [role="button"], [role="link"]')) {
           e.preventDefault()
@@ -2437,6 +2453,10 @@
         // modal first matches user expectation.
         if (confirmDialog) {
           closeConfirm(false)
+          return
+        }
+        if (accessDialog) {
+          accessDialog = null
           return
         }
         if (addModal) {
@@ -2510,6 +2530,11 @@
       browsers = await window.api.auth.browsers()
       connectedBrowser = await window.api.auth.status()
       if (connectedBrowser) {
+        // The startup reconnect may already have found the browser's data
+        // unreadable (macOS, no Full Disk Access) before we subscribed.
+        void window.api.auth.needsAccessStatus().then((id) => {
+          if (id) accessDialog = { browser: browserName(id) }
+        })
         void loadPinned()
         // Honour the user's preferred startup tab.
         const initial = await window.api.settings.getDefaultTab()
@@ -2539,6 +2564,7 @@
       unsubPct()
       unsubUpd()
       unsubAuth()
+      unsubAccess()
       unsubWin()
       unsubMini()
       unsubTray()
@@ -2554,7 +2580,9 @@
     connectError = ''
     try {
       const ok = await window.api.auth.connect(browser.id)
-      if (ok) {
+      if (ok === 'needs-access') {
+        accessDialog = { browser: browser.name }
+      } else if (ok) {
         connectedBrowser = browser.id
         void loadPinned()
         void loadHome()
@@ -6086,6 +6114,37 @@
       </div>
     </div>
   {/if}
+
+  <!-- macOS Full Disk Access prompt. macOS gives apps no way to request
+       FDA with a system dialog, so this explains why it's needed and
+       deep-links to the right Settings pane; the grant only reliably
+       applies after a restart, hence the relaunch button. -->
+  {#if accessDialog}
+    <!-- svelte-ignore a11y_click_events_have_key_events -->
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <div
+      class="confirm-backdrop"
+      onclick={(e) => {
+        if (e.target === e.currentTarget) accessDialog = null
+      }}
+    >
+      <div class="confirm-card access-card" role="dialog" aria-modal="true" tabindex="-1">
+        <h3 class="access-title">{t('access.title')}</h3>
+        <div class="confirm-message">{t('access.body', { browser: accessDialog.browser })}</div>
+        <div class="confirm-actions">
+          <button class="confirm-btn cancel" onclick={() => (accessDialog = null)}>
+            {t('access.later')}
+          </button>
+          <button class="confirm-btn" onclick={relaunchApp}>
+            {t('access.relaunch')}
+          </button>
+          <button class="confirm-btn ok" onclick={openAccessSettings}>
+            {t('access.openSettings')}
+          </button>
+        </div>
+      </div>
+    </div>
+  {/if}
 </main>
 
 <style>
@@ -9247,6 +9306,13 @@
   .confirm-btn.ok.danger {
     background: linear-gradient(135deg, #ff5c8a, #d92e6f);
     box-shadow: 0 4px 14px rgba(255, 60, 120, 0.45);
+  }
+  .access-card {
+    max-width: 500px;
+  }
+  .access-title {
+    margin: 0 0 0.6rem;
+    font-size: 1.05rem;
   }
   @keyframes confirm-bg-in {
     from { opacity: 0; }

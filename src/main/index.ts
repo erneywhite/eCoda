@@ -17,6 +17,7 @@ import {
   setBrowser,
   disconnect,
   ytdlpBrowserArg,
+  checkBrowserAccess,
   getDefaultTab,
   setDefaultTab,
   getPinnedPlaylists,
@@ -118,6 +119,9 @@ let forceQuit = false
 // we load it on startup and re-sync whenever the user toggles the
 // Settings UI (via the IPC handler below).
 let closeActionCache: CloseAction = 'tray'
+// Browser id whose data dir the startup reconnect couldn't read (macOS,
+// no Full Disk Access) — null when fine. See checkBrowserAccess in auth.ts.
+let needsAccessBrowser: string | null = null
 
 // Privileged custom protocol so the renderer can play offline-cached audio
 // without bumping into webSecurity / CSP rules that block bare file://
@@ -573,10 +577,20 @@ app.whenReady().then(async () => {
   ipcMain.handle('auth:browsers', () => detectBrowsers())
   ipcMain.handle('auth:status', () => getBrowser())
   ipcMain.handle('auth:connect', async (_event, browser: string) => {
+    // macOS: probe the browser's data dir first. Without Full Disk Access
+    // it's EPERM, and yt-dlp would just say "could not find cookies
+    // database" — tell the renderer to ask for the permission instead of
+    // claiming the user isn't signed in. Must run before ytdlpBrowserArg,
+    // which for Firefox forks reads the same dir and returns null on EPERM.
+    if (checkBrowserAccess(browser) === 'denied') {
+      console.warn(`[auth:connect] no access to ${browser} data — Full Disk Access needed`)
+      return 'needs-access'
+    }
     const arg = ytdlpBrowserArg(browser)
     if (!arg) return false
     const ok = await verifyBrowserLogin(arg)
     if (ok) {
+      needsAccessBrowser = null
       await setBrowser(browser)
       // The cookies file was just refreshed by verifyBrowserLogin; force
       // youtubei.js to pick them up on the next request.
@@ -604,6 +618,27 @@ app.whenReady().then(async () => {
   })
   ipcMain.handle('auth:open-youtube', () => {
     shell.openExternal('https://www.youtube.com/')
+    return true
+  })
+  // Pull side of the startup access check (the push is `auth:needs-access`),
+  // so the renderer gets it even if it subscribed after the event fired.
+  ipcMain.handle('auth:needs-access-status', () => needsAccessBrowser)
+  // Deep-link to System Settings → Privacy & Security → Full Disk Access.
+  // There is no API to request FDA with a system prompt, so the best we can
+  // do is open the right pane for the user (verified on macOS 27.0.1).
+  ipcMain.handle('auth:open-access-settings', () => {
+    if (process.platform !== 'darwin') return false
+    void shell.openExternal(
+      'x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles'
+    )
+    return true
+  })
+  // A fresh Full Disk Access grant isn't always visible to an already-
+  // running process, so after granting the user restarts eCoda from here.
+  ipcMain.handle('app:relaunch', () => {
+    forceQuit = true
+    app.relaunch()
+    app.exit(0)
     return true
   })
   ipcMain.handle('metadata:search', (_event, query: string) => searchSongs(query))
@@ -1014,6 +1049,25 @@ app.whenReady().then(async () => {
 async function silentReconnect(): Promise<void> {
   const browser = await getBrowser()
   if (!browser) return
+  // macOS: no Full Disk Access → the cookie read can't succeed. Say so
+  // explicitly and ask the renderer to prompt, instead of logging
+  // "cookies may have expired" and leaving the Library silently empty.
+  if (checkBrowserAccess(browser) === 'denied') {
+    console.warn(`[startup-reconnect] no access to ${browser} data — Full Disk Access needed`)
+    needsAccessBrowser = browser
+    const notify = (): void => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('auth:needs-access', browser)
+      }
+    }
+    // The renderer may still be booting; send once it has loaded.
+    if (mainWindow && mainWindow.webContents.isLoading()) {
+      mainWindow.webContents.once('did-finish-load', notify)
+    } else {
+      notify()
+    }
+    return
+  }
   const arg = ytdlpBrowserArg(browser)
   if (!arg) {
     console.warn('[startup-reconnect] cookies path could not be resolved:', browser)

@@ -277,6 +277,34 @@ export function ytdlpBrowserArg(id: string): string | null {
   return profile ? `firefox:${profile}` : null
 }
 
+// Whether eCoda may read the browser's profile directory. macOS-only
+// concern: since macOS 27 the browsers' data under ~/Library/Application
+// Support is privacy-protected (and Safari's cookie container always was),
+// so without Full Disk Access every read fails with EPERM. yt-dlp then
+// reports "could not find … cookies database", which surfaced as a
+// misleading "no YouTube login found" / empty Library. macOS has no API
+// for an app to request Full Disk Access with a system prompt, so we
+// probe the directory up front and let the renderer explain + deep-link
+// to System Settings instead.
+//   'ok'      — readable (or not macOS)
+//   'denied'  — EPERM/EACCES: the user has to grant Full Disk Access
+//   'unknown' — some other failure (missing dir etc.); fall through to
+//               the normal yt-dlp path and its own error handling
+export type BrowserAccess = 'ok' | 'denied' | 'unknown'
+
+export function checkBrowserAccess(id: string): BrowserAccess {
+  if (!isMac) return 'ok'
+  const def = BROWSERS.find((b) => b.id === id)
+  if (!def || !def.profileRoot) return 'unknown'
+  try {
+    readdirSync(def.profileRoot)
+    return 'ok'
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code
+    return code === 'EPERM' || code === 'EACCES' ? 'denied' : 'unknown'
+  }
+}
+
 export type DefaultTab = 'home' | 'search' | 'library'
 export type Lang = 'ru' | 'en'
 // Audio quality preset for new downloads. Maps to a yt-dlp `-f` format

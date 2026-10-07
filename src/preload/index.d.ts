@@ -213,9 +213,15 @@ export interface EcodaApi {
   auth: {
     browsers: () => Promise<DetectedBrowser[]>
     status: () => Promise<string | null>
-    connect: (browser: string) => Promise<boolean>
+    // 'needs-access' (macOS only): the browser's data dir isn't readable
+    // without Full Disk Access — prompt instead of "no login found".
+    connect: (browser: string) => Promise<boolean | 'needs-access'>
     disconnect: () => Promise<boolean>
     openYouTube: () => Promise<boolean>
+    needsAccessStatus: () => Promise<string | null>
+    onNeedsAccess: (cb: (browser: string) => void) => () => void
+    openAccessSettings: () => Promise<boolean>
+    relaunch: () => Promise<boolean>
     onRefreshed: (cb: () => void) => () => void
   }
   metadata: {

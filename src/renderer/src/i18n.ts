@@ -54,6 +54,12 @@ const RU: Strings = {
   'connect.noBrowsers': 'Поддерживаемые браузеры на этом компьютере не найдены.',
   'connect.safariFda':
     'Для Safari нужен доступ к диску: Системные настройки → Конфиденциальность и безопасность → Полный доступ к диску → включи eCoda. Иначе чтение cookies не сработает.',
+  'access.title': 'Нужен доступ к данным браузера',
+  'access.body':
+    'macOS не даёт eCoda прочитать данные {browser}, поэтому вход в YouTube не подхватывается. Нажми «Открыть настройки», включи eCoda в списке «Полный доступ к диску», затем вернись и нажми «Перезапустить eCoda». Доступ нужен, чтобы взять твою сессию YouTube из браузера.',
+  'access.openSettings': 'Открыть настройки',
+  'access.relaunch': 'Перезапустить eCoda',
+  'access.later': 'Позже',
 
   // Search
   'search.placeholder': 'Поиск трека, артиста, альбома',
@@ -356,6 +362,12 @@ const EN: Strings = {
   'connect.noBrowsers': 'No supported browsers found on this machine.',
   'connect.safariFda':
     'Safari needs Full Disk Access: System Settings → Privacy & Security → Full Disk Access → enable eCoda. Otherwise reading cookies will fail.',
+  'access.title': 'eCoda needs access to your browser data',
+  'access.body':
+    'macOS won’t let eCoda read {browser}’s data, so your YouTube sign-in can’t be picked up. Click “Open Settings”, turn on eCoda under “Full Disk Access”, then come back and click “Restart eCoda”. eCoda needs this to reuse your YouTube session from the browser.',
+  'access.openSettings': 'Open Settings',
+  'access.relaunch': 'Restart eCoda',
+  'access.later': 'Later',
 
   'search.placeholder': 'Search for a track, artist, album',
   'search.button.idle': 'Search',
