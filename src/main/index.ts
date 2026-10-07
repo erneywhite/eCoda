@@ -24,8 +24,6 @@ import {
   updatePinSnapshot,
   getRecentAddPlaylists,
   pushRecentAddPlaylist,
-  getTheme,
-  setTheme,
   getLang,
   setLang,
   getAudioQuality,
@@ -63,7 +61,6 @@ import {
   type MediaKeyMode,
   type PinnedPlaylist,
   type RecentPlaylist,
-  type Theme,
   type WindowState
 } from './auth'
 import { installLogger, getLogPath } from './logger'
@@ -872,8 +869,6 @@ app.whenReady().then(async () => {
   ipcMain.handle('settings:updatePinSnapshot', (_event, item: PinnedPlaylist) =>
     updatePinSnapshot(item)
   )
-  ipcMain.handle('settings:getTheme', () => getTheme())
-  ipcMain.handle('settings:setTheme', (_event, theme: Theme) => setTheme(theme))
   ipcMain.handle('settings:getLang', () => getLang())
   ipcMain.handle('settings:setLang', async (_event, lang: Lang) => {
     await setLang(lang)

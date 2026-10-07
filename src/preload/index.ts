@@ -155,8 +155,6 @@ const api = {
       ipcRenderer.invoke('settings:togglePin', item),
     updatePinSnapshot: (item: { id: string; title: string; thumbnail: string }) =>
       ipcRenderer.invoke('settings:updatePinSnapshot', item),
-    getTheme: () => ipcRenderer.invoke('settings:getTheme'),
-    setTheme: (theme: string) => ipcRenderer.invoke('settings:setTheme', theme),
     getLang: () => ipcRenderer.invoke('settings:getLang'),
     setLang: (lang: 'ru' | 'en') => ipcRenderer.invoke('settings:setLang', lang),
     getAudioQuality: () => ipcRenderer.invoke('settings:getAudioQuality'),

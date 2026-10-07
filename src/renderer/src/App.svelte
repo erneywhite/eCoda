@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount, tick } from 'svelte'
+  import { onMount, tick, untrack } from 'svelte'
   // Animation primitives. `flip` smooths track-list reorders (drag +
   // reshuffle + reset all trigger a SubArray swap that flip animates
   // from old → new positions). `fade` + `scale` polish view changes
@@ -7,6 +7,8 @@
   // most modern UIs — fast tail, settles softly without overshoot.
   import { flip } from 'svelte/animate'
   import { fade, scale } from 'svelte/transition'
+  import { prefersReducedMotion } from 'svelte/motion'
+  import { BRAND_PALETTE, analyzeCover, type CoverPalette } from './cover-palette'
   import { quintOut } from 'svelte/easing'
   import wordmark from './assets/wordmark.png'
   import { translate, LANG_LABELS, type Lang } from './i18n'
@@ -24,7 +26,6 @@
     RepeatMode,
     SearchResult,
     SessionTrack,
-    Theme,
     UpdaterEvent,
     YtdlpCheckResult,
     YtdlpVersionInfo
@@ -325,120 +326,16 @@
     return result
   }
 
-  // ---- theme system (colour palettes) -------------------------------------
-  // Each palette is a small map of CSS variables. applyTheme() writes them
-  // to :root so every existing var(--accent), var(--accent-rgb), etc in
-  // the stylesheet swaps in one place.
-  interface ThemeDef {
-    label: string
-    accent: string
-    accent2: string
-    accentRgb: string // "201, 125, 246" — used in rgba() wrappers
-    aurora1: string
-    aurora2: string
-    aurora3: string
-    swatch: string // gradient string for the picker dot
-  }
-  const THEMES: Record<Theme, ThemeDef> = {
-    purple: {
-      label: 'Фиолетовая',
-      accent: '#c97df6',
-      accent2: '#ff6dc8',
-      accentRgb: '201, 125, 246',
-      aurora1: 'rgba(201, 125, 246, 0.32)',
-      aurora2: 'rgba(255, 109, 200, 0.18)',
-      aurora3: 'rgba(80, 110, 255, 0.14)',
-      swatch: 'linear-gradient(135deg, #c97df6, #ff6dc8)'
-    },
-    cyan: {
-      label: 'Кибер-циан',
-      accent: '#7df9ff',
-      accent2: '#4ecdc4',
-      accentRgb: '125, 249, 255',
-      aurora1: 'rgba(125, 249, 255, 0.28)',
-      aurora2: 'rgba(78, 205, 196, 0.18)',
-      aurora3: 'rgba(100, 200, 220, 0.14)',
-      swatch: 'linear-gradient(135deg, #7df9ff, #4ecdc4)'
-    },
-    sunset: {
-      label: 'Закат',
-      accent: '#ff8a5b',
-      accent2: '#ffd166',
-      accentRgb: '255, 138, 91',
-      aurora1: 'rgba(255, 138, 91, 0.30)',
-      aurora2: 'rgba(255, 209, 102, 0.18)',
-      aurora3: 'rgba(255, 100, 60, 0.14)',
-      swatch: 'linear-gradient(135deg, #ff8a5b, #ffd166)'
-    },
-    forest: {
-      label: 'Лесная',
-      accent: '#a8e063',
-      accent2: '#56ab2f',
-      accentRgb: '168, 224, 99',
-      aurora1: 'rgba(168, 224, 99, 0.24)',
-      aurora2: 'rgba(86, 171, 47, 0.18)',
-      aurora3: 'rgba(60, 140, 80, 0.14)',
-      swatch: 'linear-gradient(135deg, #a8e063, #56ab2f)'
-    },
-    crimson: {
-      label: 'Кровавая',
-      accent: '#ff4f6b',
-      accent2: '#ff8a9c',
-      accentRgb: '255, 79, 107',
-      aurora1: 'rgba(255, 79, 107, 0.28)',
-      aurora2: 'rgba(255, 138, 156, 0.18)',
-      aurora3: 'rgba(200, 60, 100, 0.14)',
-      swatch: 'linear-gradient(135deg, #ff4f6b, #ff8a9c)'
-    },
-    mono: {
-      label: 'Монохром',
-      accent: '#e5e5e5',
-      accent2: '#a3a3a3',
-      accentRgb: '229, 229, 229',
-      aurora1: 'rgba(200, 200, 200, 0.14)',
-      aurora2: 'rgba(150, 150, 150, 0.10)',
-      aurora3: 'rgba(100, 100, 100, 0.08)',
-      swatch: 'linear-gradient(135deg, #e5e5e5, #a3a3a3)'
-    },
-    ocean: {
-      label: 'Океан',
-      accent: '#4ea8de',
-      accent2: '#1bb1ff',
-      accentRgb: '78, 168, 222',
-      aurora1: 'rgba(78, 168, 222, 0.28)',
-      aurora2: 'rgba(27, 177, 255, 0.18)',
-      aurora3: 'rgba(50, 100, 200, 0.14)',
-      swatch: 'linear-gradient(135deg, #4ea8de, #1bb1ff)'
-    },
-    neon: {
-      label: 'Розовый неон',
-      accent: '#ff3d96',
-      accent2: '#ff80b5',
-      accentRgb: '255, 61, 150',
-      aurora1: 'rgba(255, 61, 150, 0.30)',
-      aurora2: 'rgba(255, 128, 181, 0.18)',
-      aurora3: 'rgba(200, 50, 130, 0.14)',
-      swatch: 'linear-gradient(135deg, #ff3d96, #ff80b5)'
-    }
-  }
-
-  let theme = $state<Theme>('purple')
-
-  function applyTheme(name: Theme): void {
-    const t = THEMES[name] ?? THEMES.purple
+  // ---- cover colour (1.6.0) -------------------------------------------------
+  // The accent follows the playing track's cover (cover-palette.ts) and the
+  // window background is that cover, heavily blurred (.cover-backdrop in the
+  // markup). Brand violet whenever nothing is loaded or the cover is
+  // greyscale / unreachable. Replaces the old 8-palette theme picker.
+  function applyPalette(p: CoverPalette): void {
     const r = document.documentElement.style
-    r.setProperty('--accent', t.accent)
-    r.setProperty('--accent-2', t.accent2)
-    r.setProperty('--accent-rgb', t.accentRgb)
-    r.setProperty('--aurora-1', t.aurora1)
-    r.setProperty('--aurora-2', t.aurora2)
-    r.setProperty('--aurora-3', t.aurora3)
-  }
-
-  async function changeTheme(name: Theme): Promise<void> {
-    theme = name
-    applyTheme(name)
-    await window.api.settings.setTheme(name)
+    r.setProperty('--accent', p.accent)
+    r.setProperty('--accent-2', p.accent2)
+    r.setProperty('--accent-rgb', p.accentRgb)
   }
 
   // ---- i18n (UI language) --------------------------------------------------
@@ -896,6 +793,38 @@
     sourceListTitle?: string
   } | null>(null)
   let playStatus = $state<PlayStatus>('idle')
+
+  // Cover of whatever is loaded (playing or paused) — drives the accent and
+  // the blurred window background. Resolved ONCE per track: downloadedIds is
+  // read untracked, so a track finishing its download mid-song doesn't swap
+  // https:// → media:// and restart the crossfade / re-derive the colour.
+  const coverUrl = $derived.by(() => {
+    const p = playing
+    if (!p) return ''
+    const id = p.id
+    const thumb = p.thumbnail
+    return untrack(() => thumbnailFor(id, thumb))
+  })
+  // Backdrop brightness: 0.5 for ordinary covers, lower for bright ones so
+  // text keeps its contrast over a near-white cover.
+  let coverDim = $state(0.5)
+  $effect(() => {
+    const url = coverUrl
+    let stale = false
+    if (!url) {
+      applyPalette(BRAND_PALETTE)
+    } else {
+      void analyzeCover(url).then((a) => {
+        if (stale) return
+        applyPalette(a?.palette ?? BRAND_PALETTE)
+        const lum = a?.luminance ?? 0
+        coverDim = lum <= 0.2 ? 0.5 : Math.max(0.24, 0.5 - (lum - 0.2) * 0.5)
+      })
+    }
+    return () => {
+      stale = true
+    }
+  })
   let playError = $state('')
   // The videoId we're currently resolving (during the ~500ms-4s gap
   // between click and the audio element getting a streamUrl). The list
@@ -2322,10 +2251,6 @@
     window.addEventListener('keydown', onWindowKeyDown)
 
     void (async () => {
-      // Load + apply the saved theme as the very first thing so the user
-      // doesn't see purple flash before their preferred palette kicks in.
-      theme = await window.api.settings.getTheme()
-      applyTheme(theme)
       // Load saved language so labels render in the right locale on first
       // paint. Fallback is 'ru' (handled by the IPC default).
       lang = await window.api.settings.getLang()
@@ -3533,6 +3458,27 @@
 
 <main class:mini={miniMode} class:platform-mac={isMac}>
   {#if !miniMode}
+    <!-- The playing cover, blurred, behind the whole window. Keyed on the
+         URL so a new cover fades in OVER the old one; the old one stays
+         fully opaque until the fade is done (fading both at once would
+         let the dark base show through mid-way). |global: the transitions
+         must run when the key block swaps, not only when the if toggles. -->
+    <div class="cover-backdrop" aria-hidden="true" style:--cover-dim={coverDim}>
+      {#key coverUrl}
+        {#if coverUrl}
+          <img
+            class="cover-backdrop-img"
+            src={coverUrl}
+            alt=""
+            in:fade|global={{ duration: prefersReducedMotion.current ? 0 : 700 }}
+            out:fade|global={{ delay: prefersReducedMotion.current ? 0 : 700, duration: 1 }}
+          />
+        {/if}
+      {/key}
+      <div class="cover-backdrop-shade"></div>
+    </div>
+  {/if}
+  {#if !miniMode}
     <header>
     <img class="wordmark" src={wordmark} alt="eCoda" />
     {#if connectedBrowser}
@@ -4459,26 +4405,6 @@
                     onclick={() => changeLang(code as Lang)}
                   >
                     {label}
-                  </button>
-                {/each}
-              </div>
-            </section>
-
-            <section class="settings-card">
-              <h4>{t('settings.theme.title')}</h4>
-              <p class="settings-hint">{t('settings.theme.hint')}</p>
-              <div class="theme-grid">
-                {#each Object.entries(THEMES) as [key, def] (key)}
-                  <button
-                    class="theme-swatch"
-                    class:active={theme === key}
-                    style:--swatch={def.swatch}
-                    aria-label={t('theme.' + key)}
-                    title={t('theme.' + key)}
-                    onclick={() => changeTheme(key as Theme)}
-                  >
-                    <span class="theme-dot"></span>
-                    <span class="theme-label">{t('theme.' + key)}</span>
                   </button>
                 {/each}
               </div>
@@ -5646,16 +5572,15 @@
 </main>
 
 <style>
-  /* Theme palette — applyTheme() in script rewrites these at runtime.
-     The values here are the "purple" defaults so first paint before the
-     persisted theme loads still looks correct. */
+  /* Accent — applyPalette() rewrites these from the playing cover at
+     runtime (cover-palette.ts). The values here are the brand violet,
+     shown on first paint and whenever nothing is loaded. */
   :global(:root) {
     --accent: #c97df6;
     --accent-2: #ff6dc8;
     --accent-rgb: 201, 125, 246;
-    --aurora-1: rgba(201, 125, 246, 0.32);
-    --aurora-2: rgba(255, 109, 200, 0.18);
-    --aurora-3: rgba(80, 110, 255, 0.14);
+    --cover-blur: 90px;
+    --cover-dim: 0.5;
   }
 
   /* Custom scrollbars everywhere — the default Windows ones are grey
@@ -5686,9 +5611,11 @@
     background: transparent;
   }
 
-  /* Mockup B: aurora gradient mesh behind everything. Three coloured
-     radial blurs scattered, with the deep purple base showing through
-     the gaps. Pinned to viewport so it doesn't scroll with content. */
+  /* Window background. Base layer: near-black with one soft brand-violet
+     glow, which is all you see while nothing is loaded. Over it, the
+     .cover-backdrop: the playing cover blown up and blurred until only its
+     colours remain, then shaded towards the bottom so text stays legible.
+     Both pinned to the viewport. */
   :global(body) {
     position: relative;
   }
@@ -5697,12 +5624,40 @@
     position: fixed;
     inset: 0;
     background:
-      radial-gradient(900px 600px at 8% 12%, var(--aurora-1), transparent 60%),
-      radial-gradient(700px 500px at 92% 18%, var(--aurora-2), transparent 60%),
-      radial-gradient(900px 700px at 50% 95%, var(--aurora-3), transparent 60%),
-      #0c0816;
-    z-index: -1;
+      radial-gradient(1100px 560px at 18% -12%, rgba(201, 125, 246, 0.22), transparent 70%),
+      var(--surface-base);
+    z-index: -2;
     pointer-events: none;
+  }
+  .cover-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    overflow: hidden;
+    pointer-events: none;
+  }
+  /* Overhang = 3× the blur radius on every side: blur pulls transparency
+     in from the image edge, and a %-based overhang left a dark vignette
+     in narrower windows. */
+  .cover-backdrop-img {
+    position: absolute;
+    left: calc(-3 * var(--cover-blur));
+    top: calc(-3 * var(--cover-blur));
+    width: calc(100% + 6 * var(--cover-blur));
+    height: calc(100% + 6 * var(--cover-blur));
+    object-fit: cover;
+    filter: blur(var(--cover-blur)) saturate(1.4) brightness(var(--cover-dim));
+    will-change: opacity;
+  }
+  .cover-backdrop-shade {
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(
+      180deg,
+      rgba(12, 10, 16, 0.22) 0%,
+      rgba(12, 10, 16, 0.45) 60%,
+      rgba(12, 10, 16, 0.85) 100%
+    );
   }
 
   main {
@@ -6727,60 +6682,6 @@
     margin-top: 0.9rem;
     padding-top: 0.9rem;
     border-top: 1px solid rgba(255, 255, 255, 0.08);
-  }
-
-  /* Theme picker — one row per palette: a coloured dot + the label,
-     active palette gets a tinted background + bold ring. Each swatch's
-     --swatch CSS var carries its own gradient so the dot picks the
-     correct palette regardless of the active theme. */
-  .theme-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
-    gap: 0.45rem;
-    margin-top: 0.3rem;
-  }
-
-  .theme-swatch {
-    display: flex;
-    align-items: center;
-    gap: 0.55rem;
-    padding: 0.5rem 0.7rem;
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 10px;
-    background: rgba(255, 255, 255, 0.02);
-    color: #d4c9e8;
-    font-size: 0.83rem;
-    font-weight: 600;
-    cursor: pointer;
-    transition: background 0.15s, border-color 0.15s, color 0.15s;
-  }
-
-  .theme-swatch:hover {
-    background: rgba(255, 255, 255, 0.06);
-    color: #ffffff;
-  }
-
-  .theme-swatch.active {
-    border-color: rgba(var(--accent-rgb), 0.6);
-    background: rgba(var(--accent-rgb), 0.12);
-    color: #ffffff;
-  }
-
-  .theme-dot {
-    width: 18px;
-    height: 18px;
-    border-radius: 50%;
-    background: var(--swatch);
-    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
-    flex-shrink: 0;
-  }
-
-  .theme-label {
-    flex: 1;
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
   }
 
   /* Segmented control for "default tab" pref — three pill buttons that

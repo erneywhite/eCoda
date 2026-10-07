@@ -137,16 +137,6 @@ export interface PlaylistOverride {
   prependOnAdd?: boolean
 }
 
-export type Theme =
-  | 'purple'
-  | 'cyan'
-  | 'sunset'
-  | 'forest'
-  | 'crimson'
-  | 'mono'
-  | 'ocean'
-  | 'neon'
-
 export interface DownloadInfo {
   videoId: string
   title: string
@@ -301,8 +291,6 @@ export interface EcodaApi {
     getPinned: () => Promise<PinnedPlaylist[]>
     togglePin: (item: PinnedPlaylist) => Promise<boolean>
     updatePinSnapshot: (item: PinnedPlaylist) => Promise<void>
-    getTheme: () => Promise<Theme>
-    setTheme: (theme: Theme) => Promise<void>
     getLang: () => Promise<Lang>
     setLang: (lang: Lang) => Promise<void>
     getAudioQuality: () => Promise<AudioQuality>

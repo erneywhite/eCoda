@@ -293,15 +293,6 @@ export type AudioQuality = 'best' | 'medium' | 'low'
 //   - 'one'  → re-seek to 0 and replay the current track forever
 //   - 'all'  → wrap to the start of the current sourceList at end
 export type RepeatMode = 'off' | 'one' | 'all'
-export type Theme =
-  | 'purple'
-  | 'cyan'
-  | 'sunset'
-  | 'forest'
-  | 'crimson'
-  | 'mono'
-  | 'ocean'
-  | 'neon'
 
 // One pinned playlist as it lives in the user's sidebar shortcut list.
 // We snapshot the title + thumbnail at pin time so the sidebar can render
@@ -422,7 +413,6 @@ export interface EqualizerState {
 interface Config {
   browser?: string
   defaultTab?: DefaultTab
-  theme?: Theme
   lang?: Lang
   audioQuality?: AudioQuality
   shuffleMode?: boolean
@@ -521,14 +511,6 @@ export async function setDefaultTab(tab: DefaultTab): Promise<void> {
   await writeConfig({ ...(await readConfig()), defaultTab: tab })
 }
 
-// User-chosen colour palette. 'purple' is the original/default.
-export async function getTheme(): Promise<Theme> {
-  return (await readConfig()).theme ?? 'purple'
-}
-
-export async function setTheme(theme: Theme): Promise<void> {
-  await writeConfig({ ...(await readConfig()), theme })
-}
 
 export async function getLang(): Promise<Lang> {
   return (await readConfig()).lang ?? 'ru'
