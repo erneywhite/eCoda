@@ -6418,7 +6418,9 @@
   .sidebar {
     display: flex;
     flex-direction: column;
-    gap: 28px;
+    /* Tighter in short windows so the pinned list doesn't get squeezed
+       into a scroll box at the 560px minimum height. */
+    gap: clamp(14px, 3.5vh, 28px);
     padding: 18px 12px 16px 16px;
     min-height: 0;
   }
@@ -6534,8 +6536,10 @@
     overflow: hidden;
     text-overflow: ellipsis;
   }
+  /* Capped by window height too: in a short window (≈720px) a full-width
+     cover pushed the queue out of sight. */
   .np-col-cover {
-    width: 100%;
+    width: min(100%, 32vh);
     aspect-ratio: 1 / 1;
     flex: none;
     object-fit: cover;
