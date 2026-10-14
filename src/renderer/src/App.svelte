@@ -1077,8 +1077,13 @@
     return v <= 0 ? 0 : Math.min(1, v * v * v)
   }
 
-  // Last non-zero slider position: unmuting at 0 brings it back instead
-  // of "unmuting" into silence.
+  // Last clearly audible level the slider SETTLED on: unmuting at 0 brings
+  // it back instead of "unmuting" into silence. Taken when a change settles
+  // (the save debounce), not on every step — on the way down to 0 the
+  // wheel/slider passes 15%, 10%, 5%, and restoring one of those (near-
+  // silent on the cubic curve) felt broken. Levels below
+  // MIN_RESTORE_VOLUME never count.
+  const MIN_RESTORE_VOLUME = 0.15
   let lastAudibleVolume = 0.5
   let volumeSaveTimer: ReturnType<typeof setTimeout> | null = null
 
@@ -1087,13 +1092,11 @@
   function setVolumeLevel(v: number): void {
     const next = Math.min(1, Math.max(0, Math.round(v * 100) / 100))
     volume = next
-    if (next > 0) {
-      lastAudibleVolume = next
-      if (muted) muted = false
-    }
+    if (next > 0 && muted) muted = false
     if (volumeSaveTimer) clearTimeout(volumeSaveTimer)
     volumeSaveTimer = setTimeout(() => {
       volumeSaveTimer = null
+      if (next >= MIN_RESTORE_VOLUME) lastAudibleVolume = next
       void window.api.settings.setVolume(next).catch((err) => console.warn('volume save failed', err))
     }, 400)
   }
@@ -2574,7 +2577,7 @@
       repeatMode = await window.api.settings.getRepeatMode()
       crossfadeDuration = await window.api.settings.getCrossfadeDuration()
       volume = await window.api.settings.getVolume()
-      if (volume > 0) lastAudibleVolume = volume
+      if (volume >= MIN_RESTORE_VOLUME) lastAudibleVolume = volume
       // Media-key health check: warn if 'global' mode is configured but
       // didn't take effect this launch (macOS Accessibility fallback, or the
       // shortcuts were grabbed by another app) — otherwise the user's keys
