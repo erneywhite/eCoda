@@ -1,6 +1,7 @@
 import { app, shell, BrowserWindow, ipcMain, protocol, screen, Tray, Menu, nativeImage, session, globalShortcut, systemPreferences, clipboard } from 'electron'
 import { join } from 'path'
 import { createReadStream, readFileSync, statSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
 import { Readable } from 'node:stream'
 import icon from '../../resources/icon.png?asset'
 import {
@@ -864,6 +865,27 @@ app.whenReady().then(async () => {
   ipcMain.handle('ytdlp:check', async () => {
     const result = await checkYtdlpUpdate()
     return { result, info: getYtdlpVersionInfo() }
+  })
+  // macOS "natural scrolling": the OS flips the sign of wheel deltaY so
+  // content follows the fingers. The renderer needs it to make the volume
+  // wheel follow the physical gesture (swipe up / wheel away = louder) the
+  // way it does on Windows. Chromium doesn't expose
+  // WheelEvent.webkitDirectionInvertedFromDevice (Safari-only, checked on
+  // Electron 33), so read the global default. The key is absent until the
+  // user toggles the setting, and absent means the macOS default — natural
+  // scrolling ON. systemPreferences.getUserDefault can't tell "absent" from
+  // "false", hence `defaults read`.
+  ipcMain.handle('app:naturalScroll', () => {
+    if (process.platform !== 'darwin') return false
+    try {
+      const out = execFileSync('defaults', ['read', '-g', 'com.apple.swipescrolldirection'], {
+        encoding: 'utf8',
+        timeout: 2000
+      })
+      return out.trim() !== '0'
+    } catch {
+      return true
+    }
   })
   ipcMain.handle('app:copyText', (_event, text: string) => {
     if (typeof text !== 'string' || text === '') return false

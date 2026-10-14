@@ -267,6 +267,8 @@ export interface EcodaApi {
     }>
     openPath: (target: string) => Promise<boolean>
     copyText: (text: string) => Promise<boolean>
+    // macOS natural scrolling on (wheel deltaY sign flipped); false elsewhere.
+    naturalScroll: () => Promise<boolean>
   }
   window: {
     minimize: () => Promise<void>

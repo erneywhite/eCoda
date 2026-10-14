@@ -109,7 +109,8 @@ const api = {
   app: {
     info: () => ipcRenderer.invoke('app:info'),
     openPath: (target: string) => ipcRenderer.invoke('app:openPath', target),
-    copyText: (text: string) => ipcRenderer.invoke('app:copyText', text)
+    copyText: (text: string) => ipcRenderer.invoke('app:copyText', text),
+    naturalScroll: () => ipcRenderer.invoke('app:naturalScroll')
   },
   // Frameless-window controls. The native chrome is hidden in main,
   // so the renderer's custom titlebar buttons drive these.

@@ -1759,12 +1759,25 @@
   // Chromium = 5%), capped at 5% per event: a touchpad fires dozens of
   // small events per swipe, and a flat 5% per event flung the slider to
   // the end. Sub-1% leftovers accumulate until they make a whole percent.
+  //
+  // macOS "natural scrolling" flips the sign of deltaY (content follows the
+  // fingers), which made a swipe UP lower the volume on the Mac. When it's
+  // on we flip it back, so the volume follows the physical gesture — swipe
+  // up / wheel away = louder — same as on Windows. Read from main at mount
+  // and again whenever the window regains focus (the user may have toggled
+  // it in System Settings meanwhile).
   let volumeWheelAcc = 0
+  let wheelInverted = false
+  function refreshWheelInverted(): void {
+    if (!isMac) return
+    void window.api.app.naturalScroll().then((v) => (wheelInverted = v)).catch(() => {})
+  }
   function volumeWheel(node: HTMLElement): { destroy: () => void } {
     const onWheel = (e: WheelEvent): void => {
       if (e.deltaY === 0) return
       e.preventDefault()
-      const px = e.deltaMode === 1 ? e.deltaY * 40 : e.deltaMode === 2 ? e.deltaY * 800 : e.deltaY
+      const raw = e.deltaMode === 1 ? e.deltaY * 40 : e.deltaMode === 2 ? e.deltaY * 800 : e.deltaY
+      const px = wheelInverted ? -raw : raw
       volumeWheelAcc += Math.max(-0.05, Math.min(0.05, (-px / 100) * 0.05))
       const step = Math.trunc(volumeWheelAcc * 100) / 100
       if (step === 0) return
@@ -2573,6 +2586,8 @@
       }
     }
     window.addEventListener('mousedown', onWindowMouseDown)
+    refreshWheelInverted()
+    window.addEventListener('focus', refreshWheelInverted)
     window.addEventListener('keydown', onWindowKeyDown)
 
     void (async () => {
@@ -2673,6 +2688,7 @@
       window.removeEventListener('mouseup', onMouse)
       window.removeEventListener('wheel', onWheelManual)
       window.removeEventListener('mousedown', onWindowMouseDown)
+      window.removeEventListener('focus', refreshWheelInverted)
       window.removeEventListener('keydown', onWindowKeyDown)
     }
   })
