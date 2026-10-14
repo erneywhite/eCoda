@@ -452,6 +452,9 @@ interface Config {
   // — the next track starts the instant the previous ends. Settings
   // slider exposes 0 to 12 seconds.
   crossfadeDuration?: number
+  // Master volume slider position, 0..1 (the slider value, NOT the gain —
+  // the renderer maps it through a perceptual curve). Missing = 1.
+  volume?: number
   equalizer?: EqualizerState
   pinnedPlaylists?: PinnedPlaylist[]
   recentAddPlaylists?: RecentPlaylist[]
@@ -629,6 +632,19 @@ export async function getCrossfadeDuration(): Promise<number> {
 export async function setCrossfadeDuration(seconds: number): Promise<void> {
   const clamped = Math.max(0, Math.min(12, Math.round(seconds)))
   await writeConfig({ ...(await readConfig()), crossfadeDuration: clamped })
+}
+
+// Master volume slider position (0..1), restored on launch so the player
+// doesn't start at full blast every time.
+export async function getVolume(): Promise<number> {
+  const v = (await readConfig()).volume
+  return typeof v === 'number' && Number.isFinite(v) ? Math.max(0, Math.min(1, v)) : 1
+}
+
+export async function setVolume(value: number): Promise<void> {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return
+  const clamped = Math.max(0, Math.min(1, Math.round(value * 100) / 100))
+  await writeConfig({ ...(await readConfig()), volume: clamped })
 }
 
 // 10-band equalizer state. Default is disabled + flat. We validate the

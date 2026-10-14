@@ -1056,15 +1056,47 @@
   // volume, muted, or either gain changes — the simplest way to keep
   // crossfade ramps audible without manually poking each audio.
   $effect(() => {
+    const master = sliderToGain(volume)
     if (audioElA) {
-      audioElA.volume = Math.max(0, Math.min(1, volume * gainA))
+      audioElA.volume = Math.max(0, Math.min(1, master * gainA))
       audioElA.muted = muted
     }
     if (audioElB) {
-      audioElB.volume = Math.max(0, Math.min(1, volume * gainB))
+      audioElB.volume = Math.max(0, Math.min(1, master * gainB))
       audioElB.muted = muted
     }
   })
+
+  // The slider position is NOT the gain. element.volume is linear
+  // amplitude, but loudness is heard logarithmically: with a straight 1:1
+  // map the first notch (1%) is still -40 dB — clearly audible — and the
+  // next step down is silence, while the top half of the slider barely
+  // changes anything. A cubic curve spreads it out the way the ear hears
+  // it: 50% ≈ -18 dB, 20% ≈ -42 dB, 10% ≈ -60 dB, 1% is inaudible.
+  function sliderToGain(v: number): number {
+    return v <= 0 ? 0 : Math.min(1, v * v * v)
+  }
+
+  // Last non-zero slider position: unmuting at 0 brings it back instead
+  // of "unmuting" into silence.
+  let lastAudibleVolume = 0.5
+  let volumeSaveTimer: ReturnType<typeof setTimeout> | null = null
+
+  // Every volume change goes through here: slider, hotkeys, unmute.
+  // Saved with a short debounce so a drag writes the config once.
+  function setVolumeLevel(v: number): void {
+    const next = Math.min(1, Math.max(0, Math.round(v * 100) / 100))
+    volume = next
+    if (next > 0) {
+      lastAudibleVolume = next
+      if (muted) muted = false
+    }
+    if (volumeSaveTimer) clearTimeout(volumeSaveTimer)
+    volumeSaveTimer = setTimeout(() => {
+      volumeSaveTimer = null
+      void window.api.settings.setVolume(next).catch((err) => console.warn('volume save failed', err))
+    }, 400)
+  }
 
   // ---- equalizer (Web Audio) ---------------------------------------------
   // 10-band graphic EQ. The band centre frequencies are the ISO octave
@@ -1702,15 +1734,32 @@
     seeking = false
   }
   function onVolumeInput(e: Event): void {
-    const v = Number((e.target as HTMLInputElement).value)
-    volume = v
     // Dragging the slider up while muted unmutes — matches how every
-    // other music player behaves. The $effect higher up applies the
-    // new volume + mute state to both audio elements.
-    if (v > 0 && muted) muted = false
+    // other music player behaves (setVolumeLevel handles it). The $effect
+    // higher up applies the new volume + mute state to both elements.
+    setVolumeLevel(Number((e.target as HTMLInputElement).value))
   }
   function toggleMute(): void {
+    // Slider dragged all the way down: "unmute" means bring the sound
+    // back, not flip a flag over silence.
+    if (volume === 0) {
+      setVolumeLevel(lastAudibleVolume)
+      muted = false
+      return
+    }
     muted = !muted
+  }
+  // Mouse wheel over the volume control: 5% per notch, like the hotkeys.
+  // An action rather than `onwheel`: Svelte attaches wheel handlers as
+  // passive, and we must preventDefault so the page doesn't scroll too.
+  function volumeWheel(node: HTMLElement): { destroy: () => void } {
+    const onWheel = (e: WheelEvent): void => {
+      if (e.deltaY === 0) return
+      e.preventDefault()
+      setVolumeLevel((muted ? 0 : volume) + (e.deltaY < 0 ? 0.05 : -0.05))
+    }
+    node.addEventListener('wheel', onWheel, { passive: false })
+    return { destroy: () => node.removeEventListener('wheel', onWheel) }
   }
 
   // Mini-player volume popup visibility. Driven by EXPLICIT mouse/focus events
@@ -2480,8 +2529,7 @@
         }
         if (mod && (e.code === 'ArrowUp' || e.code === 'ArrowDown')) {
           e.preventDefault()
-          volume = Math.min(1, Math.max(0, Math.round((volume + (e.code === 'ArrowUp' ? 0.05 : -0.05)) * 100) / 100))
-          if (volume > 0 && muted) muted = false
+          setVolumeLevel((muted ? 0 : volume) + (e.code === 'ArrowUp' ? 0.05 : -0.05))
           return
         }
       }
@@ -2525,6 +2573,8 @@
       shuffleMode = await window.api.settings.getShuffleMode()
       repeatMode = await window.api.settings.getRepeatMode()
       crossfadeDuration = await window.api.settings.getCrossfadeDuration()
+      volume = await window.api.settings.getVolume()
+      if (volume > 0) lastAudibleVolume = volume
       // Media-key health check: warn if 'global' mode is configured but
       // didn't take effect this launch (macOS Accessibility fallback, or the
       // shortcuts were grabbed by another app) — otherwise the user's keys
@@ -5689,7 +5739,7 @@
                 <rect x="12" y="12" width="6" height="4" rx="1" />
               </svg>
             </button>
-          <div class="volume">
+          <div class="volume" use:volumeWheel>
             <button class="ctrl small" onclick={toggleMute} aria-label={muted ? 'Включить звук' : 'Выключить звук'}>
               {#if muted || volume === 0}
                 <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"
@@ -5782,6 +5832,7 @@
         <div
           class="mini-vol mini-vol-{placement}"
           class:open={miniVolOpen}
+          use:volumeWheel
           role="group"
           onpointerenter={openMiniVol}
           onpointerleave={closeMiniVolSoon}

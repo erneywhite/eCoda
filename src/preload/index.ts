@@ -192,6 +192,8 @@ const api = {
     getCrossfadeDuration: () => ipcRenderer.invoke('settings:getCrossfadeDuration'),
     setCrossfadeDuration: (seconds: number) =>
       ipcRenderer.invoke('settings:setCrossfadeDuration', seconds),
+    getVolume: () => ipcRenderer.invoke('settings:getVolume'),
+    setVolume: (value: number) => ipcRenderer.invoke('settings:setVolume', value),
     getEqualizer: () => ipcRenderer.invoke('settings:getEqualizer'),
     setEqualizer: (state: { enabled: boolean; preset: string; gains: number[] }) =>
       ipcRenderer.invoke('settings:setEqualizer', state)

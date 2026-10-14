@@ -41,6 +41,8 @@ import {
   setAudioOutputDevice,
   getCrossfadeDuration,
   setCrossfadeDuration,
+  getVolume,
+  setVolume,
   getEqualizer,
   setEqualizer,
   getPlaylistOverride,
@@ -994,6 +996,9 @@ app.whenReady().then(async () => {
   ipcMain.handle('settings:setCrossfadeDuration', (_event, seconds: number) =>
     setCrossfadeDuration(seconds)
   )
+  // Master volume slider position (0..1), saved on change, read on mount.
+  ipcMain.handle('settings:getVolume', () => getVolume())
+  ipcMain.handle('settings:setVolume', (_event, value: number) => setVolume(value))
   // 10-band equalizer state (enabled + preset label + per-band dB gains).
   ipcMain.handle('settings:getEqualizer', () => getEqualizer())
   ipcMain.handle('settings:setEqualizer', (_event, state: EqualizerState) =>

@@ -320,6 +320,8 @@ export interface EcodaApi {
     setAudioOutputDevice: (dev: AudioOutputDevice | null) => Promise<void>
     getCrossfadeDuration: () => Promise<number>
     setCrossfadeDuration: (seconds: number) => Promise<void>
+    getVolume: () => Promise<number>
+    setVolume: (value: number) => Promise<void>
     getEqualizer: () => Promise<EqualizerState>
     setEqualizer: (state: EqualizerState) => Promise<void>
   }
