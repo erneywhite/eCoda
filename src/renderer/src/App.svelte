@@ -1755,11 +1755,21 @@
   // Mouse wheel over the volume control: 5% per notch, like the hotkeys.
   // An action rather than `onwheel`: Svelte attaches wheel handlers as
   // passive, and we must preventDefault so the page doesn't scroll too.
+  // The step is proportional to the scroll distance (one notch = 100px in
+  // Chromium = 5%), capped at 5% per event: a touchpad fires dozens of
+  // small events per swipe, and a flat 5% per event flung the slider to
+  // the end. Sub-1% leftovers accumulate until they make a whole percent.
+  let volumeWheelAcc = 0
   function volumeWheel(node: HTMLElement): { destroy: () => void } {
     const onWheel = (e: WheelEvent): void => {
       if (e.deltaY === 0) return
       e.preventDefault()
-      setVolumeLevel((muted ? 0 : volume) + (e.deltaY < 0 ? 0.05 : -0.05))
+      const px = e.deltaMode === 1 ? e.deltaY * 40 : e.deltaMode === 2 ? e.deltaY * 800 : e.deltaY
+      volumeWheelAcc += Math.max(-0.05, Math.min(0.05, (-px / 100) * 0.05))
+      const step = Math.trunc(volumeWheelAcc * 100) / 100
+      if (step === 0) return
+      volumeWheelAcc -= step
+      setVolumeLevel((muted ? 0 : volume) + step)
     }
     node.addEventListener('wheel', onWheel, { passive: false })
     return { destroy: () => node.removeEventListener('wheel', onWheel) }
